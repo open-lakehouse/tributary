@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "daft>=0.4.14",
+    "delta-spark>=4.0.0",
     "deltalake>=0.25.5",
     "duckdb>=1.2.2",
     "folium>=0.20.0",
@@ -28,6 +29,8 @@ dependencies = [
     "plotly>=6.0.1",
     "pyarrow>=19.0.1",
     "pyarrow-stubs>=19.1",
+    "pyspark>=4.1.0",
+    "pyspark-connect>=4.1.0",
     "shapely>=2.1.0",
 ]
 
