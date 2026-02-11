@@ -1,28 +1,23 @@
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
 
 use arrow::{
-    array::{AsArray, RecordBatch},
+    array::{ArrayRef, AsArray, FixedSizeBinaryBuilder, Int64Builder, RecordBatch},
     datatypes::{Float64Type, Int64Type},
 };
 use arrow_schema::DataType;
 use datafusion::{
-    common::{HashMap, JoinType},
+    common::JoinType,
     functions::core::expr_ext::FieldAccessor as _,
-    functions_aggregate::{expr_fn::first_value, min_max::min},
+    functions_aggregate::expr_fn::{array_agg, first_value},
     functions_window::expr_fn::row_number,
     prelude::{DataFrame, Expr, cast, col, lit},
 };
-use fast_paths::{FastGraph, InputGraph};
+use fast_paths::{FastGraph, InputGraph, ShortestPath};
 use futures::StreamExt as _;
-use geo::Point;
-use h3o::{CellIndex, LatLng, Resolution};
-use itertools::Itertools as _;
 
 use crate::{
-    Journey, PersonId, Result, SimulationContext,
-    functions::{h3_longlatash3, st_distance},
-    state::movement::JourneyLeg,
-    test_utils::print_frame,
+    PersonId, Result, SimulationContext,
+    functions::{h3_longlatash3, st_distance, st_length_spheroid, to_line_string},
 };
 
 pub struct MovementHandler {
@@ -33,71 +28,7 @@ pub struct MovementHandler {
 const NODE_INDEX_RESOLUTION: LazyLock<Expr> = LazyLock::new(|| lit(9_i8));
 
 impl MovementHandler {
-    pub(crate) async fn try_new(
-        ctx: &SimulationContext,
-        site_cells: Vec<i64>,
-        resolution: Expr,
-    ) -> Result<Self> {
-        // let mut graphs = HashMap::new();
-
-        // for cell_id in site_cells {
-        //     let mut graph = InputGraph::new();
-        //     let cell_index = CellIndex::try_from(cell_id as u64)?;
-
-        //     let node_index = ctx
-        //         .system()
-        //         .routing_nodes()
-        //         .await?
-        //         .select([
-        //             col("properties").field("osmid").alias("osmid"),
-        //             h3_longlatash3()
-        //                 .call(vec![
-        //                     col("geometry").field("x"),
-        //                     col("geometry").field("y"),
-        //                     resolution.clone(),
-        //                 ])
-        //                 .alias("routing_cell"),
-        //         ])?
-        //         .filter(col("routing_cell").eq(lit(cell_id)))?
-        //         .sort(vec![col("osmid").sort(true, false)])?
-        //         .select([
-        //             col("osmid"),
-        //             cast(row_number() - lit(1_i64), DataType::Int64).alias("node_id"),
-        //         ])?
-        //         .cache()
-        //         .await?;
-
-        //     let edges = ctx
-        //         .system()
-        //         .routing_edges()
-        //         .await?
-        //         .select([
-        //             col("properties").field("osmid_source").alias("source"),
-        //             col("properties").field("osmid_target").alias("target"),
-        //             col("properties").field("length").alias("length"),
-        //         ])?
-        //         .join_on(
-        //             node_index.clone(),
-        //             JoinType::Right,
-        //             [col("source").eq(col("osmid"))],
-        //         )?
-        //         .select([col("node_id").alias("source"), col("target"), col("length")])?
-        //         .join_on(
-        //             node_index.clone(),
-        //             JoinType::Right,
-        //             [col("target").eq(col("osmid"))],
-        //         )?
-        //         .select([col("source"), col("node_id").alias("target"), col("length")])?;
-
-        //     let mut edge_stream = edges.execute_stream().await?;
-        //     while let Some(batch) = edge_stream.next().await {
-        //         process_batch(&mut graph, batch?)?;
-        //     }
-
-        //     graph.freeze();
-        //     graphs.insert(cell_index, fast_paths::prepare(&graph));
-        // }
-
+    pub(crate) async fn try_new(ctx: &SimulationContext) -> Result<Self> {
         let node_index = ctx
             .system()
             .routing_nodes()
@@ -183,7 +114,7 @@ impl MovementHandler {
         &mut self,
         ctx: &SimulationContext,
         journey_data: DataFrame,
-    ) -> Result<Vec<(PersonId, Point, Journey)>> {
+    ) -> Result<Option<DataFrame>> {
         let journey_data = journey_data.cache().await?;
 
         let origin_ids = journey_data
@@ -249,23 +180,19 @@ impl MovementHandler {
                 JoinType::Left,
                 [col("destination_index").eq(col("node_index"))],
             )?
-            // TODO: fix distance calculations and aggreagtes. Currently the distqance calculations are
-            // commented out because they don't work as expected. We do see an error with arrow extension types.
-            // probably need to manually adjust field metadata for geoarrow types.
             .select([
                 col("person_id"),
                 col("node_id"),
-                // st_distance()
-                //     .call(vec![col("geometry"), col("destination")])
-                //     .alias("distance"),
+                st_distance()
+                    .call(vec![col("geometry"), col("destination")])
+                    .alias("distance"),
             ])?
             .aggregate(
                 vec![col("person_id")],
-                vec![min(col("node_id")).alias("node_id")],
-                // vec![
-                //     first_value(col("node_id"), vec![col("distance").sort(true, false)])
-                //         .alias("node_id"),
-                // ],
+                vec![
+                    first_value(col("node_id"), vec![col("distance").sort(true, false)])
+                        .alias("node_id"),
+                ],
             )?
             .select(vec![
                 col("person_id").alias("person_id_destination"),
@@ -286,9 +213,12 @@ impl MovementHandler {
             .select_columns(&["person_id", "node_id_origin", "node_id_destination"])?;
 
         let mut calculator = fast_paths::create_calculator(&self.graph);
+        let mut raw_journeys = vec![];
 
         let mut journey_stream = journey_data.execute_stream().await?;
         while let Some(Ok(batch)) = journey_stream.next().await {
+            let mut raw_journey_builder = RawJourneyBuilder::new();
+
             let person_ids = batch
                 .column(0)
                 .as_fixed_size_binary()
@@ -321,50 +251,46 @@ impl MovementHandler {
                         origin_idx as usize,
                         destination_idx as usize,
                     );
-                    if let Some(path) = path {
-                        println!("found path!!!");
+
+                    if let Some(path) = &path {
+                        raw_journey_builder.add_journey(&person_id, path)?;
                     } else {
                         println!("no path found");
                     }
-                    // if let Some(path) = path {
-                    //     let legs = path
-                    //         .get_nodes()
-                    //         .iter()
-                    //         .tuple_windows()
-                    //         .flat_map(|(a, b)| {
-                    //             let edge = self.routing.edge_map.get(&(*a, *b)).unwrap();
-                    //             let edge = self.routing.edge(*edge);
-                    //             let legs = edge
-                    //                 .geometry()
-                    //                 .unwrap()
-                    //                 .to_line_string()
-                    //                 .points()
-                    //                 .tuple_windows()
-                    //                 .filter_map(|(p0, p1)| {
-                    //                     let distance = LatLng::new(p0.y(), p0.x())
-                    //                         .ok()?
-                    //                         .distance_m(LatLng::new(p1.y(), p1.x()).ok()?);
-                    //                     Some(JourneyLeg {
-                    //                         destination: p1,
-                    //                         distance_m: distance.round().abs() as usize,
-                    //                     })
-                    //                 })
-                    //                 .collect::<Vec<_>>();
-                    //             legs.into_iter()
-                    //         })
-                    //         .collect();
-                    //     let journey = Journey {
-                    //         legs,
-                    //         transport: Default::default(),
-                    //         current_leg_index: 0,
-                    //         current_leg_progress: 0.0,
-                    //     };
-                    // }
                 }
             }
+
+            raw_journeys.push(raw_journey_builder.finish()?);
         }
 
-        Ok(vec![])
+        if raw_journeys.is_empty() || raw_journeys.iter().all(|batch| batch.num_rows() == 0) {
+            return Ok(None);
+        }
+
+        let df_journeys = ctx
+            .ctx()
+            .read_batches(raw_journeys)?
+            .join_on(
+                self.node_index(ctx)?
+                    .select([col("node_id"), col("geometry")])?,
+                JoinType::Left,
+                [col("leg_node").eq(col("node_id"))],
+            )?
+            .select_columns(&["person_id", "leg_idx", "geometry"])?
+            .sort(vec![
+                col("person_id").sort(true, false),
+                col("leg_idx").sort(true, false),
+            ])?
+            .aggregate(
+                vec![col("person_id")],
+                vec![array_agg(col("geometry")).alias("journey")],
+            )?
+            .with_column(
+                "distance_m",
+                st_length_spheroid().call(vec![to_line_string().call(vec![col("journey")])]),
+            )?;
+
+        Ok(Some(df_journeys))
     }
 
     // pub fn plan(
@@ -404,6 +330,47 @@ impl MovementHandler {
     //             .collect(),
     //     )
     // }
+}
+
+struct RawJourneyBuilder {
+    person_id: FixedSizeBinaryBuilder,
+    leg_idx: Int64Builder,
+    leg_node: Int64Builder,
+}
+
+impl RawJourneyBuilder {
+    fn new() -> Self {
+        Self {
+            person_id: FixedSizeBinaryBuilder::new(16),
+            leg_idx: Int64Builder::new(),
+            leg_node: Int64Builder::new(),
+        }
+    }
+
+    fn add_journey(&mut self, person_id: &PersonId, path: &ShortestPath) -> Result<()> {
+        for (idx, node_id) in path.get_nodes().iter().enumerate() {
+            self.person_id
+                .append_value(AsRef::<[u8]>::as_ref(person_id))?;
+            self.leg_idx.append_value(idx as i64);
+            self.leg_node.append_value(*node_id as i64);
+        }
+
+        Ok(())
+    }
+
+    fn finish(mut self) -> Result<RecordBatch> {
+        let person_id_array: ArrayRef = Arc::new(self.person_id.finish());
+        let leg_idx_array: ArrayRef = Arc::new(self.leg_idx.finish());
+        let leg_node_array: ArrayRef = Arc::new(self.leg_node.finish());
+
+        let batch = RecordBatch::try_from_iter(vec![
+            ("person_id", person_id_array),
+            ("leg_idx", leg_idx_array),
+            ("leg_node", leg_node_array),
+        ])?;
+
+        Ok(batch)
+    }
 }
 
 fn process_batch(graph: &mut InputGraph, batch: RecordBatch) -> Result<()> {

@@ -1,6 +1,11 @@
-use geodatafusion::udf::geo::measurement::{Distance, Length};
+use geodatafusion::udf::geo::measurement::Distance;
+
+use crate::functions::length_spheroid::LengthSpheroid;
 
 mod h3_long_lat_as_h3;
+mod interpolate_line;
+mod length_spheroid;
+mod to_line_string;
 mod uuid_to_str;
 mod uuid_v7;
 
@@ -26,5 +31,7 @@ macro_rules! make_udf_function {
 make_udf_function!(h3_long_lat_as_h3::LongLatAsH3, h3_longlatash3);
 make_udf_function!(uuid_v7::UuidV7, uuidv7);
 make_udf_function!(uuid_to_str::UuidToString, uuid_to_string);
-make_udf_function!(Length, st_length);
+make_udf_function!(LengthSpheroid, st_length_spheroid);
 make_udf_function!(Distance, st_distance);
+make_udf_function!(interpolate_line::InterpolateLine, st_line_interpolate_point);
+make_udf_function!(to_line_string::ToLineString, to_line_string);

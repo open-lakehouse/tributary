@@ -3,7 +3,8 @@ use std::sync::{Arc, LazyLock};
 
 use arrow::array::{
     Array, ArrayRef, AsArray, DictionaryArray, FixedSizeBinaryBuilder, Int64Builder,
-    LargeListBuilder, RecordBatch, StringBuilder, StringViewBuilder, StructBuilder, UInt64Builder,
+    LargeListBuilder, RecordBatch, StringBuilder, StringViewBuilder, StructArray, StructBuilder,
+    UInt64Builder,
 };
 use arrow::compute::concat_batches;
 use arrow::datatypes::{Int16Type, Int64Type, UInt64Type};
@@ -20,6 +21,7 @@ use datafusion::prelude::{
 };
 use datafusion::scalar::ScalarValue;
 use futures::StreamExt as _;
+use geoarrow_schema::{Dimension, PointType};
 use itertools::Itertools as _;
 use tracing::{Level, instrument};
 use uuid::{ContextV7, Timestamp};
@@ -73,7 +75,8 @@ static ORDER_STATE: LazyLock<SchemaRef> = LazyLock::new(|| {
                 .into(),
             ),
             false,
-        ),
+        )
+        .with_extension_type(PointType::new(Dimension::XY, Default::default())),
         Field::new("status", DataType::Utf8, false),
     ]))
 });
@@ -141,6 +144,25 @@ static SITE_PROPERTIES_SCHEMA: LazyLock<SchemaRef> = LazyLock::new(|| {
         Field::new("name", DataType::Utf8View, false),
         Field::new("longitude", DataType::Float64, false),
         Field::new("latitude", DataType::Float64, false),
+    ]))
+});
+
+static SITE_DATA_SCHEMA: LazyLock<SchemaRef> = LazyLock::new(|| {
+    SchemaRef::new(Schema::new(vec![
+        Field::new("site_id", DataType::FixedSizeBinary(16), false),
+        Field::new("name", DataType::Utf8View, false),
+        Field::new(
+            "geometry",
+            DataType::Struct(
+                vec![
+                    Field::new("x", DataType::Float64, false),
+                    Field::new("y", DataType::Float64, false),
+                ]
+                .into(),
+            ),
+            false,
+        )
+        .with_extension_type(PointType::new(Dimension::XY, Default::default())),
     ]))
 });
 
@@ -370,8 +392,7 @@ impl KitchenHandler {
                 .join_on(
                     self.sites(ctx)?.select([
                         col("site_id").alias("site_id2"),
-                        named_struct(vec![lit("x"), col("longitude"), lit("y"), col("latitude")])
-                            .alias("origin"),
+                        col("geometry").alias("origin"),
                     ])?,
                     JoinType::Left,
                     [col("site_id").eq(col("site_id2"))],
@@ -470,7 +491,11 @@ impl KitchenHandler {
                 self.sites(ctx)?.select([
                     col("site_id"),
                     h3_longlatash3()
-                        .call(vec![col("longitude"), col("latitude"), resolution.clone()])
+                        .call(vec![
+                            col("geometry").field("x"),
+                            col("geometry").field("y"),
+                            resolution.clone(),
+                        ])
                         .alias("site_cell"),
                 ])?,
                 JoinType::Left,
@@ -491,14 +516,14 @@ impl KitchenHandler {
 
         let orders_count = orders.clone().count().await?;
         if orders_count == 0 {
-            return Ok(EventsHelper::empty(ctx)?);
+            return EventsHelper::empty(ctx);
         }
 
         // flatten orders into lines
         let lines = unnest_orders(ctx, orders.clone(), *ctx.current_time()).await?;
         let lines_count = lines.clone().count().await?;
         if lines_count == 0 {
-            return Ok(EventsHelper::empty(ctx)?);
+            return EventsHelper::empty(ctx);
         }
 
         let menu_items = self.menu_items(ctx)?.select([
@@ -1214,14 +1239,37 @@ async fn extract_sites(objects: DataFrame) -> Result<Vec<RecordBatch>> {
     let sites = objects
         .filter(col("label").eq(lit(ObjectLabel::Site.as_ref())))?
         .select([col("id").alias("site_id"), col("properties")])?;
-    let sites = sites
+    let sites: Vec<_> = sites
         .select([col("site_id"), col("properties")])?
         .collect()
         .await?
         .into_iter()
         .map(|batch| parse_properties(batch, SITE_PROPERTIES_SCHEMA.clone()))
         .try_collect()?;
-    Ok(sites)
+
+    let mut transformed = vec![];
+    for site in sites {
+        let geo_arr = StructArray::new(
+            vec![
+                Field::new("x", DataType::Float64, false),
+                Field::new("y", DataType::Float64, false),
+            ]
+            .into(),
+            vec![site.column(2).clone(), site.column(3).clone()],
+            None,
+        );
+        let batch = RecordBatch::try_new(
+            SITE_DATA_SCHEMA.clone(),
+            vec![
+                site.column(0).clone(),
+                site.column(1).clone(),
+                Arc::new(geo_arr),
+            ],
+        )?;
+        transformed.push(batch);
+    }
+
+    Ok(transformed)
 }
 
 async fn extract_menu_items(objects: DataFrame) -> Result<(Vec<Expr>, Vec<RecordBatch>)> {

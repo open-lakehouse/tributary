@@ -76,21 +76,7 @@ impl SimulationRunnerBuilder {
 
         let population = PopulationHandler::try_new(&self.ctx, create_orders).await?;
         let kitchens = KitchenHandler::try_new(&self.ctx).await?;
-
-        // TODO: have a more explicit strategy for using h3 to henerate routing data.
-        let resolution = lit(5_i8);
-        let site_cell_ids = kitchens
-            .sites(&self.ctx)?
-            .select([h3_longlatash3()
-                .call(vec![col("longitude"), col("latitude"), resolution.clone()])
-                .alias("site_cell")])?
-            .collect()
-            .await?
-            .iter()
-            .flat_map(|b| b.column(0).as_primitive::<Int64Type>().iter())
-            .flatten()
-            .collect_vec();
-        let movement = MovementHandler::try_new(&self.ctx, site_cell_ids, resolution).await?;
+        let movement = MovementHandler::try_new(&self.ctx).await?;
 
         Ok(SimulationRunner {
             ctx: self.ctx,
@@ -130,6 +116,8 @@ impl SimulationRunner {
     pub async fn step(&mut self) -> Result<()> {
         let mut events = EventsHelper::empty(&self.ctx)?;
 
+        self.population.advance_journeys(&self.ctx).await?;
+
         if let Some(picked_up_orders) = self.assign_couriers().await? {
             let picked_up_orders = picked_up_orders.cache().await?;
             let person_ids = picked_up_orders
@@ -147,11 +135,14 @@ impl SimulationRunner {
 
             let journey_data = picked_up_orders.clone().select([
                 col("assigned_courier").alias("person_id"),
-                col("origin").alias("origin"),
+                col("origin"),
                 col("destination"),
             ])?;
-            let journeys = self.movement.plan_journeys(&self.ctx, journey_data).await?;
-            self.population.start_journeys(&self.ctx, journeys).await?;
+            let maybe_journeys = self.movement.plan_journeys(&self.ctx, journey_data).await?;
+
+            if let Some(journeys) = maybe_journeys {
+                self.population.start_journeys(&self.ctx, journeys).await?;
+            }
 
             events = events.union(EventsHelper::order_picked_up(
                 picked_up_orders.clone().select([
@@ -320,7 +311,9 @@ impl SimulationRunner {
     }
 
     async fn send_events(&self, events: DataFrame) -> Result<()> {
-        let aggreagte = events.aggregate(vec![col("type")], vec![count_all()])?;
+        let aggreagte = events
+            .clone()
+            .aggregate(vec![col("type")], vec![count_all()])?;
         let type_count = aggreagte.clone().count().await?;
         if type_count > 0 {
             let agg_batches = aggreagte.collect().await?;
@@ -347,61 +340,17 @@ impl SimulationRunner {
 
 #[cfg(test)]
 mod tests {
-    use arrow::util::pretty::print_batches;
-    use geo::Point;
     use rstest::*;
 
     use super::*;
-    use crate::{
-        Journey, PersonId,
-        test_utils::{print_frame, runner},
-    };
+    use crate::test_utils::runner;
 
     #[rstest]
     #[tokio::test]
     async fn test_simulation_step(#[future] runner: Result<SimulationRunner>) -> Result<()> {
         let mut runner = runner.await?;
 
-        print_batches(&runner.kitchens.orders)?;
-        print_batches(&runner.kitchens.order_lines)?;
-
         runner.run(100).await?;
-
-        Ok(())
-    }
-
-    #[rstest]
-    #[tokio::test]
-    async fn test_simulation_runner(#[future] runner: Result<SimulationRunner>) -> Result<()> {
-        let mut runner = runner.await?;
-
-        let orders = runner.population.create_orders(&runner.ctx).await?;
-
-        print_frame(&orders).await?;
-
-        let person_id = PersonId::new();
-        let start_position = Point::new(0.0, 0.0);
-        let journey: Journey = vec![
-            (Point::new(1.0, 1.0), 10000_usize),
-            (Point::new(2.2, 2.0), 200_usize),
-        ]
-        .into_iter()
-        .collect();
-
-        runner
-            .population
-            .start_journeys(&runner.ctx, vec![(person_id, start_position, journey)])
-            .await?;
-
-        print_frame(&runner.population.journeys(&runner.ctx)?).await?;
-
-        runner.population.advance_journeys(&runner.ctx).await?;
-
-        print_frame(&runner.population.journeys(&runner.ctx)?).await?;
-
-        runner.population.advance_journeys(&runner.ctx).await?;
-
-        print_frame(&runner.population.journeys(&runner.ctx)?).await?;
 
         Ok(())
     }
