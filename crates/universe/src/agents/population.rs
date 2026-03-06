@@ -52,10 +52,20 @@ impl PopulationHandler {
     }
 
     pub(crate) fn population(&self, ctx: &SimulationContext) -> Result<DataFrame> {
+        if self.population.is_empty() {
+            return Ok(ctx
+                .ctx()
+                .read_batch(RecordBatch::new_empty(POPULATION_SCHEMA.clone()))?);
+        }
         Ok(ctx.ctx().read_batches(self.population.iter().cloned())?)
     }
 
     pub(crate) fn journeys(&self, ctx: &SimulationContext) -> Result<DataFrame> {
+        if self.journeys.is_empty() {
+            return Ok(ctx
+                .ctx()
+                .read_batch(RecordBatch::new_empty(JOURNEY_STATE.clone()))?);
+        }
         Ok(ctx.ctx().read_batches(self.journeys.iter().cloned())?)
     }
 

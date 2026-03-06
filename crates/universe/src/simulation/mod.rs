@@ -19,10 +19,10 @@ use datafusion::{
 use itertools::Itertools;
 
 use crate::{
-    MovementHandler, ObjectLabel, PersonRole, PersonStatusFlag, Result, SimulationContext,
+    MovementHandler, ObjectLabel, OrderStatus, PersonRole, PersonStatusFlag, Result,
+    SimulationContext,
     agents::{KitchenHandler, PopulationHandler, functions::create_order},
     functions::h3_longlatash3,
-    test_utils::print_frame,
 };
 
 use self::event_log::{EventLog, SimulationRunResult};
@@ -151,7 +151,7 @@ impl SimulationRunner {
 
         if let Some(delivery_events) = self.start_deliveries().await? {
             events = events.union(delivery_events)?;
-        };
+        }
 
         let orders = self
             .population
@@ -194,19 +194,34 @@ impl SimulationRunner {
             .cache()
             .await?;
 
-        // print_frame(&completed.clone().select_columns(&["person_id", "status"])?).await?;
-
         let needs_return = completed
             .clone()
-            .filter(col("status").eq(lit(PersonStatusFlag::Delivering.as_ref())))?;
+            .filter(col("status").eq(lit(PersonStatusFlag::Delivering.as_ref())))?
+            .cache()
+            .await?;
 
         let finished_journeys = completed
             .clone()
             .filter(col("status").not_eq(lit(PersonStatusFlag::Delivering.as_ref())))?;
 
-        // print_frame(&finished_journeys).await?;
+        // Mark orders as Delivered for completed delivery journeys.
+        let delivered_order_ids = needs_return
+            .clone()
+            .select([col("order_id")])?
+            .collect()
+            .await?
+            .iter()
+            .flat_map(|b| b.column(0).as_fixed_size_binary().iter().flatten())
+            .map(|val| lit(ScalarValue::FixedSizeBinary(16, Some(val.to_vec()))))
+            .collect_vec();
+        if !delivered_order_ids.is_empty() {
+            self.kitchens
+                .set_order_status(&self.ctx, delivered_order_ids, OrderStatus::Delivered)
+                .await?;
+        }
 
-        let return_trips = needs_return.select([
+        // Start return journeys for couriers that just completed deliveries.
+        let return_trips = needs_return.clone().select([
             col("person_id"),
             array_element(
                 col("journey"),
@@ -216,35 +231,57 @@ impl SimulationRunner {
             array_element(col("journey"), lit(1_i64)).alias("destination"),
         ])?;
 
-        print_frame(&return_trips).await?;
+        let delivering_person_ids = needs_return
+            .clone()
+            .select([col("person_id")])?
+            .collect()
+            .await?
+            .iter()
+            .flat_map(|b| b.column(0).as_fixed_size_binary().iter().flatten())
+            .map(|val| lit(ScalarValue::FixedSizeBinary(16, Some(val.to_vec()))))
+            .collect_vec();
 
         if let Some(journeys) = self.movement.plan_journeys(&self.ctx, return_trips).await? {
-            println!("got some return journeys, starting them...");
             let journeys =
                 journeys.with_column("order_id", lit(ScalarValue::FixedSizeBinary(16, None)))?;
-            let person_ids = journeys
-                .clone()
-                .select([col("person_id")])?
-                .collect()
-                .await?
-                .iter()
-                .flat_map(|b| b.column(0).as_fixed_size_binary().iter().flatten())
-                .map(|val| lit(ScalarValue::FixedSizeBinary(16, Some(val.to_vec()))))
-                .collect_vec();
-            println!("Starting return journeys for {} people", person_ids.len());
             self.population.start_journeys(&self.ctx, journeys).await?;
+        }
+
+        // Transition couriers away from Delivering regardless of whether a
+        // return journey was planned (routing can fail for edge locations).
+        if !delivering_person_ids.is_empty() {
             self.population
-                .set_person_status(&self.ctx, person_ids, PersonStatusFlag::Moving)
+                .set_person_status(&self.ctx, delivering_person_ids, PersonStatusFlag::Moving)
                 .await?;
         }
 
-        let events = EventsHelper::order_delivered(completed.clone().select([
-            col("person_id"),
-            col("order_id"),
-            self.ctx.current_time_expr().alias("timestamp"),
-        ])?)?;
+        // Set couriers back to Idle when their return trips complete.
+        let returned_person_ids = finished_journeys
+            .select([col("person_id")])?
+            .collect()
+            .await?
+            .iter()
+            .flat_map(|b| b.column(0).as_fixed_size_binary().iter().flatten())
+            .map(|val| lit(ScalarValue::FixedSizeBinary(16, Some(val.to_vec()))))
+            .collect_vec();
+        if !returned_person_ids.is_empty() {
+            self.population
+                .set_person_status(&self.ctx, returned_person_ids, PersonStatusFlag::Idle)
+                .await?;
+        }
 
-        Ok(Some(events))
+        // Only emit order_delivered for actual deliveries, not return trips.
+        let needs_return_count = needs_return.clone().count().await?;
+        if needs_return_count > 0 {
+            let events = EventsHelper::order_delivered(needs_return.clone().select([
+                col("person_id"),
+                col("order_id"),
+                self.ctx.current_time_expr().alias("timestamp"),
+            ])?)?;
+            Ok(Some(events))
+        } else {
+            Ok(None)
+        }
     }
 
     async fn start_deliveries(&mut self) -> Result<Option<DataFrame>> {
@@ -265,6 +302,22 @@ impl SimulationRunner {
         self.population
             .set_person_status(&self.ctx, person_ids, PersonStatusFlag::Delivering)
             .await?;
+
+        // Transition order status from Ready to PickedUp.
+        let order_ids = picked_up_orders
+            .clone()
+            .select([col("order_id")])?
+            .collect()
+            .await?
+            .iter()
+            .flat_map(|b| b.column(0).as_fixed_size_binary().iter().flatten())
+            .map(|val| lit(ScalarValue::FixedSizeBinary(16, Some(val.to_vec()))))
+            .collect_vec();
+        if !order_ids.is_empty() {
+            self.kitchens
+                .set_order_status(&self.ctx, order_ids, OrderStatus::PickedUp)
+                .await?;
+        }
 
         let journey_data = picked_up_orders.clone().select([
             col("assigned_courier").alias("person_id"),
@@ -481,6 +534,10 @@ impl SimulationRunner {
         self.ctx.step_time();
     }
 }
+
+#[cfg(test)]
+#[path = "lifecycle_tests.rs"]
+mod lifecycle_tests;
 
 #[cfg(test)]
 mod tests {

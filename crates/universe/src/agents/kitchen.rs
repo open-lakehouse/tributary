@@ -287,10 +287,20 @@ impl KitchenHandler {
     }
 
     pub(crate) fn orders(&self, ctx: &SimulationContext) -> Result<DataFrame> {
+        if self.orders.is_empty() {
+            return Ok(ctx
+                .ctx()
+                .read_batch(RecordBatch::new_empty(ORDER_STATE.clone()))?);
+        }
         Ok(ctx.ctx().read_batches(self.orders.iter().cloned())?)
     }
 
     pub(crate) fn order_lines(&self, ctx: &SimulationContext) -> Result<DataFrame> {
+        if self.order_lines.is_empty() {
+            return Ok(ctx
+                .ctx()
+                .read_batch(RecordBatch::new_empty(ORDER_LINE_STATE.clone()))?);
+        }
         Ok(ctx.ctx().read_batches(self.order_lines.iter().cloned())?)
     }
 
@@ -305,7 +315,6 @@ impl KitchenHandler {
             events = events.union(self.prepare_order_lines(ctx, orders).await?)?;
         }
         events = events.union(self.process_order_lines(ctx).await?)?;
-
         events = events.union(self.update_order_status(ctx).await?)?;
 
         Ok(events)
@@ -389,10 +398,11 @@ impl KitchenHandler {
                 col("site_id"),
                 col("submitted_at"),
                 col("destination"),
-                case(col("order_id").in_list(order_ids.clone(), false))
-                    .when(lit(true), lit(status.as_ref()))
-                    .otherwise(col("status"))?,
-            ])?
+            case(col("order_id").in_list(order_ids.clone(), false))
+                .when(lit(true), lit(status.as_ref()))
+                .otherwise(col("status"))?
+                .alias("status"),
+        ])?
             .collect()
             .await?;
         Ok(())
@@ -557,12 +567,11 @@ impl KitchenHandler {
             return Ok(events);
         }
 
-        events = events.union(self.prepare_steps(ctx).await?)?;
-
         let current_time = ctx.current_time_expr();
 
-        // Step 1: Advance steps for completed work
-        // For order lines where step_completion_time has passed, increment current_step
+        // Advance due steps BEFORE assigning new ones. This prevents
+        // prepare_steps from reassigning a due step to a different station
+        // (which would reset step_completion_time and block progress).
         let lines_to_advance = self
             .order_lines(ctx)?
             .filter(
@@ -669,6 +678,11 @@ impl KitchenHandler {
             ])?;
 
         self.order_lines = advanced_order_lines.collect().await?;
+
+        // Now assign stations to newly unblocked steps (lines that just had
+        // their assigned_to and step_completion_time cleared above, or lines
+        // that were never assigned).
+        events = events.union(self.prepare_steps(ctx).await?)?;
 
         Ok(events)
     }

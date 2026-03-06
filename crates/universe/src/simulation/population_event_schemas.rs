@@ -446,7 +446,7 @@ pub(super) static EVENT_SCHEMA: LazyLock<SchemaRef> = LazyLock::new(|| {
         Field::new("source", DataType::Utf8, false),
         Field::new("specversion", DataType::Utf8, false),
         Field::new("type", DataType::Utf8, false),
-        Field::new("time", timestamp_field!(), false),
+        Field::new("time", DataType::LargeUtf8, false),
         Field::new("data", DataType::Struct(data_fields.into()), false),
     ]))
 });

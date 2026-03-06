@@ -6,13 +6,14 @@ use arrow::array::RecordBatch;
 use arrow_schema::SchemaRef;
 use chrono::{DateTime, Utc};
 use datafusion::{
+    functions::core::expr_ext::FieldAccessor,
     functions_aggregate::count::count,
-    prelude::{DataFrame, SessionContext, col, lit},
+    prelude::{DataFrame, SessionContext, coalesce, col, lit},
 };
 
 use crate::Result;
 
-use super::population_event_schemas::EVENT_SCHEMA;
+use super::population_event_schemas::{EVENT_SCHEMA, SimulationEvent};
 
 /// Accumulated event log from a simulation run.
 ///
@@ -70,6 +71,42 @@ impl EventLog {
         Ok(self
             .to_dataframe(ctx)?
             .filter(col("type").eq(lit(event_type)))?)
+    }
+
+    /// Return a flattened view of all order-related events with a unified
+    /// `order_id` column extracted from the type-specific nested data fields.
+    ///
+    /// Result schema: `(order_id: FixedSizeBinary(16), event_type: Utf8, time: Timestamp)`
+    pub fn order_lifecycle_events(&self, ctx: &SessionContext) -> Result<DataFrame> {
+        let order_event_types = [
+            SimulationEvent::OrderCreated,
+            SimulationEvent::OrderReady,
+            SimulationEvent::OrderPickedUp,
+            SimulationEvent::OrderDelivered,
+        ];
+
+        let type_filter = order_event_types
+            .iter()
+            .map(|t| lit(t.event_type()))
+            .collect::<Vec<_>>();
+
+        let order_id_expr = coalesce(vec![
+            col("data").field("order_created").field("order_id"),
+            col("data").field("order_ready").field("order_id"),
+            col("data").field("order_picked_up").field("order_id"),
+            col("data").field("order_delivered").field("order_id"),
+        ])
+        .alias("order_id");
+
+        Ok(self
+            .to_dataframe(ctx)?
+            .filter(col("type").in_list(type_filter, false))?
+            .select(vec![
+                order_id_expr,
+                col("type").alias("event_type"),
+                col("time"),
+            ])?
+            .sort(vec![col("time").sort(true, false)])?)
     }
 
     pub async fn count_by_type(
