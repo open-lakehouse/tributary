@@ -1,6 +1,4 @@
-use clap::{Args, Parser, Subcommand, ValueEnum};
-
-use caspers_universe::{Result, SimulationMode};
+use clap::{Args, Parser, Subcommand};
 
 use crate::{init::InitArgs, run::RunArgs};
 
@@ -53,27 +51,6 @@ struct ServerArgs {
         default_value = "0.0.0.0:8000"
     )]
     server: String,
-}
-/// Execution mode for the simulation.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
-#[value(rename_all = "kebab-case")]
-pub enum SimulationModeCli {
-    /// Run the simulation for the specified time horizon.
-    Backfill,
-    /// Align time passed in simulation with time passed in real time.
-    Realtime,
-    /// Continue simulation from last snapshot up to current time, then switch to real time.
-    Catchup,
-}
-
-impl From<SimulationModeCli> for SimulationMode {
-    fn from(value: SimulationModeCli) -> Self {
-        match value {
-            SimulationModeCli::Backfill => SimulationMode::Backfill,
-            SimulationModeCli::Realtime => SimulationMode::Realtime,
-            SimulationModeCli::Catchup => SimulationMode::Catchup,
-        }
-    }
 }
 
 #[tokio::main(flavor = "multi_thread")]

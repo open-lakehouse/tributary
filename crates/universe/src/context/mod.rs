@@ -19,9 +19,10 @@ pub(crate) use self::schemas::system::{ROUTING_EDGES_REF, ROUTING_NODES_REF};
 pub(crate) use self::storage::storage_catalog;
 use crate::context::memory::in_memory_catalog;
 use crate::context::schemas::SystemSchema;
-use crate::{Error, ObjectData, OrderData, PopulationData, Result, State, resolve_url};
+use crate::{Error, ObjectData, Result, resolve_url};
 
-use self::schemas::{SIMULATION_META_REF, SimulationMetaBuilder, create_snapshot};
+use self::schemas::{SIMULATION_META_REF, SimulationMetaBuilder};
+use self::schemas::snapshots::create_snapshot_from_batches;
 
 mod memory;
 pub(crate) mod schemas;
@@ -186,21 +187,18 @@ impl SimulationContextBuilder {
                 .unwrap_or_else(|| Duration::new(60, 0)),
         };
 
-        // TODO: this is a but of a backdoor to allow for initializing a simulation
-        // with some data. Idelly this would move to somewhere more separated.
         match (self.population_data, self.object_data) {
             (None, None) => (),
             (Some(population_data), Some(object_data)) => {
-                let population = sim_ctx.ctx().read_batch(population_data)?;
-                let population_data = PopulationData::try_new(population).await?;
-                let sim_state = State::new(
-                    &Default::default(),
-                    object_data,
-                    population_data,
-                    OrderData::empty(),
-                    Default::default(),
-                );
-                sim_ctx.write_snapshot(&sim_state).await?;
+                let snapshot_id = create_snapshot_from_batches(
+                    &sim_ctx,
+                    Some(object_data.objects()),
+                    &[population_data],
+                    &[],
+                    &[],
+                )
+                .await?;
+                sim_ctx.snapshot_id = snapshot_id;
             }
             _ => {
                 return Err(Error::internal(
@@ -295,16 +293,6 @@ impl SimulationContext {
 
     pub fn results(&self) -> schemas::ResultsSchema<'_> {
         schemas::ResultsSchema::new(self)
-    }
-
-    /// Write the current simulation state to a snapshot.
-    ///
-    /// This method creates a new snapshot with the current simulation state
-    /// and updates the simulation context to track the new snapshot ID.
-    pub async fn write_snapshot(&mut self, state: &State) -> Result<()> {
-        let snapshot_id = create_snapshot(state, self).await?;
-        self.snapshot_id = snapshot_id;
-        Ok(())
     }
 
     async fn scan(&self, table_ref: &TableReference) -> Result<DataFrame> {

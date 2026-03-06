@@ -14,7 +14,7 @@ use rstest::*;
 use uuid::{ContextV7, Timestamp};
 
 use crate::agents::functions::{OrderSpec, create_order_fixed};
-use crate::test_utils::{builder, print_frame, runner_fixed, setup_test_simulation};
+use crate::test_utils::{builder, print_frame, runner_fixed};
 use crate::{RecordBatch, Result, SimulationRunner, SimulationRunnerBuilder};
 
 use super::*;
@@ -350,31 +350,17 @@ async fn test_step_progression(
     Ok(())
 }
 
+#[rstest]
 #[tokio::test]
-async fn test_prepare_empty_orders() -> Result<(), Box<dyn std::error::Error>> {
-    let mut simulation = setup_test_simulation(None).await?;
-    let mut handler = KitchenHandler::try_new(simulation.ctx()).await?;
+async fn test_step_with_no_orders(
+    #[future] builder: Result<SimulationRunnerBuilder>,
+) -> Result<()> {
+    let runner = builder.await?.build().await?;
+    let mut handler = KitchenHandler::try_new(runner.ctx()).await?;
 
-    // Create empty dataframes
-    let empty_orders = simulation
-        .ctx()
-        .ctx()
-        .read_batches(vec![RecordBatch::new_empty(Arc::new(Schema::new(vec![
-            Field::new("order_id", DataType::FixedSizeBinary(16), false),
-            Field::new("site_id", DataType::FixedSizeBinary(16), false),
-            Field::new(
-                "submitted_at",
-                DataType::Timestamp(TimeUnit::Millisecond, Some("UTC".into())),
-                false,
-            ),
-        ])))])?;
+    handler.step(runner.ctx(), None).await?;
 
-    // Should not error on empty batches
-    handler
-        .prepare_order_lines(simulation.ctx(), empty_orders)
-        .await?;
-
-    let stats = handler.get_stats(simulation.ctx()).await?;
+    let stats = handler.get_stats(runner.ctx()).await?;
     assert_eq!(stats.queued, 0);
     assert_eq!(stats.in_progress, 0);
 

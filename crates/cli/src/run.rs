@@ -1,32 +1,9 @@
 use arrow::array::AsArray;
 use caspers_universe::Error as UniverseError;
-use caspers_universe::{SimulationContext, SimulationMode, SimulationRunnerBuilder, resolve_url};
-use clap::ValueEnum;
+use caspers_universe::{SimulationContext, SimulationRunnerBuilder, resolve_url};
 use dialoguer::Select;
 
 use crate::error::Result;
-
-/// Execution mode for the simulation.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
-#[value(rename_all = "kebab-case")]
-pub enum SimulationModeCli {
-    /// Run the simulation for the specified time horizon.
-    Backfill,
-    /// Align time passed in simulation with time passed in real time.
-    Realtime,
-    /// Continue simulation from last snapshot up to current time, then switch to real time.
-    Catchup,
-}
-
-impl From<SimulationModeCli> for SimulationMode {
-    fn from(value: SimulationModeCli) -> Self {
-        match value {
-            SimulationModeCli::Backfill => SimulationMode::Backfill,
-            SimulationModeCli::Realtime => SimulationMode::Realtime,
-            SimulationModeCli::Catchup => SimulationMode::Catchup,
-        }
-    }
-}
 
 #[derive(Debug, Clone, clap::Parser)]
 pub(crate) struct RunArgs {
@@ -36,9 +13,6 @@ pub(crate) struct RunArgs {
     #[arg(short, long)]
     /// Path where basic simulation setup is stored.
     working_directory: Option<String>,
-
-    #[arg(short, long, value_enum, default_value_t = SimulationModeCli::Backfill)]
-    mode: SimulationModeCli,
 
     #[arg(long, default_value_t = false)]
     dry_run: bool,

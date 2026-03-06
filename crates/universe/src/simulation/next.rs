@@ -447,6 +447,7 @@ impl SimulationRunner {
     pub async fn create_snapshot(&mut self) -> Result<uuid::Uuid> {
         let snapshot_id = create_snapshot_from_batches(
             &self.ctx,
+            None,
             &self.population.population,
             &self.kitchens.orders,
             &self.kitchens.order_lines,

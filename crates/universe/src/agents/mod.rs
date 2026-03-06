@@ -1,8 +1,6 @@
 pub mod functions;
 pub(crate) mod kitchen;
-mod population;
-mod site;
+pub(crate) mod population;
 
 pub use self::kitchen::*;
-pub use self::population::*;
-pub use self::site::*;
+pub(crate) use self::population::*;
