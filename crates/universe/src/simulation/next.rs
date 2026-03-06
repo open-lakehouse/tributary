@@ -12,7 +12,7 @@ use datafusion::{
     functions::core::expr_ext::FieldAccessor,
     functions_aggregate::{count::count_all, expr_fn::array_agg},
     functions_window::expr_fn::row_number,
-    logical_expr::ScalarUDF,
+    logical_expr::{ExprSchemable, ScalarUDF},
     prelude::{DataFrame, array_element, array_length, cast, col, lit},
     scalar::ScalarValue,
 };
@@ -23,6 +23,7 @@ use crate::{
     SimulationContext,
     agents::{KitchenHandler, PopulationHandler, functions::create_order},
     functions::h3_longlatash3,
+    test_utils::print_frame,
 };
 
 pub struct SimulationRunnerBuilder {
@@ -92,8 +93,7 @@ pub struct SimulationRunner {
 
     pub(crate) population: PopulationHandler,
     pub(crate) kitchens: KitchenHandler,
-
-    movement: MovementHandler,
+    pub(crate) movement: MovementHandler,
 }
 
 impl SimulationRunner {
@@ -116,42 +116,12 @@ impl SimulationRunner {
     pub async fn step(&mut self) -> Result<()> {
         let mut events = EventsHelper::empty(&self.ctx)?;
 
-        self.population.advance_journeys(&self.ctx).await?;
+        if let Some(journey_events) = self.handle_journeys().await? {
+            events = events.union(journey_events)?;
+        }
 
-        if let Some(picked_up_orders) = self.assign_couriers().await? {
-            let picked_up_orders = picked_up_orders.cache().await?;
-            let person_ids = picked_up_orders
-                .clone()
-                .select([col("assigned_courier")])?
-                .collect()
-                .await?
-                .iter()
-                .flat_map(|b| b.column(0).as_fixed_size_binary().iter().flatten())
-                .map(|val| lit(ScalarValue::FixedSizeBinary(16, Some(val.to_vec()))))
-                .collect_vec();
-            self.population
-                .set_person_status(&self.ctx, person_ids, PersonStatusFlag::Delivering)
-                .await?;
-
-            let journey_data = picked_up_orders.clone().select([
-                col("assigned_courier").alias("person_id"),
-                col("origin"),
-                col("destination"),
-            ])?;
-            let maybe_journeys = self.movement.plan_journeys(&self.ctx, journey_data).await?;
-
-            if let Some(journeys) = maybe_journeys {
-                self.population.start_journeys(&self.ctx, journeys).await?;
-            }
-
-            events = events.union(EventsHelper::order_picked_up(
-                picked_up_orders.clone().select([
-                    col("site_id"),
-                    col("assigned_courier").alias("courier_id"),
-                    col("order_id"),
-                    self.ctx.current_time_expr().alias("timestamp"),
-                ])?,
-            )?)?;
+        if let Some(delivery_events) = self.start_deliveries().await? {
+            events = events.union(delivery_events)?;
         };
 
         let orders = self
@@ -169,10 +139,133 @@ impl SimulationRunner {
         };
         events = events.union(kitchen_events)?;
 
-        self.ctx.step_time();
         self.send_events(events).await?;
 
+        self.ctx.step_time();
+
         Ok(())
+    }
+
+    async fn handle_journeys(&mut self) -> Result<Option<DataFrame>> {
+        self.population.advance_journeys(&self.ctx).await?;
+
+        let Some(completed) = self.population.get_completed_journeys(&self.ctx).await? else {
+            return Ok(None);
+        };
+
+        let completed = completed
+            .clone()
+            .join_on(
+                self.population
+                    .population(&self.ctx)?
+                    .select_columns(&["id", "status"])?,
+                JoinType::Left,
+                vec![col("person_id").eq(col("id"))],
+            )?
+            .cache()
+            .await?;
+
+        // print_frame(&completed.clone().select_columns(&["person_id", "status"])?).await?;
+
+        let needs_return = completed
+            .clone()
+            .filter(col("status").eq(lit(PersonStatusFlag::Delivering.as_ref())))?;
+
+        let finished_journeys = completed
+            .clone()
+            .filter(col("status").not_eq(lit(PersonStatusFlag::Delivering.as_ref())))?;
+
+        // print_frame(&finished_journeys).await?;
+
+        let return_trips = needs_return.select([
+            col("person_id"),
+            array_element(
+                col("journey"),
+                array_length(col("journey")).cast_to(&DataType::Int64, completed.schema())?,
+            )
+            .alias("origin"),
+            array_element(col("journey"), lit(1_i64)).alias("destination"),
+        ])?;
+
+        print_frame(&return_trips).await?;
+
+        if let Some(journeys) = self.movement.plan_journeys(&self.ctx, return_trips).await? {
+            println!("got some return journeys, starting them...");
+            let journeys =
+                journeys.with_column("order_id", lit(ScalarValue::FixedSizeBinary(16, None)))?;
+            let person_ids = journeys
+                .clone()
+                .select([col("person_id")])?
+                .collect()
+                .await?
+                .iter()
+                .flat_map(|b| b.column(0).as_fixed_size_binary().iter().flatten())
+                .map(|val| lit(ScalarValue::FixedSizeBinary(16, Some(val.to_vec()))))
+                .collect_vec();
+            println!("Starting return journeys for {} people", person_ids.len());
+            self.population.start_journeys(&self.ctx, journeys).await?;
+            self.population
+                .set_person_status(&self.ctx, person_ids, PersonStatusFlag::Moving)
+                .await?;
+        }
+
+        let events = EventsHelper::order_delivered(completed.clone().select([
+            col("person_id"),
+            col("order_id"),
+            self.ctx.current_time_expr().alias("timestamp"),
+        ])?)?;
+
+        Ok(Some(events))
+    }
+
+    async fn start_deliveries(&mut self) -> Result<Option<DataFrame>> {
+        let Some(picked_up_orders) = self.assign_couriers().await? else {
+            return Ok(None);
+        };
+
+        let picked_up_orders = picked_up_orders.cache().await?;
+        let person_ids = picked_up_orders
+            .clone()
+            .select([col("assigned_courier")])?
+            .collect()
+            .await?
+            .iter()
+            .flat_map(|b| b.column(0).as_fixed_size_binary().iter().flatten())
+            .map(|val| lit(ScalarValue::FixedSizeBinary(16, Some(val.to_vec()))))
+            .collect_vec();
+        self.population
+            .set_person_status(&self.ctx, person_ids, PersonStatusFlag::Delivering)
+            .await?;
+
+        let journey_data = picked_up_orders.clone().select([
+            col("assigned_courier").alias("person_id"),
+            col("origin"),
+            col("destination"),
+        ])?;
+        let maybe_journeys = self.movement.plan_journeys(&self.ctx, journey_data).await?;
+
+        if let Some(journeys) = maybe_journeys {
+            let journeys = journeys
+                .join_on(
+                    picked_up_orders
+                        .clone()
+                        .select([col("assigned_courier"), col("order_id")])?,
+                    JoinType::Left,
+                    vec![col("person_id").eq(col("assigned_courier"))],
+                )?
+                .drop_columns(&["assigned_courier"])?;
+            self.population.start_journeys(&self.ctx, journeys).await?;
+        }
+
+        Some(EventsHelper::order_picked_up(
+            picked_up_orders.clone().select([
+                col("site_id"),
+                col("assigned_courier").alias("courier_id"),
+                col("order_id"),
+                self.ctx.current_time_expr().alias("timestamp"),
+            ])?,
+        ))
+        .transpose()
     }
 
     /// Assign courires to ready order for pickup.
@@ -350,7 +443,7 @@ mod tests {
     async fn test_simulation_step(#[future] runner: Result<SimulationRunner>) -> Result<()> {
         let mut runner = runner.await?;
 
-        runner.run(100).await?;
+        runner.run(300).await?;
 
         Ok(())
     }

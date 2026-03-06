@@ -6,9 +6,11 @@ use arrow::{
 };
 use arrow_schema::{DataType, Field, Schema, SchemaRef, TimeUnit};
 use datafusion::{
-    functions::core::expr_ext::FieldAccessor as _,
-    logical_expr::ScalarUDF,
-    prelude::{DataFrame, Expr, array_element, case, cast, col, lit, random, round, when},
+    common::JoinType,
+    logical_expr::{ExprSchemable as _, ScalarUDF},
+    prelude::{
+        DataFrame, Expr, array_element, array_length, case, cast, col, lit, random, round, when,
+    },
     scalar::ScalarValue,
 };
 use geo_traits::to_geo::ToGeoPoint;
@@ -16,13 +18,14 @@ use geoarrow::array::PointArray;
 use geoarrow_array::GeoArrowArrayAccessor;
 use geoarrow_schema::{CoordType, Dimension, LineStringType, PointType};
 use h3o::{LatLng, Resolution};
+use itertools::Itertools as _;
 use tracing::{Level, instrument};
 use uuid::Uuid;
 
 use crate::{
     BrandId, EntityView as _, EventPayload, MenuItemId, ObjectLabel, OrderCreatedPayload,
-    PersonRole, PersonStatusFlag, Result, SimulationContext, SiteId, State,
-    agents::functions::create_order, state::Transport,
+    POPULATION_SCHEMA, PersonRole, PersonStatusFlag, Result, SimulationContext, SiteId, State,
+    agents::functions::create_order, functions::to_point, state::Transport,
 };
 
 pub struct PopulationRunner {
@@ -151,26 +154,10 @@ static JOURNEY_STATE: LazyLock<SchemaRef> = LazyLock::new(|| {
             .with_coord_type(CoordType::Separated)
             .to_field("journey", true),
         Field::new("distance_m", DataType::Float64, true),
+        Field::new("order_id", DataType::FixedSizeBinary(16), true),
         Field::new("progress", DataType::Float64, false),
     ]))
 });
-
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct PopulationStats {
-    pub active_journeys: usize,
-    pub completed_journeys: usize,
-}
-
-impl std::ops::Add for PopulationStats {
-    type Output = PopulationStats;
-
-    fn add(self, other: PopulationStats) -> PopulationStats {
-        PopulationStats {
-            active_journeys: self.active_journeys + other.active_journeys,
-            completed_journeys: self.completed_journeys + other.completed_journeys,
-        }
-    }
-}
 
 #[derive(Clone)]
 pub(crate) struct PopulationHandler {
@@ -281,65 +268,6 @@ impl PopulationHandler {
         Ok(())
     }
 
-    pub(crate) async fn get_stats(&self, ctx: &SimulationContext) -> Result<PopulationStats> {
-        // Handle empty journeys
-        if self.journeys.is_empty() || self.journeys.iter().all(|b| b.num_rows() == 0) {
-            return Ok(PopulationStats {
-                active_journeys: 0,
-                completed_journeys: 0,
-            });
-        }
-
-        let journeys = self.journeys(ctx)?;
-
-        // Count active and completed journeys
-        let stats_df = journeys
-            .aggregate(
-                vec![],
-                vec![
-                    datafusion::functions_aggregate::expr_fn::count(
-                        datafusion::prelude::Expr::Case(datafusion::logical_expr::Case::new(
-                            None,
-                            vec![(
-                                Box::new(col("is_complete").eq(lit(false))),
-                                Box::new(lit(1_i64)),
-                            )],
-                            None,
-                        )),
-                    )
-                    .alias("active"),
-                    datafusion::functions_aggregate::expr_fn::count(
-                        datafusion::prelude::Expr::Case(datafusion::logical_expr::Case::new(
-                            None,
-                            vec![(
-                                Box::new(col("is_complete").eq(lit(true))),
-                                Box::new(lit(1_i64)),
-                            )],
-                            None,
-                        )),
-                    )
-                    .alias("completed"),
-                ],
-            )?
-            .collect()
-            .await?;
-
-        let batch = &stats_df[0];
-        let active = batch
-            .column(0)
-            .as_primitive::<arrow::datatypes::Int64Type>()
-            .value(0) as usize;
-        let completed = batch
-            .column(1)
-            .as_primitive::<arrow::datatypes::Int64Type>()
-            .value(0) as usize;
-
-        Ok(PopulationStats {
-            active_journeys: active,
-            completed_journeys: completed,
-        })
-    }
-
     pub(crate) async fn advance_journeys(&mut self, ctx: &SimulationContext) -> Result<()> {
         // Early return if no journeys to process
         if self.journeys.is_empty() || self.journeys.iter().all(|b| b.num_rows() == 0) {
@@ -369,10 +297,14 @@ impl PopulationHandler {
         &mut self,
         ctx: &SimulationContext,
     ) -> Result<Option<DataFrame>> {
+        if self.journeys.is_empty() || self.journeys.iter().all(|b| b.num_rows() == 0) {
+            return Ok(None);
+        }
+
         // Filter for completed journeys
         let completed = self
             .journeys(ctx)?
-            .filter(col("is_complete").eq(lit(true)))?
+            .filter(col("progress").gt_eq(lit(1.0_f64)))?
             .collect()
             .await?;
 
@@ -381,65 +313,55 @@ impl PopulationHandler {
             return Ok(None);
         }
 
-        // Remove completed journeys from active journeys
-        self.journeys = self
-            .journeys(ctx)?
-            .filter(col("is_complete").eq(lit(false)))?
+        let completed = ctx.ctx().read_batches(completed)?;
+
+        let new_positions = completed.clone().select(vec![
+            col("person_id"),
+            array_element(
+                col("journey"),
+                array_length(col("journey")).cast_to(&DataType::Int64, completed.schema())?,
+            )
+            .alias("new_position"),
+        ])?;
+
+        // update population with new positions
+        let updated_population = self
+            .population(ctx)?
+            .join_on(
+                new_positions,
+                JoinType::Left,
+                vec![col("id").eq(col("person_id"))],
+            )?
+            .select(vec![
+                col("id"),
+                col("role"),
+                col("status"),
+                col("properties"),
+                to_point()
+                    .call(vec![
+                        when(col("new_position").is_not_null(), col("new_position"))
+                            .otherwise(col("position"))?,
+                    ])
+                    .alias("position"),
+                col("state"),
+            ])?
             .collect()
             .await?;
 
-        Ok(Some(ctx.ctx().read_batches(completed)?))
-    }
+        let updated_population: Vec<_> = updated_population
+            .into_iter()
+            .map(|b| b.with_schema(POPULATION_SCHEMA.clone()))
+            .try_collect()?;
 
-    pub(crate) async fn get_current_positions(&self, ctx: &SimulationContext) -> Result<DataFrame> {
-        let journeys = self.journeys(ctx)?;
+        self.population = updated_population;
 
-        // Calculate current position based on current_leg_index and current_leg_progress
-        let current_leg_idx_expr = cast(col("current_leg_index") + lit(1_u64), DataType::Int64);
-        let current_leg = array_element(col("journey_legs"), current_leg_idx_expr.clone());
+        // Remove completed journeys from active journeys
+        self.journeys = self
+            .journeys(ctx)?
+            .filter(col("progress").lt(lit(1.0_f64)))?
+            .collect()
+            .await?;
 
-        let current_dest_x = current_leg.clone().field("destination").field("x");
-        let current_dest_y = current_leg.clone().field("destination").field("y");
-
-        // Get previous position
-        let prev_leg_idx_expr = cast(col("current_leg_index"), DataType::Int64);
-        let prev_leg = array_element(col("journey_legs"), prev_leg_idx_expr.clone());
-        let prev_dest_x = prev_leg.clone().field("destination").field("x");
-        let prev_dest_y = prev_leg.clone().field("destination").field("y");
-
-        let start_x = datafusion::prelude::Expr::Case(datafusion::logical_expr::Case::new(
-            None,
-            vec![(
-                Box::new(col("current_leg_index").eq(lit(0_u64))),
-                Box::new(col("origin").field("x")),
-            )],
-            Some(Box::new(prev_dest_x)),
-        ));
-
-        let start_y = datafusion::prelude::Expr::Case(datafusion::logical_expr::Case::new(
-            None,
-            vec![(
-                Box::new(col("current_leg_index").eq(lit(0_u64))),
-                Box::new(col("origin").field("y")),
-            )],
-            Some(Box::new(prev_dest_y)),
-        ));
-
-        let current_pos_x =
-            start_x.clone() + (current_dest_x - start_x.clone()) * col("current_leg_progress");
-        let current_pos_y =
-            start_y.clone() + (current_dest_y - start_y.clone()) * col("current_leg_progress");
-
-        // Create position struct
-        Ok(journeys.select(vec![
-            col("person_id"),
-            datafusion::functions::core::expr_fn::named_struct(vec![
-                lit("x"),
-                current_pos_x,
-                lit("y"),
-                current_pos_y,
-            ])
-            .alias("position"),
-        ])?)
+        Ok(Some(completed))
     }
 }

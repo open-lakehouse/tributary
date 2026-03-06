@@ -162,6 +162,18 @@ impl EventsHelper {
         )
     }
 
+    pub(crate) fn order_delivered(orders: DataFrame) -> Result<DataFrame> {
+        Self::build_event(
+            orders,
+            SimulationEvent::OrderDelivered,
+            "/population/",
+            "person_id",
+            "timestamp",
+            "order_delivered",
+            None,
+        )
+    }
+
     pub(crate) fn step_started(order_lines: DataFrame) -> Result<DataFrame> {
         Self::build_event(
             order_lines,
@@ -279,6 +291,16 @@ event_field! {
 }
 
 event_field! {
+    OrderDelivered {
+        name: "order_delivered",
+        fields: {
+            order_id: uuid_field!(),
+            timestamp: timestamp_field!(),
+        }
+    }
+}
+
+event_field! {
     OrderLineStepStarted {
         name: "step_started",
         fields: {
@@ -373,6 +395,12 @@ static EVENT_FIELDS: LazyLock<Vec<EventFieldInfo>> = LazyLock::new(|| {
             field: || &ORDERPICKEDUP_FIELD,
             expr: || &ORDERPICKEDUP_EXPR,
             null: || &ORDERPICKEDUP_NULL,
+        },
+        EventFieldInfo {
+            name: "order_delivered",
+            field: || &ORDERDELIVERED_FIELD,
+            expr: || &ORDERDELIVERED_EXPR,
+            null: || &ORDERDELIVERED_NULL,
         },
         EventFieldInfo {
             name: "order_line_updated",

@@ -239,10 +239,12 @@ impl MovementHandler {
                 .iter()
                 .collect::<Vec<_>>();
 
-            for ((person_id, origin_index), destination_index) in person_ids
+            let edge_iter = origin_indices
                 .into_iter()
-                .zip(origin_indices.into_iter())
-                .zip(destination_indices.into_iter())
+                .zip(destination_indices.into_iter());
+
+            for (person_id, (origin_index, destination_index)) in
+                person_ids.into_iter().zip(edge_iter)
             {
                 if let (Some(origin_idx), Some(destination_idx)) = (origin_index, destination_index)
                 {
@@ -255,7 +257,7 @@ impl MovementHandler {
                     if let Some(path) = &path {
                         raw_journey_builder.add_journey(&person_id, path)?;
                     } else {
-                        println!("no path found");
+                        println!("FAILED TO PLAN JOURNEY");
                     }
                 }
             }
@@ -292,44 +294,6 @@ impl MovementHandler {
 
         Ok(Some(df_journeys))
     }
-
-    // pub fn plan(
-    //     &self,
-    //     router: &mut PathCalculator,
-    //     origin: impl AsRef<Uuid>,
-    //     destination: impl AsRef<Uuid>,
-    // ) -> Option<Journey> {
-    //     let origin_id = self.routing.node_map.get_index_of(origin.as_ref())?;
-    //     let destination_id = self.routing.node_map.get_index_of(destination.as_ref())?;
-    //     let path = router.calc_path(&self.graph, origin_id, destination_id)?;
-    //     Some(
-    //         path.get_nodes()
-    //             .iter()
-    //             .tuple_windows()
-    //             .flat_map(|(a, b)| {
-    //                 let edge = self.routing.edge_map.get(&(*a, *b)).unwrap();
-    //                 let edge = self.routing.edge(*edge);
-    //                 let legs = edge
-    //                     .geometry()
-    //                     .unwrap()
-    //                     .to_line_string()
-    //                     .points()
-    //                     .tuple_windows()
-    //                     .filter_map(|(p0, p1)| {
-    //                         let distance = LatLng::new(p0.y(), p0.x())
-    //                             .ok()?
-    //                             .distance_m(LatLng::new(p1.y(), p1.x()).ok()?);
-    //                         Some(JourneyLeg {
-    //                             destination: p1,
-    //                             distance_m: distance.round().abs() as usize,
-    //                         })
-    //                     })
-    //                     .collect::<Vec<_>>();
-    //                 legs.into_iter()
-    //             })
-    //             .collect(),
-    //     )
-    // }
 }
 
 struct RawJourneyBuilder {
