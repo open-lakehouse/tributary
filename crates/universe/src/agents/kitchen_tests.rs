@@ -1,123 +1,12 @@
-use arrow::array::{
-    BooleanBuilder, FixedSizeListBuilder, ListBuilder, TimestampMillisecondBuilder,
-};
-use arrow::datatypes::TimestampMillisecondType;
+use arrow::datatypes::{TimestampMillisecondType, UInt64Type};
 use datafusion::prelude::named_struct;
-use geo::Point;
-use geoarrow::array::PointBuilder;
-use geoarrow_array::GeoArrowArray;
-use geoarrow_schema::{Dimension, PointType};
-use h3o::LatLng;
-use rand::Rng as _;
-use rand::rngs::ThreadRng;
 use rstest::*;
-use uuid::{ContextV7, Timestamp};
 
 use crate::agents::functions::{OrderSpec, create_order_fixed};
 use crate::test_utils::{builder, print_frame, runner_fixed};
 use crate::{RecordBatch, Result, SimulationRunner, SimulationRunnerBuilder};
 
 use super::*;
-
-struct OrderBuilder {
-    menu_items: RecordBatch,
-    rng: ThreadRng,
-
-    order_id: FixedSizeBinaryBuilder,
-    person_id: FixedSizeBinaryBuilder,
-    submitted_at: TimestampMillisecondBuilder,
-    destination: PointBuilder,
-    items: ListBuilder<FixedSizeListBuilder<FixedSizeBinaryBuilder>>,
-}
-
-impl OrderBuilder {
-    fn new(menu_items: RecordBatch) -> Self {
-        Self {
-            menu_items,
-            rng: rand::rng(),
-            order_id: FixedSizeBinaryBuilder::new(16),
-            person_id: FixedSizeBinaryBuilder::new(16),
-            submitted_at: TimestampMillisecondBuilder::new(),
-            destination: PointBuilder::new(PointType::new(Dimension::XY, Default::default())),
-            items: ListBuilder::new(FixedSizeListBuilder::new(
-                FixedSizeBinaryBuilder::new(16),
-                2,
-            )),
-        }
-    }
-
-    fn add_order(
-        &mut self,
-        person_id: &PersonId,
-        submitted_at: DateTime<Utc>,
-        destination: &Point,
-        n_items: usize,
-    ) -> Result<()> {
-        let order_id = OrderId::new();
-
-        self.order_id.append_value(order_id)?;
-        self.person_id.append_value(person_id)?;
-
-        self.submitted_at
-            .append_value(submitted_at.timestamp_millis());
-        self.destination.push_point(Some(destination));
-
-        let random_vec: Vec<usize> = (0..n_items)
-            .map(|_| self.rng.random_range(0..self.menu_items.num_rows()))
-            .collect();
-
-        let brand_ids = self.menu_items.column(0).as_fixed_size_binary();
-        let item_ids = self.menu_items.column(1).as_fixed_size_binary();
-
-        for idx in random_vec {
-            self.items
-                .values()
-                .values()
-                .append_value(brand_ids.value(idx))?;
-            self.items
-                .values()
-                .values()
-                .append_value(item_ids.value(idx))?;
-            self.items.values().append(true);
-        }
-        self.items.append(true);
-
-        Ok(())
-    }
-
-    fn finish(mut self) -> Result<RecordBatch> {
-        let columns: Vec<Arc<dyn Array>> = vec![
-            Arc::new(self.order_id.finish()),
-            Arc::new(self.person_id.finish()),
-            Arc::new(self.submitted_at.finish()),
-            self.destination.finish().into_array_ref(),
-            Arc::new(self.items.finish()),
-        ];
-        let names = &[
-            "order_id",
-            "person_id",
-            "submitted_at",
-            "destination",
-            "items",
-        ];
-        let fields: Fields = columns
-            .iter()
-            .zip(names.iter())
-            .map(|(col, name)| Field::new(*name, col.data_type().clone(), col.is_nullable()))
-            .collect();
-        let orders = RecordBatch::try_new(Schema::new(fields).into(), columns)?;
-
-        let context = ContextV7::new();
-        let current_time = Utc::now();
-        let ts = Timestamp::from_unix(
-            &context,
-            current_time.timestamp() as u64,
-            current_time.timestamp_subsec_nanos(),
-        );
-
-        Ok(orders)
-    }
-}
 
 struct OrderLinesView<'a> {
     order_lines: &'a RecordBatch,
@@ -126,15 +15,6 @@ struct OrderLinesView<'a> {
 impl<'a> OrderLinesView<'a> {
     fn new(order_lines: &'a RecordBatch) -> Self {
         Self { order_lines }
-    }
-
-    pub fn assigned_to(&self, idx: usize) -> Option<&[u8]> {
-        let arr = self
-            .order_lines
-            .column_by_name("assigned_to")
-            .expect("assigned_to column not defined")
-            .as_fixed_size_binary();
-        arr.is_valid(idx).then_some(arr.value(idx))
     }
 
     pub fn step_completion_time(&self, idx: usize) -> Option<i64> {
@@ -162,9 +42,8 @@ async fn prepare_simulation(
     #[future] builder: Result<SimulationRunnerBuilder>,
 ) -> Result<(SimulationRunner, DataFrame)> {
     let create_order = Box::new(move |menu_items| create_order_fixed(menu_items, spec.clone()));
-    let mut builder = builder.await?.with_create_orders(create_order);
-
-    let mut simulation = builder.build().await?;
+    let builder = builder.await?.with_create_orders(create_order);
+    let simulation = builder.build().await?;
 
     let orders = simulation
         .population()
@@ -243,7 +122,7 @@ async fn test_empty_orders(
     #[with(OrderSpec::Never)]
     prepare_simulation: Result<(SimulationRunner, DataFrame)>,
 ) -> Result<()> {
-    let (mut simulation, orders) = prepare_simulation.await?;
+    let (mut simulation, _orders) = prepare_simulation.await?;
     let mut handler = simulation.kitchens.clone();
 
     // Process multiple steps without generating orders
@@ -277,7 +156,7 @@ async fn test_order_completion(
 
     // Generate and process orders through step_next (which includes processing)
     // Do this several times to allow completion
-    for i in 0..50 {
+    for _ in 0..50 {
         // Just process existing orders
         handler.process_order_lines(simulation.ctx()).await?;
         simulation.advance_time();
@@ -372,7 +251,7 @@ async fn test_step_with_no_orders(
 async fn test_unreachable_orders(
     #[future] prepare_simulation: Result<(SimulationRunner, DataFrame)>,
 ) -> Result<()> {
-    let (mut simulation, orders) = prepare_simulation.await?;
+    let (simulation, orders) = prepare_simulation.await?;
     let mut handler = simulation.kitchens.clone();
 
     let unreachable_order = orders.select([
