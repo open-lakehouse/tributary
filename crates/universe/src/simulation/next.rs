@@ -34,6 +34,7 @@ pub struct SimulationRunnerBuilder {
     ctx: SimulationContext,
 
     create_orders: Option<Box<dyn Fn(RecordBatch) -> Arc<ScalarUDF>>>,
+    dry_run: bool,
 }
 
 impl From<SimulationContext> for SimulationRunnerBuilder {
@@ -41,6 +42,7 @@ impl From<SimulationContext> for SimulationRunnerBuilder {
         Self {
             ctx,
             create_orders: None,
+            dry_run: false,
         }
     }
 }
@@ -55,6 +57,11 @@ impl SimulationRunnerBuilder {
         create_orders: Box<dyn Fn(RecordBatch) -> Arc<ScalarUDF>>,
     ) -> Self {
         self.create_orders = Some(create_orders);
+        self
+    }
+
+    pub fn with_dry_run(mut self, dry_run: bool) -> Self {
+        self.dry_run = dry_run;
         self
     }
 
@@ -88,6 +95,7 @@ impl SimulationRunnerBuilder {
             population,
             kitchens,
             movement,
+            dry_run: self.dry_run,
         })
     }
 }
@@ -98,13 +106,15 @@ pub struct SimulationRunner {
     pub(crate) population: PopulationHandler,
     pub(crate) kitchens: KitchenHandler,
     pub(crate) movement: MovementHandler,
+
+    dry_run: bool,
 }
 
 impl SimulationRunner {
     pub async fn run(&mut self, steps: usize) -> Result<SimulationRunResult> {
         tracing::info!(
             target: "caspers::simulation",
-            "statrting simulation run for {} steps ({} / {})",
+            "starting simulation run for {} steps ({} / {})",
             steps,
             self.ctx.simulation_id(),
             self.ctx.snapshot_id()
@@ -115,6 +125,10 @@ impl SimulationRunner {
             let events = self.step().await?;
             let batches = events.collect().await?;
             event_log.append_batches(batches);
+        }
+
+        if !self.dry_run {
+            self.create_snapshot().await?;
         }
 
         Ok(SimulationRunResult::new(
@@ -453,6 +467,11 @@ impl SimulationRunner {
     }
 
     #[cfg(test)]
+    pub(crate) fn kitchens(&self) -> &KitchenHandler {
+        &self.kitchens
+    }
+
+    #[cfg(test)]
     pub(crate) fn advance_time(&mut self) {
         self.ctx.step_time();
     }
@@ -460,10 +479,12 @@ impl SimulationRunner {
 
 #[cfg(test)]
 mod tests {
+    use chrono::{DateTime, Utc};
     use rstest::*;
 
     use super::*;
-    use crate::test_utils::runner;
+    use crate::agents::functions::OrderSpec;
+    use crate::test_utils::{runner, runner_fixed};
 
     #[rstest]
     #[tokio::test]
@@ -471,6 +492,72 @@ mod tests {
         let mut runner = runner.await?;
 
         let _result = runner.run(300).await?;
+
+        Ok(())
+    }
+
+    #[rstest]
+    #[tokio::test]
+    async fn test_snapshot_roundtrip(
+        #[future]
+        #[with(OrderSpec::Once(vec![1, 2]))]
+        runner_fixed: Result<SimulationRunner>,
+    ) -> Result<()> {
+        let mut runner = runner_fixed.await?;
+
+        let result = runner.run(50).await?;
+
+        let orders_before: usize = runner.kitchens().orders.iter().map(|b| b.num_rows()).sum();
+        let lines_before: usize = runner
+            .kitchens()
+            .order_lines
+            .iter()
+            .map(|b| b.num_rows())
+            .sum();
+        let time_after_run = *runner.ctx().current_time();
+
+        assert!(orders_before > 0, "should have created orders during the run");
+        assert!(lines_before > 0, "should have created order lines during the run");
+
+        // Build a new KitchenHandler from the same context (which now points to the
+        // snapshot written at the end of run). The handler should load the persisted
+        // orders and order lines.
+        let reloaded = KitchenHandler::try_new(runner.ctx()).await?;
+        let orders_after: usize = reloaded.orders.iter().map(|b| b.num_rows()).sum();
+        let lines_after: usize = reloaded.order_lines.iter().map(|b| b.num_rows()).sum();
+
+        assert_eq!(
+            orders_after, orders_before,
+            "orders should survive the snapshot round-trip"
+        );
+        assert_eq!(
+            lines_after, lines_before,
+            "order lines should survive the snapshot round-trip"
+        );
+
+        // Verify the snapshot metadata has the correct simulation_time. Reading it
+        // back through the system schema confirms the auto-restore path would work.
+        let system = runner.ctx().system();
+        let sn_meta = system
+            .snapshots()
+            .await?
+            .filter(col("id").eq(lit(runner.ctx().snapshot_id().to_string())))?
+            .select_columns(&["simulation_time"])?
+            .collect()
+            .await?;
+
+        assert!(!sn_meta.is_empty(), "snapshot metadata should exist");
+        let stored_ts = sn_meta[0]
+            .column(0)
+            .as_primitive::<arrow::datatypes::TimestampMillisecondType>()
+            .value(0);
+        let stored_time =
+            DateTime::<Utc>::from_timestamp_millis(stored_ts).expect("valid timestamp");
+        assert_eq!(
+            stored_time.timestamp_millis(),
+            time_after_run.timestamp_millis(),
+            "snapshot simulation_time should match the time after the run (ms precision)"
+        );
 
         Ok(())
     }

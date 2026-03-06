@@ -31,6 +31,7 @@ use crate::error::Result;
 use crate::functions::{h3_longlatash3, uuidv7};
 use crate::models::{KitchenStation, Station};
 use crate::state::{OrderLineStatus, State};
+use crate::builders::{ORDER_LINE_STATE, ORDER_STATE};
 use crate::{Brand, Error, EventPayload, EventsHelper, ObjectLabel, OrderStatus, parse_json};
 use crate::{SimulationContext, idents::*};
 
@@ -55,54 +56,6 @@ static INSTRUCTIONS_FIELD: LazyLock<DataType> = LazyLock::new(|| {
     )
 });
 
-static ORDER_STATE: LazyLock<SchemaRef> = LazyLock::new(|| {
-    SchemaRef::new(Schema::new(vec![
-        Field::new("person_id", DataType::FixedSizeBinary(16), false),
-        Field::new("order_id", DataType::FixedSizeBinary(16), true),
-        Field::new("site_id", DataType::FixedSizeBinary(16), true),
-        Field::new(
-            "submitted_at",
-            DataType::Timestamp(TimeUnit::Millisecond, Some("UTC".into())),
-            true,
-        ),
-        Field::new(
-            "destination",
-            DataType::Struct(
-                vec![
-                    Field::new("x", DataType::Float64, false),
-                    Field::new("y", DataType::Float64, false),
-                ]
-                .into(),
-            ),
-            false,
-        )
-        .with_extension_type(PointType::new(Dimension::XY, Default::default())),
-        Field::new("status", DataType::Utf8, false),
-    ]))
-});
-
-static ORDER_LINE_STATE: LazyLock<SchemaRef> = LazyLock::new(|| {
-    SchemaRef::new(Schema::new(vec![
-        Field::new("order_id", DataType::FixedSizeBinary(16), false),
-        Field::new("order_line_id", DataType::FixedSizeBinary(16), false),
-        Field::new("menu_item_id", DataType::FixedSizeBinary(16), false),
-        Field::new("kitchen_id", DataType::FixedSizeBinary(16), true),
-        Field::new(
-            "submitted_at",
-            DataType::Timestamp(TimeUnit::Millisecond, Some("UTC".into())),
-            true,
-        ),
-        Field::new("current_step", DataType::UInt64, false),
-        Field::new("total_steps", DataType::UInt64, true), // nullable because array_length returns nullable
-        Field::new("assigned_to", DataType::FixedSizeBinary(16), true),
-        Field::new(
-            "step_completion_time",
-            DataType::Timestamp(TimeUnit::Millisecond, Some("UTC".into())),
-            true,
-        ),
-        Field::new("is_complete", DataType::Boolean, false),
-    ]))
-});
 
 static MENU_ITEM_PROPERTIES_SCHEMA: LazyLock<SchemaRef> = LazyLock::new(|| {
     SchemaRef::new(Schema::new(vec![
@@ -229,14 +182,27 @@ impl KitchenHandler {
         let sites = extract_sites(objects.clone()).await?;
         let (brand_ids, menu_items) = extract_menu_items(objects.clone()).await?;
         let (stations, kitchens) = extract_kitchen_station(ctx, objects, brand_ids).await?;
+        let orders = ctx.snapshots().orders().await?.collect().await?;
+        let orders = if orders.iter().map(|b| b.num_rows()).sum::<usize>() > 0 {
+            orders
+        } else {
+            vec![RecordBatch::new_empty(ORDER_STATE.clone())]
+        };
+
+        let order_lines = ctx.snapshots().order_lines().await?.collect().await?;
+        let order_lines = if order_lines.iter().map(|b| b.num_rows()).sum::<usize>() > 0 {
+            order_lines
+        } else {
+            vec![RecordBatch::new_empty(ORDER_LINE_STATE.clone())]
+        };
+
         Ok(KitchenHandler {
             sites,
             kitchens,
             stations,
             menu_items,
-            // TODO: load this from the snapshot
-            orders: vec![RecordBatch::new_empty(ORDER_STATE.clone())],
-            order_lines: vec![RecordBatch::new_empty(ORDER_LINE_STATE.clone())],
+            orders,
+            order_lines,
         })
     }
 

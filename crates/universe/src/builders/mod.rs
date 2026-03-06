@@ -11,6 +11,6 @@ pub(crate) use self::results_metrics::METRICS_SCHEMA;
 pub(crate) use self::state_objects::OBJECTS_SCHEMA;
 pub use self::state_objects::ObjectDataBuilder;
 pub use self::state_orders::OrderDataBuilder;
-pub(crate) use self::state_orders::{ORDER_LINE_SCHEMA, ORDER_SCHEMA};
+pub(crate) use self::state_orders::{ORDER_LINE_SCHEMA, ORDER_LINE_STATE, ORDER_SCHEMA, ORDER_STATE};
 pub(crate) use self::state_population::POPULATION_SCHEMA;
 pub use self::state_population::PopulationDataBuilder;

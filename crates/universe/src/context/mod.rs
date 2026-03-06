@@ -1,8 +1,8 @@
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
-use arrow::array::RecordBatch;
-use arrow::datatypes::SchemaRef;
+use arrow::array::{AsArray, RecordBatch};
+use arrow::datatypes::{SchemaRef, TimestampMillisecondType};
 use arrow_schema::{DataType, Field, FieldRef, Schema, SchemaBuilder};
 use chrono::{DateTime, Utc};
 use datafusion::catalog::CatalogProvider;
@@ -150,11 +150,37 @@ impl SimulationContextBuilder {
             Uuid::now_v7()
         };
 
+        let current_time = if let Some(start_time) = self.simulation_start_time {
+            start_time
+        } else if self.snapshot_id.is_some() {
+            let system = SystemSchema::new(&ctx);
+            let snapshot_time = system
+                .snapshots()
+                .await?
+                .filter(col("id").eq(lit(snapshot_id.to_string())))?
+                .select_columns(&["simulation_time"])?
+                .collect()
+                .await?;
+            snapshot_time
+                .first()
+                .filter(|batch| batch.num_rows() > 0)
+                .and_then(|batch| {
+                    let ts = batch
+                        .column(0)
+                        .as_primitive::<TimestampMillisecondType>()
+                        .value(0);
+                    DateTime::<Utc>::from_timestamp_millis(ts)
+                })
+                .unwrap_or_else(Utc::now)
+        } else {
+            Utc::now()
+        };
+
         let mut sim_ctx = SimulationContext {
             ctx,
             simulation_id,
             snapshot_id,
-            current_time: self.simulation_start_time.unwrap_or_else(Utc::now),
+            current_time,
             time_step: self
                 .simulation_time_step
                 .unwrap_or_else(|| Duration::new(60, 0)),

@@ -12,7 +12,7 @@ use datafusion::datasource::listing::{
 use url::Url;
 
 use crate::builders::{
-    EVENTS_SCHEMA, METRICS_SCHEMA, OBJECTS_SCHEMA, ORDER_LINE_SCHEMA, ORDER_SCHEMA,
+    EVENTS_SCHEMA, METRICS_SCHEMA, OBJECTS_SCHEMA, ORDER_LINE_STATE, ORDER_STATE,
     POPULATION_SCHEMA,
 };
 use crate::context::wrap_schema;
@@ -79,12 +79,12 @@ fn register_snapshots(schema: &dyn SchemaProvider, snapshots_path: &Url) -> Resu
 
     let orders_path = snapshots_path.join(&format!("{}/", ORDERS_REF.table()))?;
     tracing::debug!(target: "caspers::simulation::context", "registering '{}' @ {}", *ORDERS_REF, orders_path);
-    let orders_snapshot = parquet_provider(&orders_path, ORDER_SCHEMA.clone())?;
+    let orders_snapshot = parquet_provider(&orders_path, wrap_schema(&ORDER_STATE))?;
     schema.register_table(ORDERS_REF.table().to_string(), orders_snapshot)?;
 
     let order_lines_path = snapshots_path.join(&format!("{}/", ORDER_LINES_REF.table()))?;
     tracing::debug!(target: "caspers::simulation::context", "registering '{}' @ {}", *ORDER_LINES_REF, order_lines_path);
-    let order_lines_snapshot = parquet_provider(&order_lines_path, ORDER_LINE_SCHEMA.clone())?;
+    let order_lines_snapshot = parquet_provider(&order_lines_path, wrap_schema(&ORDER_LINE_STATE))?;
     schema.register_table(ORDER_LINES_REF.table().to_string(), order_lines_snapshot)?;
 
     Ok(())

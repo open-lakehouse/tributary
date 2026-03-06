@@ -5,7 +5,8 @@ use arrow::array::builder::{
     FixedSizeBinaryBuilder, FixedSizeListBuilder, Float64Builder, StringBuilder,
 };
 use arrow_schema::extension::Uuid as UuidExtension;
-use arrow_schema::{ArrowError, DataType, Field, Schema, SchemaRef};
+use arrow_schema::{ArrowError, DataType, Field, Schema, SchemaRef, TimeUnit};
+use geoarrow_schema::{Dimension, PointType};
 use h3o::LatLng;
 
 use crate::error::Result;
@@ -179,3 +180,54 @@ impl OrderBuilder {
         )
     }
 }
+
+/// Canonical order schema used by KitchenHandler and snapshot tables.
+pub(crate) static ORDER_STATE: LazyLock<SchemaRef> = LazyLock::new(|| {
+    SchemaRef::new(Schema::new(vec![
+        Field::new("person_id", DataType::FixedSizeBinary(16), false),
+        Field::new("order_id", DataType::FixedSizeBinary(16), true),
+        Field::new("site_id", DataType::FixedSizeBinary(16), true),
+        Field::new(
+            "submitted_at",
+            DataType::Timestamp(TimeUnit::Millisecond, Some("UTC".into())),
+            true,
+        ),
+        Field::new(
+            "destination",
+            DataType::Struct(
+                vec![
+                    Field::new("x", DataType::Float64, false),
+                    Field::new("y", DataType::Float64, false),
+                ]
+                .into(),
+            ),
+            false,
+        )
+        .with_extension_type(PointType::new(Dimension::XY, Default::default())),
+        Field::new("status", DataType::Utf8, false),
+    ]))
+});
+
+/// Canonical order-line schema used by KitchenHandler and snapshot tables.
+pub(crate) static ORDER_LINE_STATE: LazyLock<SchemaRef> = LazyLock::new(|| {
+    SchemaRef::new(Schema::new(vec![
+        Field::new("order_id", DataType::FixedSizeBinary(16), false),
+        Field::new("order_line_id", DataType::FixedSizeBinary(16), false),
+        Field::new("menu_item_id", DataType::FixedSizeBinary(16), false),
+        Field::new("kitchen_id", DataType::FixedSizeBinary(16), true),
+        Field::new(
+            "submitted_at",
+            DataType::Timestamp(TimeUnit::Millisecond, Some("UTC".into())),
+            true,
+        ),
+        Field::new("current_step", DataType::UInt64, false),
+        Field::new("total_steps", DataType::UInt64, true),
+        Field::new("assigned_to", DataType::FixedSizeBinary(16), true),
+        Field::new(
+            "step_completion_time",
+            DataType::Timestamp(TimeUnit::Millisecond, Some("UTC".into())),
+            true,
+        ),
+        Field::new("is_complete", DataType::Boolean, false),
+    ]))
+});
