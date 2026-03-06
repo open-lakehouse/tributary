@@ -1,8 +1,6 @@
 use arrow::array::AsArray;
-use arrow::datatypes::TimestampMillisecondType;
 use caspers_universe::Error as UniverseError;
-use caspers_universe::{Simulation, SimulationContext, SimulationMode, resolve_url};
-use chrono::{DateTime, Utc};
+use caspers_universe::{SimulationContext, SimulationMode, SimulationRunnerBuilder, resolve_url};
 use clap::ValueEnum;
 use dialoguer::Select;
 
@@ -80,7 +78,7 @@ pub(super) async fn handle(args: RunArgs) -> Result<()> {
     let snapshots = builder
         .load_snapshots()
         .await?
-        .select_columns(&["id", "simulation_time"])
+        .select_columns(&["id"])
         .map_err(UniverseError::from)?
         .collect()
         .await
@@ -103,20 +101,12 @@ pub(super) async fn handle(args: RunArgs) -> Result<()> {
         uuid::Uuid::try_parse(selections[sn_selection]).map_err(UniverseError::from)?;
     let ctx = builder.with_snapshot_id(snapshot_id).build().await?;
 
-    let start_time = snapshots[sn_selection]
-        .column(1)
-        .as_primitive::<TimestampMillisecondType>()
-        .value(sn_selection);
-    let start_time = DateTime::<Utc>::from_timestamp_millis(start_time).expect("Invalid timestamp");
-
-    let mut simulation = Simulation::builder()
-        .with_context(ctx)
+    let mut runner = SimulationRunnerBuilder::new(ctx)
         .with_dry_run(args.dry_run)
-        .with_start_time(start_time)
         .build()
         .await?;
 
-    simulation.run(args.duration).await?;
+    runner.run(args.duration).await?;
 
     Ok(())
 }
