@@ -163,7 +163,7 @@ static JOURNEY_STATE: LazyLock<SchemaRef> = LazyLock::new(|| {
 pub(crate) struct PopulationHandler {
     create_orders: Arc<ScalarUDF>,
 
-    population: Vec<RecordBatch>,
+    pub(crate) population: Vec<RecordBatch>,
     journeys: Vec<RecordBatch>,
 }
 

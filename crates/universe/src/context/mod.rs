@@ -24,7 +24,7 @@ use crate::{Error, ObjectData, OrderData, PopulationData, Result, State, resolve
 use self::schemas::{SIMULATION_META_REF, SimulationMetaBuilder, create_snapshot};
 
 mod memory;
-mod schemas;
+pub(crate) mod schemas;
 pub(crate) mod storage;
 
 #[derive(Default)]
@@ -253,6 +253,10 @@ impl SimulationContext {
 
     pub(crate) fn step_time(&mut self) {
         self.current_time += self.time_step;
+    }
+
+    pub(crate) fn set_snapshot_id(&mut self, id: Uuid) {
+        self.snapshot_id = id;
     }
 
     pub fn system(&self) -> schemas::SystemSchema<'_> {

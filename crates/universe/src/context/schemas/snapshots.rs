@@ -1,8 +1,10 @@
 use std::sync::LazyLock;
 
+use arrow::array::RecordBatch;
 use datafusion::dataframe::DataFrameWriteOptions;
+use datafusion::functions::core::expr_ext::FieldAccessor;
 use datafusion::logical_expr::dml::InsertOp;
-use datafusion::prelude::{DataFrame, lit};
+use datafusion::prelude::{DataFrame, case, col, lit, make_array};
 use datafusion::scalar::ScalarValue;
 use datafusion::sql::TableReference;
 use itertools::Itertools;
@@ -110,6 +112,107 @@ pub(crate) async fn create_snapshot(state: &State, ctx: &SimulationContext) -> R
     batch_sn.add_snapshot(&snapshot_id, &ctx.simulation_id, state.current_time(), None);
     let batch_snapshot = batch_sn.build()?;
     let df_sn = ctx.ctx().read_batch(batch_snapshot)?;
+    tasks_defs.push((SNAPSHOT_META_REF.to_string(), df_sn));
+
+    let write_table = async |df: DataFrame, table_name: String| {
+        let write_options =
+            DataFrameWriteOptions::default().with_insert_operation(InsertOp::Append);
+        df.write_table(table_name.as_str(), write_options).await
+    };
+
+    let tasks = tasks_defs
+        .into_iter()
+        .map(|(table_name, df)| write_table(df, table_name))
+        .collect::<Vec<_>>();
+
+    let _results: Vec<_> = futures::future::join_all(tasks)
+        .await
+        .into_iter()
+        .try_collect()?;
+
+    Ok(snapshot_id)
+}
+
+/// Create a snapshot from handler-owned batches.
+///
+/// Population batches are written as-is (schema matches the snapshot table).
+/// Orders and order lines are projected from their handler schemas
+/// (`ORDER_STATE` / `ORDER_LINE_STATE`) to the snapshot table schemas
+/// (`ORDER_SCHEMA` / `ORDER_LINE_SCHEMA`).
+/// Objects are copied from the current snapshot (they are immutable during a run).
+pub(crate) async fn create_snapshot_from_batches(
+    ctx: &SimulationContext,
+    population: &[RecordBatch],
+    orders: &[RecordBatch],
+    order_lines: &[RecordBatch],
+) -> Result<Uuid> {
+    let snapshot_id = Uuid::now_v7();
+    let id_val = ScalarValue::Utf8View(Some(snapshot_id.to_string()));
+    let sim_id_val = ScalarValue::Utf8View(Some(ctx.simulation_id().to_string()));
+
+    let append_cols = |df: DataFrame| -> Result<DataFrame> {
+        Ok(df
+            .with_column("simulation_id", lit(sim_id_val.clone()))?
+            .with_column("snapshot_id", lit(id_val.clone()))?)
+    };
+
+    let mut tasks_defs = vec![];
+
+    // Objects: immutable during a run, copy from current snapshot
+    let df_objects = ctx.snapshots().objects().await?;
+    if df_objects.clone().count().await? > 0 {
+        tasks_defs.push((OBJECTS_REF.to_string(), append_cols(df_objects)?));
+    }
+
+    // Population: handler schema matches snapshot table schema
+    let total_pop: usize = population.iter().map(|b| b.num_rows()).sum();
+    if total_pop > 0 {
+        let df = ctx.ctx().read_batches(population.iter().cloned())?;
+        tasks_defs.push((POPULATION_REF.to_string(), append_cols(df)?));
+    }
+
+    // Orders: project ORDER_STATE -> ORDER_SCHEMA
+    //   order_id -> id, person_id -> customer_id,
+    //   destination Struct{x,y} -> FixedSizeList(Float64, 2)
+    let total_orders: usize = orders.iter().map(|b| b.num_rows()).sum();
+    if total_orders > 0 {
+        let df = ctx.ctx().read_batches(orders.iter().cloned())?;
+        let df = df.select([
+            col("order_id").alias("id"),
+            col("site_id"),
+            col("person_id").alias("customer_id"),
+            make_array(vec![
+                col("destination").field("x"),
+                col("destination").field("y"),
+            ])
+            .alias("destination"),
+            col("status"),
+        ])?;
+        tasks_defs.push((ORDERS_REF.to_string(), append_cols(df)?));
+    }
+
+    // Order lines: project ORDER_LINE_STATE -> ORDER_LINE_SCHEMA
+    //   order_line_id -> id, brand_id filled with null, status derived from is_complete
+    let total_lines: usize = order_lines.iter().map(|b| b.num_rows()).sum();
+    if total_lines > 0 {
+        let df = ctx.ctx().read_batches(order_lines.iter().cloned())?;
+        let df = df.select([
+            col("order_line_id").alias("id"),
+            col("order_id"),
+            lit(ScalarValue::FixedSizeBinary(16, None)).alias("brand_id"),
+            col("menu_item_id"),
+            case(col("is_complete"))
+                .when(lit(true), lit("completed"))
+                .otherwise(lit("in_progress"))?
+                .alias("status"),
+        ])?;
+        tasks_defs.push((ORDER_LINES_REF.to_string(), append_cols(df)?));
+    }
+
+    // Snapshot metadata
+    let mut batch_sn = SnapshotMetaBuilder::new();
+    batch_sn.add_snapshot(&snapshot_id, ctx.simulation_id(), *ctx.current_time(), None);
+    let df_sn = ctx.ctx().read_batch(batch_sn.build()?)?;
     tasks_defs.push((SNAPSHOT_META_REF.to_string(), df_sn));
 
     let write_table = async |df: DataFrame, table_name: String| {

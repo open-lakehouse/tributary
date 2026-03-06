@@ -26,6 +26,8 @@ use crate::{
     test_utils::print_frame,
 };
 
+use crate::context::schemas::snapshots::create_snapshot_from_batches;
+
 use super::event_log::{EventLog, SimulationRunResult};
 
 pub struct SimulationRunnerBuilder {
@@ -422,6 +424,22 @@ impl SimulationRunner {
             print_batches(&agg_batches)?;
         }
         Ok(())
+    }
+
+    /// Persist the current handler state as a new snapshot.
+    ///
+    /// Returns the new snapshot ID. The caller decides when to call this
+    /// (e.g. after `run`, periodically via `step`, or on a schedule).
+    pub async fn create_snapshot(&mut self) -> Result<uuid::Uuid> {
+        let snapshot_id = create_snapshot_from_batches(
+            &self.ctx,
+            &self.population.population,
+            &self.kitchens.orders,
+            &self.kitchens.order_lines,
+        )
+        .await?;
+        self.ctx.set_snapshot_id(snapshot_id);
+        Ok(snapshot_id)
     }
 
     #[cfg(test)]
