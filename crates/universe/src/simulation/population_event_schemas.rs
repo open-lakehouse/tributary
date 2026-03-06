@@ -435,7 +435,7 @@ static EVENT_FIELDS: LazyLock<Vec<EventFieldInfo>> = LazyLock::new(|| {
     ]
 });
 
-static EVENT_SCHEMA: LazyLock<SchemaRef> = LazyLock::new(|| {
+pub(super) static EVENT_SCHEMA: LazyLock<SchemaRef> = LazyLock::new(|| {
     let data_fields: Vec<FieldRef> = EVENT_FIELDS
         .iter()
         .map(|info| (info.field)().clone())

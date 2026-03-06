@@ -26,6 +26,8 @@ use crate::{
     test_utils::print_frame,
 };
 
+use super::event_log::{EventLog, SimulationRunResult};
+
 pub struct SimulationRunnerBuilder {
     ctx: SimulationContext,
 
@@ -97,7 +99,7 @@ pub struct SimulationRunner {
 }
 
 impl SimulationRunner {
-    pub async fn run(&mut self, steps: usize) -> Result<()> {
+    pub async fn run(&mut self, steps: usize) -> Result<SimulationRunResult> {
         tracing::info!(
             target: "caspers::simulation",
             "statrting simulation run for {} steps ({} / {})",
@@ -106,14 +108,21 @@ impl SimulationRunner {
             self.ctx.snapshot_id()
         );
 
+        let mut event_log = EventLog::new();
         for _ in 0..steps {
-            self.step().await?;
+            let events = self.step().await?;
+            let batches = events.collect().await?;
+            event_log.append_batches(batches);
         }
 
-        Ok(())
+        Ok(SimulationRunResult::new(
+            event_log,
+            steps,
+            *self.ctx.current_time(),
+        ))
     }
 
-    pub async fn step(&mut self) -> Result<()> {
+    pub async fn step(&mut self) -> Result<DataFrame> {
         let mut events = EventsHelper::empty(&self.ctx)?;
 
         if let Some(journey_events) = self.handle_journeys().await? {
@@ -139,11 +148,11 @@ impl SimulationRunner {
         };
         events = events.union(kitchen_events)?;
 
-        self.send_events(events).await?;
+        self.send_events(events.clone()).await?;
 
         self.ctx.step_time();
 
-        Ok(())
+        Ok(events)
     }
 
     async fn handle_journeys(&mut self) -> Result<Option<DataFrame>> {
@@ -443,7 +452,7 @@ mod tests {
     async fn test_simulation_step(#[future] runner: Result<SimulationRunner>) -> Result<()> {
         let mut runner = runner.await?;
 
-        runner.run(300).await?;
+        let _result = runner.run(300).await?;
 
         Ok(())
     }
