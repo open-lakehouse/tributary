@@ -2,11 +2,13 @@ use clap::{Args, Parser, Subcommand};
 
 use crate::{init::InitArgs, run::RunArgs};
 
+mod app;
 mod error;
 mod init;
 mod run;
 mod server;
 mod telemetry;
+mod tui;
 
 #[derive(clap::Parser)]
 #[command(name = "caspers-universe", version, about = "Running Caspers Universe", long_about = None)]
@@ -55,10 +57,12 @@ struct ServerArgs {
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    telemetry::init_tracer_provider();
-    let _guard = telemetry::init_tracing_subscriber();
-
     let cli = Cli::parse();
+
+    let tui_mode = matches!(cli.command, Commands::Run(_));
+
+    telemetry::init_tracer_provider();
+    let _guard = telemetry::init_tracing_subscriber(tui_mode);
 
     match cli.command {
         Commands::Run(args) => run::handle(args).await?,

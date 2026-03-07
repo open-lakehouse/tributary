@@ -1,12 +1,13 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use arrow::{
     array::{AsArray, RecordBatch},
     compute::concat_batches,
     datatypes::Int64Type,
-    util::pretty::print_batches,
 };
 use arrow_schema::DataType;
+use chrono::{DateTime, Utc};
 use datafusion::{
     common::{HashSet, JoinType},
     functions::core::expr_ext::FieldAccessor,
@@ -17,6 +18,7 @@ use datafusion::{
     scalar::ScalarValue,
 };
 use itertools::Itertools;
+use tokio::sync::mpsc;
 
 use crate::{
     MovementHandler, ObjectLabel, OrderStatus, PersonRole, PersonStatusFlag, Result,
@@ -29,6 +31,22 @@ use self::event_log::{EventLog, SimulationRunResult};
 pub use self::events::*;
 pub use self::population_event_schemas::*;
 use crate::context::schemas::snapshots::create_snapshot_from_batches;
+
+/// Messages sent from the simulation background task to the rendering frontend.
+#[derive(Debug)]
+pub enum SimulationMessage {
+    StepCompleted {
+        step: usize,
+        total_steps: usize,
+        sim_time: DateTime<Utc>,
+        event_counts: HashMap<String, u64>,
+    },
+    Completed {
+        steps: usize,
+        final_time: DateTime<Utc>,
+    },
+    Error(String),
+}
 
 mod event_log;
 mod events;
@@ -100,6 +118,7 @@ impl SimulationRunnerBuilder {
             kitchens,
             movement,
             dry_run: self.dry_run,
+            last_step_counts: None,
         })
     }
 }
@@ -112,6 +131,7 @@ pub struct SimulationRunner {
     pub(crate) movement: MovementHandler,
 
     dry_run: bool,
+    last_step_counts: Option<HashMap<String, u64>>,
 }
 
 impl SimulationRunner {
@@ -142,6 +162,46 @@ impl SimulationRunner {
         ))
     }
 
+    /// Run the simulation, streaming per-step progress over a channel.
+    ///
+    /// Unlike [`run`], this does **not** accumulate a full event log -- the
+    /// returned [`SimulationRunResult`] will contain an empty log. This avoids
+    /// the cost of materialising every event batch twice and keeps memory
+    /// bounded, which is the right trade-off for the interactive TUI path.
+    pub async fn run_with_channel(
+        &mut self,
+        steps: usize,
+        tx: mpsc::UnboundedSender<SimulationMessage>,
+    ) -> Result<SimulationRunResult> {
+        tracing::info!(
+            target: "caspers::simulation",
+            "starting simulation run for {} steps ({} / {})",
+            steps,
+            self.ctx.simulation_id(),
+            self.ctx.snapshot_id()
+        );
+
+        for step in 0..steps {
+            self.step().await?;
+
+            let _ = tx.send(SimulationMessage::StepCompleted {
+                step: step + 1,
+                total_steps: steps,
+                sim_time: *self.ctx.current_time(),
+                event_counts: self.last_step_counts.take().unwrap_or_default(),
+            });
+        }
+
+        if !self.dry_run {
+            self.create_snapshot().await?;
+        }
+
+        let final_time = *self.ctx.current_time();
+        let _ = tx.send(SimulationMessage::Completed { steps, final_time });
+
+        Ok(SimulationRunResult::new(EventLog::new(), steps, final_time))
+    }
+
     pub async fn step(&mut self) -> Result<DataFrame> {
         let mut events = EventsHelper::empty(&self.ctx)?;
 
@@ -168,7 +228,8 @@ impl SimulationRunner {
         };
         events = events.union(kitchen_events)?;
 
-        self.send_events(events.clone()).await?;
+        let events = events.cache().await?;
+        self.last_step_counts = Some(self.aggregate_events(events.clone()).await?);
 
         self.ctx.step_time();
 
@@ -485,16 +546,28 @@ impl SimulationRunner {
         Ok(Some(assigned_orders))
     }
 
-    async fn send_events(&self, events: DataFrame) -> Result<()> {
-        let aggreagte = events
-            .clone()
-            .aggregate(vec![col("type")], vec![count_all()])?;
-        let type_count = aggreagte.clone().count().await?;
-        if type_count > 0 {
-            let agg_batches = aggreagte.collect().await?;
-            print_batches(&agg_batches)?;
+    async fn aggregate_events(&self, events: DataFrame) -> Result<HashMap<String, u64>> {
+        let batches = events
+            .aggregate(vec![col("type")], vec![count_all()])?
+            .collect()
+            .await?;
+        let mut map = HashMap::new();
+        for batch in &batches {
+            let types = batch
+                .column(0)
+                .as_any()
+                .downcast_ref::<arrow::array::StringArray>()
+                .expect("type is StringArray");
+            let counts = batch
+                .column(1)
+                .as_any()
+                .downcast_ref::<arrow::array::Int64Array>()
+                .expect("count is Int64Array");
+            for i in 0..batch.num_rows() {
+                map.insert(types.value(i).to_string(), counts.value(i) as u64);
+            }
         }
-        Ok(())
+        Ok(map)
     }
 
     /// Persist the current handler state as a new snapshot.
@@ -567,7 +640,7 @@ mod tests {
     ) -> Result<()> {
         let mut runner = runner_fixed.await?;
 
-        let result = runner.run(50).await?;
+        let _result = runner.run(50).await?;
 
         let orders_before: usize = runner.kitchens().orders.iter().map(|b| b.num_rows()).sum();
         let lines_before: usize = runner
