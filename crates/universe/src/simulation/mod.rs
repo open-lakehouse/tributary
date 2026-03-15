@@ -182,7 +182,17 @@ impl SimulationRunner {
         );
 
         for step in 0..steps {
-            self.step().await?;
+            tracing::debug!("Starting simulation step {}/{}", step + 1, steps);
+
+            match self.step().await {
+                Ok(_) => {
+                    tracing::debug!("Completed simulation step {}/{}", step + 1, steps);
+                }
+                Err(e) => {
+                    tracing::error!("Error in simulation step {}/{}: {}", step + 1, steps, e);
+                    return Err(e);
+                }
+            }
 
             let _ = tx.send(SimulationMessage::StepCompleted {
                 step: step + 1,
@@ -191,6 +201,8 @@ impl SimulationRunner {
                 event_counts: self.last_step_counts.take().unwrap_or_default(),
             });
         }
+
+        tracing::info!("All {} simulation steps completed successfully", steps);
 
         if !self.dry_run {
             self.create_snapshot().await?;

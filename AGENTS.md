@@ -1,113 +1,233 @@
-# AI Agent Guide for Chef Casper's Management System Simulation
+# AI Agent Instructions for Chef Casper's Management System
 
-## Project Overview
+> **Purpose**: This file provides AI coding assistants with essential context and
+> guidelines for working with this simulation codebase. Last updated: 2026-03-15
 
-This is a **mixed Rust/Python simulation project** that generates realistic data
-for a fictional ghost kitchen management company. The simulation uses agent-based
-modeling to simulate restaurant operations, customer behavior, and delivery logistics.
+## Quick Reference
 
-### Core Technologies
-- **Rust**: Main simulation engine using Apache Arrow for data management
-- **Python**: Data analysis, notebooks, and visualization
-- **Protocol Buffers**: Data schema definitions and code generation
-- **Apache Arrow**: Columnar data structures and operations
-- **GeoArrow**: Geospatial data processing
+| Task | Command | Notes |
+|------|---------|-------|
+| Code generation | `just generate` | After any `.proto` changes |
+| Run simulation | `just run [duration]` | Default duration: 100 steps |
+| Init simulation | `just init` | Creates `.caspers/` working directory |
+| Run with UI | `just server` | Starts TUI application |
+| Python dev | `just build-py` | Build Python bindings |
+| Notebooks | `just scratch` | Launch Marimo notebook |
 
-## Project Structure
+## Project Identity
 
+**What this is**: A high-performance agent-based simulation system for generating realistic
+operational data for a fictional ghost kitchen management company.
+
+**What this is NOT**: A production restaurant management system (see legacy Python/SQLite
+implementation in README.md for that context)
+
+### Core Technologies Stack
+- **Rust** (Primary): Simulation engine, CLI, TUI
+- **Apache Arrow/DataFusion**: Columnar data processing
+- **Protocol Buffers**: Schema definitions and type generation
+- **GeoArrow**: Geospatial operations (H3 indexing)
+- **Python**: Analysis tools and bindings (via PyO3/Maturin)
+
+## Architecture Overview
+
+### Project Structure
 ```
 management/
-├── crates/universe/           # Main Rust simulation engine
-│   ├── src/models/           # Data models (some generated from protobuf)
-│   ├── src/agents/           # Agent implementations
-│   ├── src/state/            # Simulation state management
-│   └── src/simulation/       # Simulation orchestration
-├── proto/                    # Protocol buffer definitions
-├── python/                   # Python bindings and utilities
-├── notebooks/                # Jupyter/Marimo notebooks for analysis
-└── data/                     # Sample/generated data
+├── crates/
+│   ├── universe/              # Core simulation engine
+│   │   ├── src/agents/       # Agent behavior implementations
+│   │   ├── src/state/        # State management (Arrow tables)
+│   │   ├── src/simulation/   # Event-driven simulation loop
+│   │   ├── src/models/gen/   # ⚠️ GENERATED - DO NOT EDIT
+│   │   ├── src/builders/     # Data builders and helpers
+│   │   └── src/functions/    # Custom UDFs for DataFusion
+│   └── cli/                  # Binary application (TUI + server)
+├── proto/                    # Protocol buffer schemas
+├── python/                   # Python bindings (PyO3)
+├── notebooks/                # Marimo/Jupyter analysis notebooks
+└── .caspers/                 # Runtime working directory (gitignored)
 ```
 
-## Key Concepts
+### Data Flow
+1. **Initialization**: Load JSON configs → Build Arrow tables → Initialize agents
+2. **Simulation Loop**:
+   - Agent decisions (parallel where possible)
+   - State updates (Arrow batch operations)
+   - Event recording (Parquet append)
+   - Snapshot persistence (configurable intervals)
+3. **Output**: Parquet files in `.caspers/` for analysis
 
-### Business Domain
-- **Ghost Kitchens**: Delivery-only restaurant facilities
-- **Vendors**: Companies that rent kitchen space
-- **Brands**: Restaurant brands operated by vendors
-- **Sites/Locations**: Physical buildings with multiple kitchens
-- **Menu Items**: Food products with preparation requirements
+### Event-Driven Architecture
+The simulation uses an event-sourcing pattern:
+- Agents emit events (orders, movements, status changes)
+- Events are batched into Arrow RecordBatches
+- State is derived from event log
+- See `crates/universe/src/simulation/events.rs` for event types
 
-### Simulation Architecture
-- **Agent-Based**: Individual entities (customers, kitchen staff, drivers) act autonomously
-- **Time-Based**: Discrete time steps (typically 1-minute increments)
-- **Geospatial**: Uses H3 indexing for location-based routing and movement
-- **Data-Driven**: Heavy use of Datafusion and Apache Arrow for efficient data operations
+## Critical Rules
 
-## Working with This Codebase
+### 🚨 NEVER DO THIS
+1. **Edit generated code** in `crates/universe/src/models/gen/` - Changes will be overwritten
+2. **Skip `just generate`** after modifying `.proto` files - Will cause compilation errors
+3. **Use non-workspace dependencies** - Must be defined in root `Cargo.toml` `[workspace.dependencies]`
+4. **Commit `.caspers/` directory** - Runtime data only, gitignored
+5. **Mix time zones** - All timestamps are UTC, be explicit
 
-### 🚨 Critical Rules
+### ✅ ALWAYS DO THIS
+1. **Run `just generate`** after proto changes
+2. **Use DataFusion UDFs** for complex operations on Arrow data
+3. **Consider memory usage** when working with large simulations
+4. **Add tests** in `*_tests.rs` files alongside implementation
+5. **Check `justfile`** for correct command usage
 
-1. **NEVER modify generated code** in `./crates/universe/src/models/gen/`
-2. **Always regenerate protobuf code** after proto changes: `just generate`
-3. **Use workspace dependencies** defined in root `Cargo.toml`
-4. **Follow the module organization** described below
+## Domain Model
 
-### Common Tasks
+### Business Entities
+- **Location/Site**: Physical building with multiple kitchens
+- **Vendor**: Company that operates brands and rents kitchen space
+- **Kitchen**: Cooking facility within a location
+- **Brand**: Restaurant brand (can operate across multiple kitchens)
+- **Menu/Category/Item**: Menu hierarchy
+- **Population**: Simulated customers in geographic cells (H3)
 
-#### Code Generation
+### Agent Types
+- **Kitchen Agent**: Processes orders, manages cooking workflow
+- **Population Agent**: Generates customer orders based on demand patterns
+- **Movement Agent**: Simulates delivery logistics (future)
+
+See `crates/universe/src/agents/` for implementations.
+
+### Geospatial Model
+- Uses **H3 hexagonal indexing** for location representation
+- Functions in `crates/universe/src/functions/` handle geo operations
+- GeoArrow arrays for efficient spatial queries
+
+## Development Workflows
+
+### Adding a New Agent
+1. Create `crates/universe/src/agents/my_agent.rs`
+2. Implement the agent behavior (see `kitchen.rs` as example)
+3. Register in `crates/universe/src/agents/mod.rs`
+4. Add corresponding tests in `my_agent_tests.rs`
+5. Update simulation loop in `crates/universe/src/simulation/mod.rs`
+
+### Modifying Data Schema
+1. Edit `.proto` files in `proto/`
+2. Run `just generate` (regenerates Rust code)
+3. Update builders in `crates/universe/src/builders/`
+4. Update state management in `crates/universe/src/state/`
+5. Test with `cargo test`
+
+### Working with Arrow Data
+```rust
+// Preferred: Use DataFusion for complex operations
+let ctx = SessionContext::new();
+ctx.register_table("orders", orders_table)?;
+let df = ctx.sql("SELECT * FROM orders WHERE status = 'pending'").await?;
+
+// For simple operations: Use Arrow compute kernels
+use arrow::compute::filter;
+let filtered = filter(&array, &predicate_mask)?;
+```
+
+### Python Integration
+- Build bindings: `just build-py`
+- Python code in `python/` exposes Rust simulation to Python
+- Use for analysis, NOT for core simulation logic
+- Marimo notebooks in `notebooks/` for interactive exploration
+
+## Common Tasks
+
+### Running Different Simulation Modes
 ```bash
-just generate          # Regenerate protobuf code and format
+# Standard run
+just run 500
+
+# With tracing (requires Docker)
+just run-tracing
+cargo run --bin caspers -- run --duration 500
+
+# Server mode with TUI
+just server
+
+# Initialize fresh working directory
+just init
 ```
 
-#### Building
+### Debugging
+- Use `tracing` crate macros: `debug!()`, `info!()`, `warn!()`
+- Enable detailed logs: `RUST_LOG=debug cargo run`
+- Jaeger tracing: `just run-tracing` then visit http://localhost:16686
+
+### Testing
 ```bash
-cargo build            # Build Rust components
-just build-py          # Build Python bindings
+cargo test                          # All tests
+cargo test --package universe       # Package-specific
+cargo test kitchen                  # Pattern match
 ```
 
-#### Running Simulation
+## Performance Guidelines
+
+### DO
+- Use vectorized Arrow operations
+- Batch event writes
+- Pre-allocate Arrow builders with capacity
+- Use H3 indexing for spatial queries
+- Profile with `cargo flamegraph`
+
+### DON'T
+- Iterate row-by-row over Arrow arrays
+- Frequent small writes to Parquet
+- String allocations in hot loops
+- Unnecessary clones of large RecordBatches
+
+## Troubleshooting
+
+### "Generated code out of sync"
 ```bash
-just run               # Run simulation with default parameters
-cargo run --bin caspers-universe -- --duration 500 --dry-run
+just generate
+cargo clean
+cargo build
 ```
 
-## Data Flow
+### "Schema mismatch" errors
+- Check Arrow schema consistency in builders
+- Verify protobuf field types match Arrow types
+- Use `df.schema()` to inspect DataFusion table schemas
 
-1. **Setup Phase**: Load configuration from JSON files (sites, brands, menu items)
-2. **Initialization**: Create initial agent populations and state
-3. **Simulation Loop**:
-   - Agents make decisions based on current state
-   - State updates are applied using Arrow operations
-   - Snapshots are saved at intervals
-4. **Output**: Results saved as Parquet files for analysis
+### Python bindings fail to build
+```bash
+uv pip install maturin[zig]
+just build-py
+```
 
-## Performance Considerations
+### Large simulations OOM
+- Reduce snapshot frequency
+- Process data in chunks
+- Use streaming Parquet writes
+- Monitor with `cargo-instruments` (macOS) or `heaptrack` (Linux)
 
-- **Arrow Operations**: Prefer vectorized operations over row-by-row processing
-- **Memory Management**: Be mindful of large datasets in memory
-- **Geospatial Queries**: Use H3 indexing for efficient spatial lookups
-- **Time Complexity**: Consider simulation duration impact on performance
+## Related Documentation
 
-## Common Pitfalls
+- `README.md` - Entity relationships and legacy Python system
+- `ARCHITECTURE.md` - High-level design decisions (if exists)
+- `justfile` - All available commands and build tasks
+- `Cargo.toml` - Workspace dependencies and versions
+- `proto/` - Protocol buffer schema definitions
 
-1. **Generated Code Modifications**: Will be overwritten on next generation
-2. **Arrow Schema Mismatches**: Ensure consistent schemas across datasets
-3. **Time Zone Handling**: Be explicit about time zones in temporal operations
-4. **Memory Leaks**: Monitor memory usage with large simulations
-5. **Dependency Conflicts**: Use workspace dependencies to maintain consistency
+## File Conventions
 
-## Getting Help
+| Pattern | Usage |
+|---------|-------|
+| `*.proto` | Protocol buffer definitions |
+| `*_tests.rs` | Unit/integration tests |
+| `gen/*.rs` | Generated code - DO NOT EDIT |
+| `*.parquet` | Simulation output data |
+| `*.json` | Configuration files |
 
-1. **Architecture**: See `ARCHITECTURE.md` for high-level design
-2. **Business Logic**: See `README.md` for entity relationships
-3. **Build System**: See `justfile` for available commands
-4. **Dependencies**: Check workspace `Cargo.toml` for version constraints
+---
 
-## File Naming Conventions
-
-- **Rust modules**: `snake_case`
-- **Proto files**: `snake_case.proto`
-- **Generated files**: Follow protobuf naming conventions
-- **Data files**: Use descriptive names with appropriate extensions (`.parquet`, `.json`)
-
-Remember: This simulation generates realistic data for testing and development. Always consider the business context when making technical decisions.
+**Last Updated**: 2026-03-15
+**Simulation Version**: 0.0.1
+**Rust Edition**: 2024

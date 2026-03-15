@@ -155,6 +155,13 @@ impl KitchenHandler {
             .snapshots()
             .objects()
             .await?
+            // Explicitly select only expected object columns to prevent schema contamination
+            .select([
+                col("id"),
+                col("parent_id"),
+                col("label"),
+                col("properties"),
+            ])?
             .filter(col("label").in_list(
                 vec![
                     lit(ObjectLabel::Site.as_ref()),
@@ -170,9 +177,25 @@ impl KitchenHandler {
         let sites = extract_sites(objects.clone()).await?;
         let (brand_ids, menu_items) = extract_menu_items(objects.clone()).await?;
         let (stations, kitchens) = extract_kitchen_station(ctx, objects, brand_ids).await?;
-        let orders = ctx.snapshots().orders().await?.collect().await?;
+        // Load orders from snapshots
+        let orders_df = ctx.snapshots().orders().await?;
+        let orders = orders_df.collect().await?;
+
+        // Ensure we have the correct schema by reconstructing if needed
         let orders = if orders.iter().map(|b| b.num_rows()).sum::<usize>() > 0 {
-            orders
+            // Reconstruct with proper schema filtering
+            ctx.ctx()
+                .read_batches(orders.into_iter())?
+                .select([
+                    col("person_id"),
+                    col("order_id"),
+                    col("site_id"),
+                    col("submitted_at"),
+                    col("destination"),
+                    col("status"),
+                ])?
+                .collect()
+                .await?
         } else {
             vec![RecordBatch::new_empty(ORDER_STATE.clone())]
         };
@@ -215,7 +238,11 @@ impl KitchenHandler {
     ///
     /// A `Result` containing a [`DataFrame`] with the site data.
     pub(crate) fn sites(&self, ctx: &SimulationContext) -> Result<DataFrame> {
-        Ok(ctx.ctx().read_batches(self.sites.iter().cloned())?)
+        // Explicitly select only expected columns to prevent any schema contamination
+        Ok(ctx
+            .ctx()
+            .read_batches(self.sites.iter().cloned())?
+            .select([col("site_id"), col("name"), col("geometry")])?)
     }
 
     /// Kitchens installed across sites.
@@ -292,7 +319,18 @@ impl KitchenHandler {
                 .ctx()
                 .read_batch(RecordBatch::new_empty(ORDER_STATE.clone()))?);
         }
-        Ok(ctx.ctx().read_batches(self.orders.iter().cloned())?)
+        // Explicitly select only expected columns to prevent any schema contamination
+        Ok(ctx
+            .ctx()
+            .read_batches(self.orders.iter().cloned())?
+            .select([
+                col("person_id"),
+                col("order_id"),
+                col("site_id"),
+                col("submitted_at"),
+                col("destination"),
+                col("status"),
+            ])?)
     }
 
     pub(crate) fn order_lines(&self, ctx: &SimulationContext) -> Result<DataFrame> {
@@ -301,7 +339,22 @@ impl KitchenHandler {
                 .ctx()
                 .read_batch(RecordBatch::new_empty(ORDER_LINE_STATE.clone()))?);
         }
-        Ok(ctx.ctx().read_batches(self.order_lines.iter().cloned())?)
+        // Explicitly select only expected columns to prevent any schema contamination
+        Ok(ctx
+            .ctx()
+            .read_batches(self.order_lines.iter().cloned())?
+            .select([
+                col("order_id"),
+                col("order_line_id"),
+                col("menu_item_id"),
+                col("kitchen_id"),
+                col("submitted_at"),
+                col("current_step"),
+                col("total_steps"),
+                col("assigned_to"),
+                col("step_completion_time"),
+                col("is_complete"),
+            ])?)
     }
 
     pub(crate) async fn step(
@@ -476,7 +529,17 @@ impl KitchenHandler {
             // NOTE: we need to materialize here, to have
             // consistent order ids after cloning the frame. also perormance.
             .cache()
-            .await?;
+            .await?
+            // Explicitly select columns again after cache to ensure no extra columns
+            // leaked from the join operation (e.g., node_index from site routing data)
+            .select([
+                col("site_id"),
+                col("person_id"),
+                col("order_id"),
+                col("submitted_at"),
+                col("destination"),
+                col("items"),
+            ])?;
 
         let orders_count = orders.clone().count().await?;
         if orders_count == 0 {
@@ -704,6 +767,12 @@ impl KitchenHandler {
             .filter(col("all_complete").eq(lit(true)))?
             .cache()
             .await?;
+
+        // Check if any orders are completed - if not, return empty events
+        let completed_count = completed_orders.clone().count().await?;
+        if completed_count == 0 {
+            return EventsHelper::empty(ctx);
+        }
 
         // update the order status to completed
         let updated_orders = self

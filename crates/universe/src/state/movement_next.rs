@@ -117,6 +117,12 @@ impl MovementHandler {
     ) -> Result<Option<DataFrame>> {
         let journey_data = journey_data.cache().await?;
 
+        // Check if any journeys need to be planned - if not, return early
+        let journey_count = journey_data.clone().count().await?;
+        if journey_count == 0 {
+            return Ok(None);
+        }
+
         let origin_ids = journey_data
             .clone()
             .select([

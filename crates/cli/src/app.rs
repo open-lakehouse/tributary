@@ -49,6 +49,8 @@ pub struct App {
     pub completed: bool,
     pub should_quit: bool,
     pub scroll_offset: u16,
+    pub error: Option<String>,
+    pub thread_panicked: bool,
 }
 
 impl App {
@@ -62,7 +64,17 @@ impl App {
             completed: false,
             should_quit: false,
             scroll_offset: 0,
+            error: None,
+            thread_panicked: false,
         }
+    }
+
+    pub fn set_error(&mut self, error: String) {
+        self.error = Some(error);
+    }
+
+    pub fn set_thread_panicked(&mut self) {
+        self.thread_panicked = true;
     }
 
     pub fn push_step(&mut self, step: usize, sim_time: DateTime<Utc>, counts: HashMap<String, u64>) {
@@ -90,16 +102,33 @@ impl App {
 
     pub fn render(&self, frame: &mut Frame<'_>) {
         let area = frame.area();
-        let layout = Layout::vertical([
-            Constraint::Length(3),
-            Constraint::Length(5),
-            Constraint::Min(10),
-        ])
-        .split(area);
 
-        self.render_progress(frame, layout[0]);
-        self.render_summary(frame, layout[1]);
-        self.render_log(frame, layout[2]);
+        // If there's an error, show error panel
+        if self.error.is_some() || self.thread_panicked {
+            let layout = Layout::vertical([
+                Constraint::Length(3),
+                Constraint::Length(7), // Larger for error display
+                Constraint::Length(5),
+                Constraint::Min(10),
+            ])
+            .split(area);
+
+            self.render_progress(frame, layout[0]);
+            self.render_error(frame, layout[1]);
+            self.render_summary(frame, layout[2]);
+            self.render_log(frame, layout[3]);
+        } else {
+            let layout = Layout::vertical([
+                Constraint::Length(3),
+                Constraint::Length(5),
+                Constraint::Min(10),
+            ])
+            .split(area);
+
+            self.render_progress(frame, layout[0]);
+            self.render_summary(frame, layout[1]);
+            self.render_log(frame, layout[2]);
+        }
     }
 
     fn render_progress(&self, frame: &mut Frame<'_>, area: Rect) {
@@ -114,10 +143,21 @@ impl App {
             .map(|t| t.format("%H:%M").to_string())
             .unwrap_or_default();
 
-        let label = if self.completed {
-            format!("Completed {}/{} steps  [sim: {}]", self.current_step, self.total_steps, time_label)
+        let (label, color) = if self.error.is_some() || self.thread_panicked {
+            (
+                format!("FAILED at step {}/{}  [sim: {}]", self.current_step, self.total_steps, time_label),
+                Color::Red
+            )
+        } else if self.completed {
+            (
+                format!("Completed {}/{} steps  [sim: {}]", self.current_step, self.total_steps, time_label),
+                Color::Green
+            )
         } else {
-            format!("Step {}/{}  [sim: {}]", self.current_step, self.total_steps, time_label)
+            (
+                format!("Step {}/{}  [sim: {}]", self.current_step, self.total_steps, time_label),
+                Color::Cyan
+            )
         };
 
         let gauge = Gauge::default()
@@ -128,13 +168,51 @@ impl App {
             )
             .gauge_style(
                 Style::default()
-                    .fg(if self.completed { Color::Green } else { Color::Cyan })
+                    .fg(color)
                     .add_modifier(Modifier::BOLD),
             )
             .ratio(ratio)
             .label(label);
 
         frame.render_widget(gauge, area);
+    }
+
+    fn render_error(&self, frame: &mut Frame<'_>, area: Rect) {
+        let error_text = if self.thread_panicked {
+            "SIMULATION THREAD PANICKED\n\nThe simulation thread crashed unexpectedly. Check logs for details.".to_string()
+        } else if let Some(err) = &self.error {
+            format!("SIMULATION ERROR\n\n{}", err)
+        } else {
+            String::new()
+        };
+
+        let lines: Vec<Line<'_>> = error_text
+            .lines()
+            .map(|line| {
+                if line.starts_with("SIMULATION") {
+                    Line::from(Span::styled(
+                        line,
+                        Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                    ))
+                } else {
+                    Line::from(Span::styled(
+                        line,
+                        Style::default().fg(Color::White),
+                    ))
+                }
+            })
+            .collect();
+
+        let paragraph = Paragraph::new(lines)
+            .block(
+                Block::default()
+                    .title(" ⚠ Error Details ")
+                    .borders(Borders::ALL)
+                    .style(Style::default().fg(Color::Red)),
+            )
+            .wrap(Wrap { trim: true });
+
+        frame.render_widget(paragraph, area);
     }
 
     fn render_summary(&self, frame: &mut Frame<'_>, area: Rect) {

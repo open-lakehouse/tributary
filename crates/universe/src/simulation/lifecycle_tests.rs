@@ -315,3 +315,61 @@ async fn test_multiple_orders_lifecycle(
 
     Ok(())
 }
+
+/// Verify that order_ready events have the correct schema without unexpected columns
+#[rstest]
+#[tokio::test]
+async fn test_order_ready_event_schema(
+    #[future]
+    #[with(OrderSpec::Once(vec![1]))]
+    runner_fixed: Result<SimulationRunner>,
+) -> Result<()> {
+    let mut runner = runner_fixed.await?;
+    let result = runner.run(500).await?;
+
+    let ctx = runner.ctx.ctx();
+
+    // Get all order_ready events
+    let ready_events = result
+        .event_log()
+        .by_type(ctx, SimulationEvent::OrderReady.event_type())?;
+
+    // Collect and inspect schema
+    let batches = ready_events.collect().await?;
+
+    // Should have at least one order_ready event
+    assert!(
+        !batches.is_empty(),
+        "Expected at least one order_ready event"
+    );
+
+    for batch in &batches {
+        let schema = batch.schema();
+
+        println!("Order ready event schema:");
+        for field in schema.fields() {
+            println!("  - {}: {:?}", field.name(), field.data_type());
+        }
+
+        // Verify all fields are expected event fields
+        for field in schema.fields() {
+            let field_name = field.name();
+            assert!(
+                matches!(
+                    field_name.as_str(),
+                    "id" | "source" | "specversion" | "type" | "time" | "data"
+                ),
+                "Unexpected field in order_ready event: {}",
+                field_name
+            );
+        }
+
+        // Specifically check for node_index leak
+        assert!(
+            schema.column_with_name("node_index").is_none(),
+            "node_index column leaked into order_ready events"
+        );
+    }
+
+    Ok(())
+}
