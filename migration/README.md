@@ -51,7 +51,7 @@ Each phase has a detailed implementation plan with:
    - 10-100x performance improvement
    - **Status**: ✅ WEEK 1 COMPLETE + REFINED (2026-03-16)
    - **Week 1**: RecordBatch migration - [Details](PHASE_6_WEEK_1_COMPLETE.md) | [Refinement](PHASE_6_WEEK_1_REFINEMENT.md)
-   - **Week 2**: Snapshot/Restore - NOT STARTED
+   - **Week 2**: Snapshot/Restore - [PLAN READY](PHASE_6_WEEK_2_PLAN.md) ⏳ NOT STARTED
    - **Week 3**: Integration & Performance - NOT STARTED
    - **Parallelizable**: 4 independent tracks!
 
