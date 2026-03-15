@@ -1,0 +1,23 @@
+[package]
+name = "sim-kitchen"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+sim-core = { path = "../sim-core" }
+sim-geo = { path = "../sim-geo" }
+sim-events = { path = "../sim-events" }
+
+chrono = { workspace = true }
+geo = { version = "0.31", features = ["serde"] }
+rand = { version = "0.9" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+approx = "0.5.1"
+tempfile = "3"
