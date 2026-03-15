@@ -6,6 +6,6 @@ mod allocator;
 mod strategies;
 mod traits;
 
-pub use allocator::ResourceAllocator;
+pub use allocator::{ResourceAllocator, Assignment};
 pub use strategies::{LeastLoaded, Random, RoundRobin};
 pub use traits::{AllocationStrategy, Resource, Task};

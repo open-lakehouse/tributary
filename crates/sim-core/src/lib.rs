@@ -41,6 +41,7 @@ pub use context::{SimulationContext, SimulationConfig};
 pub use population::{Agent, AgentStatus, PopulationHandler};
 pub use resources::{Resource, Task, AllocationStrategy, ResourceAllocator};
 pub use workflows::{Workflow, WorkflowStep, WorkflowEngine};
+pub use runner::{SimulationRunner, SimulationHooks, SimulationStats, NoOpHooks};
 pub use utils::idents::{AgentId, ResourceId, TaskId, WorkflowId, LocationId};
 
 /// Result type used throughout the crate
