@@ -26,5 +26,11 @@ rand = { version = "0.9" }
 
 [dev-dependencies]
 approx = "0.5.1"
+criterion = { version = "0.5", features = ["html_reports"] }
 rstest = "0.26.0"
+sim-kitchen = { path = "../sim-kitchen" }
 tokio = { version = "1", features = ["full"] }
+
+[[bench]]
+name = "batch_operations"
+harness = false
