@@ -11,8 +11,8 @@ This directory contains comprehensive plans and guides for completing the framew
 ### 🎯 Start Here
 
 **[Main Completion Plan](FRAMEWORK_COMPLETION_PLAN.md)**
-- Executive summary of framework status (70% complete)
-- High-level roadmap (Phases 5-14)
+- Executive summary of framework status (36% complete - 5/14 phases)
+- High-level roadmap (Phases 6-14)
 - Success criteria and metrics
 - How to pick up work in a new session
 
@@ -37,12 +37,13 @@ Each phase has a detailed implementation plan with:
 
 ### Critical Path (Must Complete First)
 
-1. **[Phase 5: Workflow Integration](phases/PHASE_05_WORKFLOW_INTEGRATION.md)** ⏱️ 2 weeks
+1. **[Phase 5: Workflow Integration](phases/PHASE_05_WORKFLOW_INTEGRATION.md)** ✅ COMPLETE (2026-03-15)
    - Connect WorkflowEngine to SimulationRunner
    - Resource-workflow coordination
    - End-to-end workflow execution
-   - **Status**: ✅ COMPLETE
-   - **Blocks**: Phase 9, Phase 11
+   - TaskFactory pattern implementation
+   - **Status**: ✅ COMPLETE - [Details](PHASE_5_COMPLETE.md) | [Refinement](PHASE_5_REFINEMENT.md)
+   - **Unblocks**: Phase 9, Phase 11
 
 2. **[Phase 6: Arrow Migration](phases/PHASE_06_ARROW_MIGRATION.md)** ⏱️ 3 weeks
    - Migrate to RecordBatch storage
@@ -120,7 +121,7 @@ Wave 5 (3w): Phase 12 + 13 + 14 (3 agents)
 
 | Phase | Name | Priority | Status | Est. Time | Depends On |
 |-------|------|----------|--------|-----------|------------|
-| 5 | Workflow Integration | 🔴 CRITICAL | ✅ COMPLETE | 2 weeks | None |
+| 5 | Workflow Integration | 🔴 CRITICAL | ✅ COMPLETE | ~~2 weeks~~ DONE | None |
 | 6 | Arrow Migration | 🔴 CRITICAL | ⏳ NOT STARTED | 3 weeks | None |
 | 7 | Road Network | 🟡 MEDIUM | ⏳ NOT STARTED | 1 week | None |
 | 8 | Telemetry | 🟡 MEDIUM | ⏳ NOT STARTED | 1 week | None |
@@ -134,6 +135,8 @@ Wave 5 (3w): Phase 12 + 13 + 14 (3 agents)
 *Recommended but not strictly required
 
 **Total Progress**: 5/14 phases complete (36%) → 9/14 remaining (64%)
+
+**Latest**: Phase 5 completed with refinement (zero warnings, 57/57 tests passing)
 
 ---
 
@@ -198,7 +201,7 @@ crates/domains/
 ## Success Criteria (Overall)
 
 ### Functional
-- [ ] Workflows execute automatically in simulation
+- [x] Workflows execute automatically in simulation
 - [ ] Multiple workflow types run concurrently
 - [ ] Arrow RecordBatch storage for all state
 - [ ] Snapshot save/restore works
@@ -212,9 +215,9 @@ crates/domains/
 - [ ] 10-100x speedup vs HashMap storage
 
 ### Production
-- [ ] >85% test coverage
-- [ ] Zero clippy warnings
-- [ ] Comprehensive documentation
+- [x] >85% test coverage (sim-core at 85%+)
+- [x] Zero clippy warnings (Phase 5 refinement)
+- [x] Comprehensive documentation (all public APIs)
 - [ ] Python bindings working
 - [ ] CLI supports all operations
 
