@@ -1,6 +1,6 @@
 //! Core traits for resources and tasks
 
-use crate::utils::idents::{ResourceId, TaskId};
+use crate::utils::idents::{ResourceId, TaskId, WorkflowInstanceId};
 use chrono::Duration;
 use std::fmt;
 
@@ -98,6 +98,24 @@ pub trait Task: Send + Sync + fmt::Debug {
     /// Optional priority (higher = more urgent)
     fn priority(&self) -> i32 {
         0
+    }
+
+    /// Optional workflow instance this task belongs to
+    ///
+    /// Returns `Some(instance_id)` if this task was created by a workflow,
+    /// allowing the simulation to coordinate task completion with workflow progression.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// impl Task for Order {
+    ///     fn workflow_instance_id(&self) -> Option<WorkflowInstanceId> {
+    ///         self.workflow_instance_id
+    ///     }
+    /// }
+    /// ```
+    fn workflow_instance_id(&self) -> Option<WorkflowInstanceId> {
+        None
     }
 }
 

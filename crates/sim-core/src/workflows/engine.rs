@@ -4,8 +4,26 @@ use super::traits::{Workflow, WorkflowInstance};
 use crate::context::SimulationContext;
 use crate::utils::idents::{WorkflowId, WorkflowInstanceId};
 use crate::Result;
+use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 use std::marker::PhantomData;
+
+/// Events emitted by workflow progression
+#[derive(Debug, Clone)]
+pub enum WorkflowStepEvent {
+    /// A workflow step was completed
+    StepCompleted {
+        instance_id: WorkflowInstanceId,
+        step_index: usize,
+        completion_time: DateTime<Utc>,
+    },
+    /// An entire workflow was completed
+    WorkflowCompleted {
+        instance_id: WorkflowInstanceId,
+        workflow_id: WorkflowId,
+        completion_time: DateTime<Utc>,
+    },
+}
 
 /// Manages workflow execution
 ///
@@ -92,6 +110,89 @@ impl<W: Workflow> WorkflowEngine<W> {
     /// Get a mutable workflow instance
     pub fn get_instance_mut(&mut self, id: WorkflowInstanceId) -> Option<&mut WorkflowInstance> {
         self.instances.get_mut(&id)
+    }
+
+    /// Process workflow instances for current tick
+    ///
+    /// This method is called once per simulation tick to process time-based
+    /// workflow progressions. Currently, most workflows are resource-based
+    /// (progression happens via `advance_instance_step()`), so this mainly
+    /// serves as a hook for future time-based steps.
+    ///
+    /// # Arguments
+    ///
+    /// * `current_time` - Current simulation time
+    ///
+    /// # Returns
+    ///
+    /// Vector of workflow step events emitted during this tick
+    pub fn tick(&mut self, _current_time: DateTime<Utc>) -> Result<Vec<WorkflowStepEvent>> {
+        let events = Vec::new();
+
+        // For now, most workflows are resource-based (tasks complete when resources finish)
+        // In the future, we could add time-based steps (e.g., "wait 5 minutes")
+        // that would be processed here
+
+        Ok(events)
+    }
+
+    /// Advance instance to next step after task completion
+    ///
+    /// This method is called when a task associated with a workflow instance
+    /// completes. It marks the current step as complete and moves to the next step.
+    ///
+    /// # Arguments
+    ///
+    /// * `instance_id` - ID of the workflow instance to advance
+    /// * `completion_time` - Time when the task/step completed
+    ///
+    /// # Returns
+    ///
+    /// Optional workflow step event (StepCompleted or WorkflowCompleted)
+    pub fn advance_instance_step(
+        &mut self,
+        instance_id: WorkflowInstanceId,
+        completion_time: DateTime<Utc>,
+    ) -> Result<Option<WorkflowStepEvent>> {
+        let instance = self
+            .instances
+            .get_mut(&instance_id)
+            .ok_or_else(|| {
+                crate::Error::Workflow(format!("Workflow instance {} not found", instance_id))
+            })?;
+
+        // Check if workflow is already complete
+        if instance.is_complete {
+            return Err(crate::Error::Workflow(format!(
+                "Workflow instance {} is already complete",
+                instance_id
+            )));
+        }
+
+        // Store current step for event
+        let completed_step = instance.current_step;
+
+        // Mark current step complete and advance
+        instance.step_completion_time = None;
+        instance.current_step += 1;
+
+        // Check if workflow is complete
+        if instance.current_step >= instance.total_steps {
+            instance.is_complete = true;
+
+            return Ok(Some(WorkflowStepEvent::WorkflowCompleted {
+                instance_id,
+                workflow_id: instance.workflow_id,
+                completion_time,
+            }));
+        }
+
+        // Still has more steps
+        Ok(Some(WorkflowStepEvent::StepCompleted {
+            instance_id,
+            step_index: completed_step,
+            completion_time,
+        }))
     }
 
     /// Advance workflow instances
@@ -307,5 +408,126 @@ mod tests {
 
         let ready = engine.get_ready_instances();
         assert_eq!(ready.len(), 1);
+    }
+
+    #[test]
+    fn test_tick() {
+        let mut engine = WorkflowEngine::<TestWorkflow>::new();
+        let current_time = chrono::Utc::now();
+
+        let events = engine.tick(current_time).unwrap();
+
+        // For now, tick should return empty events (no time-based steps)
+        assert_eq!(events.len(), 0);
+    }
+
+    #[test]
+    fn test_advance_instance_step() {
+        let mut engine = WorkflowEngine::new();
+        let workflow = create_test_workflow();
+        let workflow_id = workflow.id();
+
+        engine.register_workflow(workflow);
+        let instance = engine.start_instance(workflow_id).unwrap();
+        let instance_id = instance.id;
+
+        let completion_time = chrono::Utc::now();
+
+        // Advance first step
+        let event = engine.advance_instance_step(instance_id, completion_time).unwrap();
+
+        assert!(event.is_some());
+        match event.unwrap() {
+            super::WorkflowStepEvent::StepCompleted { instance_id: id, step_index, .. } => {
+                assert_eq!(id, instance_id);
+                assert_eq!(step_index, 0);
+            },
+            _ => panic!("Expected StepCompleted event"),
+        }
+
+        let instance = engine.get_instance(instance_id).unwrap();
+        assert_eq!(instance.current_step, 1);
+        assert!(!instance.is_complete);
+    }
+
+    #[test]
+    fn test_advance_instance_step_complete_workflow() {
+        let mut engine = WorkflowEngine::new();
+        let workflow = create_test_workflow();
+        let workflow_id = workflow.id();
+
+        engine.register_workflow(workflow);
+        let instance = engine.start_instance(workflow_id).unwrap();
+        let instance_id = instance.id;
+
+        let completion_time = chrono::Utc::now();
+
+        // Advance through all steps
+        engine.advance_instance_step(instance_id, completion_time).unwrap();
+
+        let event = engine.advance_instance_step(instance_id, completion_time).unwrap();
+
+        assert!(event.is_some());
+        match event.unwrap() {
+            super::WorkflowStepEvent::WorkflowCompleted { instance_id: id, workflow_id: wf_id, .. } => {
+                assert_eq!(id, instance_id);
+                assert_eq!(wf_id, workflow_id);
+            },
+            _ => panic!("Expected WorkflowCompleted event"),
+        }
+
+        let instance = engine.get_instance(instance_id).unwrap();
+        assert_eq!(instance.current_step, 2);
+        assert!(instance.is_complete);
+    }
+
+    #[test]
+    fn test_advance_nonexistent_workflow_instance_fails() {
+        let mut engine = WorkflowEngine::new();
+        let workflow = create_test_workflow();
+
+        engine.register_workflow(workflow);
+
+        // Try to advance a non-existent instance
+        let fake_instance_id = WorkflowInstanceId::new();
+        let completion_time = chrono::Utc::now();
+
+        let result = engine.advance_instance_step(fake_instance_id, completion_time);
+
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            format!("Workflow error: Workflow instance {} not found", fake_instance_id)
+        );
+    }
+
+    #[test]
+    fn test_advance_already_complete_workflow_fails() {
+        let mut engine = WorkflowEngine::new();
+        let workflow = create_test_workflow();
+        let workflow_id = workflow.id();
+
+        engine.register_workflow(workflow);
+        let instance = engine.start_instance(workflow_id).unwrap();
+        let instance_id = instance.id;
+
+        let completion_time = chrono::Utc::now();
+
+        // Advance through all steps to complete the workflow
+        engine.advance_instance_step(instance_id, completion_time).unwrap();
+        engine.advance_instance_step(instance_id, completion_time).unwrap();
+
+        // Verify workflow is complete
+        let instance = engine.get_instance(instance_id).unwrap();
+        assert!(instance.is_complete);
+
+        // Try to advance again
+        let result = engine.advance_instance_step(instance_id, completion_time);
+
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            format!("Workflow error: Workflow instance {} is already complete", instance_id)
+        );
     }
 }

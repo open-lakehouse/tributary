@@ -5,5 +5,5 @@
 mod engine;
 mod traits;
 
-pub use engine::WorkflowEngine;
+pub use engine::{WorkflowEngine, WorkflowStepEvent};
 pub use traits::{Workflow, WorkflowInstance, WorkflowStep};

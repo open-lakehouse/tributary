@@ -105,10 +105,9 @@ def site_plot(dropdown, setup):
 
 @app.cell
 def _(dropdown, setup):
-    from lonboard import Map, H3HexagonLayer
-    from lonboard.basemap import CartoStyle, MaplibreBasemap
     import h3
-
+    from lonboard import H3HexagonLayer, Map
+    from lonboard.basemap import CartoStyle, MaplibreBasemap
     from pyarrow import Table
 
     # from shapely.geometry import Po

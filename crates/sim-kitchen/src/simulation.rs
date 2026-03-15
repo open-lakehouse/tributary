@@ -294,7 +294,8 @@ pub fn process_demands(
         }
 
         // Allocate orders to kitchens
-        let _assignments = allocator.assign_tasks(&LeastLoaded)?;
+        let current_time = chrono::Utc::now();
+        let _assignments = allocator.assign_tasks(&LeastLoaded, current_time)?;
     }
 
     Ok(())
