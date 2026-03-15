@@ -40,6 +40,11 @@ macro_rules! define_id {
                 self.0.as_bytes()
             }
 
+            /// Create from bytes (16 bytes)
+            pub fn from_bytes(bytes: &[u8]) -> Result<Self, uuid::Error> {
+                Ok(Self(Uuid::from_slice(bytes)?))
+            }
+
             /// Parse from string
             pub fn parse(s: &str) -> Result<Self, uuid::Error> {
                 Ok(Self(Uuid::parse_str(s)?))

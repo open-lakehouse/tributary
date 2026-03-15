@@ -91,6 +91,41 @@ pub struct AgentTickResult {
     pub state_changes: HashMap<String, Value>,
 }
 
+/// A row representation of an agent for Arrow storage
+///
+/// This struct represents a single agent as it appears in a RecordBatch row.
+/// It contains all the fields needed to reconstruct an agent from columnar storage.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use sim_core::population::ArrowAgentRow;
+///
+/// let row = ArrowAgentRow {
+///     id: agent_id.as_bytes().to_vec(),
+///     agent_type: "customer".to_string(),
+///     status: "idle".to_string(),
+///     position_x: Some(10.5),
+///     position_y: Some(20.3),
+///     metadata: Some("{\"balance\": 100}".to_string()),
+/// };
+/// ```
+#[derive(Debug, Clone)]
+pub struct ArrowAgentRow {
+    /// Agent ID as 16-byte binary representation
+    pub id: Vec<u8>,
+    /// Agent type identifier
+    pub agent_type: String,
+    /// Agent status as string
+    pub status: String,
+    /// X coordinate (None for non-spatial agents)
+    pub position_x: Option<f64>,
+    /// Y coordinate (None for non-spatial agents)
+    pub position_y: Option<f64>,
+    /// JSON-encoded metadata for domain-specific fields
+    pub metadata: Option<String>,
+}
+
 /// An agent that exists in the simulation
 ///
 /// This is the core trait that all agents must implement. Agents are entities with behavior
@@ -132,7 +167,7 @@ pub struct AgentTickResult {
 ///     }
 /// }
 /// ```
-pub trait Agent: Send + Sync {
+pub trait Agent: Clone + Send + Sync + 'static {
     /// Unique identifier for this agent
     fn id(&self) -> AgentId;
 
@@ -175,6 +210,80 @@ pub trait Agent: Send + Sync {
     fn state_data(&self) -> Value {
         Value::Object(serde_json::Map::new())
     }
+
+    /// Convert agent to Arrow row representation
+    ///
+    /// This method serializes the agent into a row format suitable for storage in
+    /// an Apache Arrow RecordBatch. The default implementation uses the standard
+    /// agent methods and JSON serialization for metadata.
+    ///
+    /// Override this method if you need custom serialization logic.
+    ///
+    /// # Returns
+    ///
+    /// An `ArrowAgentRow` containing all the agent's data
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// fn to_arrow_row(&self) -> ArrowAgentRow {
+    ///     ArrowAgentRow {
+    ///         id: self.id().as_bytes().to_vec(),
+    ///         agent_type: self.agent_type().to_string(),
+    ///         status: self.status().as_str().to_string(),
+    ///         position_x: self.position().map(|p| p.x()),
+    ///         position_y: self.position().map(|p| p.y()),
+    ///         metadata: serde_json::to_string(&self.state_data()).ok(),
+    ///     }
+    /// }
+    /// ```
+    fn to_arrow_row(&self) -> ArrowAgentRow {
+        ArrowAgentRow {
+            id: self.id().as_bytes().to_vec(),
+            agent_type: self.agent_type().to_string(),
+            status: self.status().as_str().to_string(),
+            position_x: self.position().map(|p| p.x()),
+            position_y: self.position().map(|p| p.y()),
+            metadata: serde_json::to_string(&self.state_data()).ok(),
+        }
+    }
+
+    /// Reconstruct agent from Arrow row representation
+    ///
+    /// This method deserializes an agent from its row representation in a RecordBatch.
+    /// You must implement this method to support Arrow storage.
+    ///
+    /// # Arguments
+    ///
+    /// * `row` - The Arrow row containing agent data
+    ///
+    /// # Returns
+    ///
+    /// Result containing the reconstructed agent or an error
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the row data cannot be deserialized into the agent type.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// fn from_arrow_row(row: &ArrowAgentRow) -> Result<Self> {
+    ///     let id = AgentId::from_uuid(
+    ///         Uuid::from_slice(&row.id)
+    ///             .map_err(|e| Error::Agent(format!("Invalid UUID: {}", e)))?
+    ///     );
+    ///
+    ///     let status = match row.status.as_str() {
+    ///         "idle" => CustomerStatus::Idle,
+    ///         "ordering" => CustomerStatus::Ordering,
+    ///         _ => return Err(Error::Agent("Unknown status".into())),
+    ///     };
+    ///
+    ///     Ok(Customer { id, status, ... })
+    /// }
+    /// ```
+    fn from_arrow_row(row: &ArrowAgentRow) -> Result<Self>;
 }
 
 #[cfg(test)]
@@ -201,6 +310,7 @@ mod tests {
         }
     }
 
+    #[derive(Clone)]
     struct TestAgent {
         id: AgentId,
         status: TestStatus,
@@ -227,6 +337,20 @@ mod tests {
         fn tick(&mut self, _ctx: &SimulationContext) -> Result<AgentTickResult> {
             self.tick_count += 1;
             Ok(AgentTickResult::default())
+        }
+
+        fn from_arrow_row(row: &ArrowAgentRow) -> Result<Self> {
+            use crate::Error;
+            let id = AgentId::from_uuid(
+                uuid::Uuid::from_slice(&row.id)
+                    .map_err(|e| Error::Agent(format!("Invalid UUID: {}", e)))?,
+            );
+
+            Ok(TestAgent {
+                id,
+                status: TestStatus::Idle,
+                tick_count: 0,
+            })
         }
     }
 

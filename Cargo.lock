@@ -4137,6 +4137,7 @@ dependencies = [
  "sim-core",
  "thiserror 2.0.17",
  "tokio",
+ "wkb",
 ]
 
 [[package]]

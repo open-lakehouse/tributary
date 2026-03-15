@@ -262,7 +262,7 @@ where
 
             // Step 2: Get completed tasks from resources and advance workflow instances
             if let Some(resources) = &mut self.resources {
-                let completed_tasks = resources.get_completed_tasks(current_time);
+                let completed_tasks = resources.get_completed_tasks(current_time)?;
 
                 // Step 3: Advance workflow instances for completed tasks
                 for (_task_id, instance_id) in completed_tasks {
@@ -290,7 +290,7 @@ where
                         let task = task_factory.create_task(instance_id, &step, time);
 
                         // Add task to resource allocator
-                        resources.add_task(task);
+                        let _ = resources.add_task(task);
                     }
                 }
             }
@@ -326,9 +326,11 @@ where
 
             // Get pending tasks with workflow instance IDs before allocation
             let mut workflow_tasks = Vec::new();
-            for (task_id, task) in resources.pending_tasks() {
-                if let Some(instance_id) = task.workflow_instance_id() {
-                    workflow_tasks.push((task_id, instance_id, task.estimated_duration()));
+            for (task_id, _) in resources.pending_tasks() {
+                if let Some(instance_id) = resources.get_task_workflow_instance_id(task_id) {
+                    if let Some(duration) = resources.get_task_estimated_duration(task_id) {
+                        workflow_tasks.push((task_id, instance_id, duration));
+                    }
                 }
             }
 
@@ -341,7 +343,7 @@ where
                 for (task_id, instance_id, duration) in workflow_tasks {
                     // Check if this task was assigned
                     if assignments.iter().any(|a| a.task_id == task_id)
-                        && let Some(instance) = workflows.get_instance_mut(instance_id)
+                        && let Some(mut instance) = workflows.get_instance_mut(instance_id)
                     {
                         let expected_completion = current_time + duration;
                         instance.mark_assigned(expected_completion);
@@ -435,17 +437,18 @@ mod tests {
     use crate::population::AgentStatus;
     use crate::utils::idents::{AgentId, ResourceId, TaskId, WorkflowId};
     use crate::workflows::WorkflowStep;
+    use crate::Error;
     use geo::Point;
     use std::sync::{Arc, Mutex};
 
     // Test agent
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     struct TestAgent {
         id: AgentId,
         tick_count: usize,
     }
 
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     struct TestStatus;
 
     impl AgentStatus for TestStatus {
@@ -474,6 +477,18 @@ mod tests {
         fn tick(&mut self, _ctx: &SimulationContext) -> Result<AgentTickResult> {
             self.tick_count += 1;
             Ok(AgentTickResult::default())
+        }
+
+        fn from_arrow_row(row: &crate::population::ArrowAgentRow) -> Result<Self> {
+            let id = AgentId::from_uuid(
+                uuid::Uuid::from_slice(&row.id)
+                    .map_err(|e| crate::Error::Agent(format!("Invalid UUID: {}", e)))?,
+            );
+
+            Ok(TestAgent {
+                id,
+                tick_count: 0,
+            })
         }
     }
 

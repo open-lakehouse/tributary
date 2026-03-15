@@ -21,6 +21,7 @@ thiserror = { workspace = true }
 geoarrow = { workspace = true }
 geoarrow-array = { workspace = true }
 geoarrow-schema = { workspace = true }
+wkb = "0.9"
 geo = { version = "0.31", features = ["serde"] }
 geo-types = { version = "0.7.16", features = ["serde"] }
 geo-traits = "0.3"
