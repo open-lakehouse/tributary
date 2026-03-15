@@ -53,7 +53,7 @@ impl AgentStatus for CustomerStatus {
 /// 3. WaitingForFood → passive state
 /// 4. Eating → wait for eating duration
 /// 5. Done → ready for removal
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Customer {
     pub id: AgentId,
     pub status: CustomerStatus,
@@ -180,6 +180,90 @@ impl Agent for Customer {
 
         Ok(result)
     }
+
+    fn state_data(&self) -> serde_json::Value {
+        let mut map = serde_json::Map::new();
+
+        match &self.status {
+            CustomerStatus::WaitingForFood { order_id } => {
+                map.insert(
+                    "order_id".to_string(),
+                    serde_json::Value::String(order_id.clone()),
+                );
+            }
+            CustomerStatus::Eating { finish_time } => {
+                map.insert(
+                    "finish_time".to_string(),
+                    serde_json::Value::String(finish_time.to_rfc3339()),
+                );
+            }
+            _ => {}
+        }
+
+        serde_json::Value::Object(map)
+    }
+
+    fn from_arrow_row(row: &sim_core::population::ArrowAgentRow) -> sim_core::Result<Self> {
+        use uuid::Uuid;
+
+        // Parse UUID from binary ID
+        let id = AgentId::from_uuid(
+            Uuid::from_slice(&row.id)
+                .map_err(|e| sim_core::Error::Agent(format!("Invalid UUID: {}", e)))?,
+        );
+
+        // Deserialize status from string
+        let status = match row.status.as_str() {
+            "idle" => CustomerStatus::Idle,
+            "ordering" => CustomerStatus::Ordering,
+            "waiting_for_food" => {
+                // Extract order_id from metadata JSON
+                let metadata: serde_json::Value = if let Some(ref m) = row.metadata {
+                    serde_json::from_str(m).unwrap_or_default()
+                } else {
+                    serde_json::Value::Null
+                };
+                let order_id = metadata
+                    .get("order_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                CustomerStatus::WaitingForFood { order_id }
+            }
+            "eating" => {
+                // Extract finish_time from metadata
+                let metadata: serde_json::Value = if let Some(ref m) = row.metadata {
+                    serde_json::from_str(m).unwrap_or_default()
+                } else {
+                    serde_json::Value::Null
+                };
+                let finish_time = metadata
+                    .get("finish_time")
+                    .and_then(|v| v.as_str())
+                    .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+                    .map(|dt| dt.with_timezone(&chrono::Utc))
+                    .unwrap_or_else(chrono::Utc::now);
+                CustomerStatus::Eating { finish_time }
+            }
+            "done" => CustomerStatus::Done,
+            _ => CustomerStatus::Idle,
+        };
+
+        // Parse location from position_x/position_y
+        let location = if let (Some(x), Some(y)) = (row.position_x, row.position_y) {
+            geo::Point::new(x, y)
+        } else {
+            geo::Point::new(0.0, 0.0) // Default location
+        };
+
+        Ok(Customer {
+            id,
+            status,
+            location,
+            order_probability: 0.1,
+            eating_duration: chrono::Duration::minutes(20),
+        })
+    }
 }
 
 #[cfg(test)]
@@ -238,6 +322,47 @@ mod tests {
                 assert_eq!(finish_time, now + customer.eating_duration);
             }
             _ => panic!("Expected Eating status"),
+        }
+    }
+
+    #[test]
+    fn test_customer_arrow_round_trip() {
+        use sim_core::population::ArrowAgentRow;
+
+        // Test all CustomerStatus variants
+        let test_cases = vec![
+            CustomerStatus::Idle,
+            CustomerStatus::Ordering,
+            CustomerStatus::WaitingForFood {
+                order_id: "ORDER123".to_string(),
+            },
+            CustomerStatus::Eating {
+                finish_time: chrono::Utc::now(),
+            },
+            CustomerStatus::Done,
+        ];
+
+        for status in test_cases {
+            let customer = Customer {
+                id: AgentId::new(),
+                status,
+                location: geo::Point::new(1.0, 2.0),
+                order_probability: 0.1,
+                eating_duration: chrono::Duration::minutes(20),
+            };
+
+            // Convert to Arrow row
+            let row: ArrowAgentRow = customer.to_arrow_row();
+
+            // Convert back
+            let restored = Customer::from_arrow_row(&row).unwrap();
+
+            // Verify key fields match
+            assert_eq!(customer.id, restored.id);
+            assert_eq!(
+                format!("{:?}", customer.status),
+                format!("{:?}", restored.status)
+            );
         }
     }
 }

@@ -17,6 +17,7 @@ rand = { version = "0.9" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
+uuid = { workspace = true }
 
 [dev-dependencies]
 approx = "0.5.1"

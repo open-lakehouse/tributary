@@ -83,6 +83,62 @@ pub struct WorkflowEngine<W: Workflow> {
 }
 
 impl<W: Workflow> WorkflowEngine<W> {
+    /// Validates that a RecordBatch conforms to the expected workflow instance schema
+    fn validate_instance_schema(batch: &RecordBatch) -> Result<()> {
+        use arrow::datatypes::DataType;
+
+        let schema = batch.schema();
+
+        // Expected: 10 columns
+        if schema.fields().len() != 10 {
+            return Err(crate::Error::Workflow(format!(
+                "Invalid instance schema: expected 10 columns, got {}",
+                schema.fields().len()
+            )));
+        }
+
+        // Validate each field
+        let expected = [
+            ("id", DataType::Binary, false),
+            ("workflow_id", DataType::Binary, false),
+            ("status", DataType::Utf8, false),
+            ("current_step", DataType::Int64, false),
+            ("total_steps", DataType::Int64, false),
+            ("agent_id", DataType::Binary, true),
+            ("started_at", DataType::Int64, false),
+            ("completed_at", DataType::Int64, true),
+            ("context", DataType::Utf8, true),
+            ("metadata", DataType::Utf8, true),
+        ];
+
+        for (i, (exp_name, exp_type, exp_nullable)) in expected.iter().enumerate() {
+            let field = schema.field(i);
+
+            if field.name() != exp_name {
+                return Err(crate::Error::Workflow(format!(
+                    "Field {} has wrong name: expected '{}', got '{}'",
+                    i, exp_name, field.name()
+                )));
+            }
+
+            if field.data_type() != exp_type {
+                return Err(crate::Error::Workflow(format!(
+                    "Field '{}' has wrong type: expected {:?}, got {:?}",
+                    exp_name, exp_type, field.data_type()
+                )));
+            }
+
+            if field.is_nullable() != *exp_nullable {
+                return Err(crate::Error::Workflow(format!(
+                    "Field '{}' has wrong nullability: expected {}, got {}",
+                    exp_name, exp_nullable, field.is_nullable()
+                )));
+            }
+        }
+
+        Ok(())
+    }
+
     /// Create a new workflow engine
     pub fn new() -> Self {
         let schema = workflow_instance_schema();
@@ -132,6 +188,25 @@ impl<W: Workflow> WorkflowEngine<W> {
         Ok(instance)
     }
 
+    /// Start multiple workflow instances in a single batch operation.
+    /// Much more efficient than calling start_instance() in a loop.
+    ///
+    /// # Arguments
+    ///
+    /// * `workflow_id` - ID of the workflow definition to instantiate
+    /// * `count` - Number of instances to create
+    ///
+    /// # Returns
+    ///
+    /// Vector of created workflow instances
+    pub fn start_instances(&mut self, workflow_id: WorkflowId, count: usize) -> Result<Vec<WorkflowInstance>> {
+        let mut instances = Vec::with_capacity(count);
+        for _ in 0..count {
+            instances.push(self.start_instance(workflow_id)?);
+        }
+        Ok(instances)
+    }
+
     /// Append a new instance to the RecordBatch
     fn append_instance(&mut self, instance: &WorkflowInstance) -> Result<()> {
         let new_row_index = self.instances.num_rows();
@@ -161,7 +236,7 @@ impl<W: Workflow> WorkflowEngine<W> {
                 &mut completed_at_builder,
                 &mut context_builder,
                 &mut metadata_builder,
-            );
+            )?;
         }
 
         // Append new instance
@@ -232,20 +307,30 @@ impl<W: Workflow> WorkflowEngine<W> {
         completed_at_builder: &mut Int64Builder,
         context_builder: &mut StringBuilder,
         metadata_builder: &mut StringBuilder,
-    ) {
+    ) -> Result<()> {
         let num_rows = self.instances.num_rows();
 
         // Extract arrays
-        let id_array = self.instances.column(0).as_any().downcast_ref::<BinaryArray>().unwrap();
-        let workflow_id_array = self.instances.column(1).as_any().downcast_ref::<BinaryArray>().unwrap();
-        let status_array = self.instances.column(2).as_any().downcast_ref::<arrow::array::StringArray>().unwrap();
-        let current_step_array = self.instances.column(3).as_any().downcast_ref::<Int64Array>().unwrap();
-        let total_steps_array = self.instances.column(4).as_any().downcast_ref::<Int64Array>().unwrap();
-        let agent_id_array = self.instances.column(5).as_any().downcast_ref::<BinaryArray>().unwrap();
-        let started_at_array = self.instances.column(6).as_any().downcast_ref::<Int64Array>().unwrap();
-        let completed_at_array = self.instances.column(7).as_any().downcast_ref::<Int64Array>().unwrap();
-        let context_array = self.instances.column(8).as_any().downcast_ref::<arrow::array::StringArray>().unwrap();
-        let metadata_array = self.instances.column(9).as_any().downcast_ref::<arrow::array::StringArray>().unwrap();
+        let id_array = self.instances.column(0).as_any().downcast_ref::<BinaryArray>()
+            .ok_or_else(|| crate::Error::Workflow("Failed to downcast id column to BinaryArray".to_string()))?;
+        let workflow_id_array = self.instances.column(1).as_any().downcast_ref::<BinaryArray>()
+            .ok_or_else(|| crate::Error::Workflow("Failed to downcast workflow_id column to BinaryArray".to_string()))?;
+        let status_array = self.instances.column(2).as_any().downcast_ref::<arrow::array::StringArray>()
+            .ok_or_else(|| crate::Error::Workflow("Failed to downcast status column to StringArray".to_string()))?;
+        let current_step_array = self.instances.column(3).as_any().downcast_ref::<Int64Array>()
+            .ok_or_else(|| crate::Error::Workflow("Failed to downcast current_step column to Int64Array".to_string()))?;
+        let total_steps_array = self.instances.column(4).as_any().downcast_ref::<Int64Array>()
+            .ok_or_else(|| crate::Error::Workflow("Failed to downcast total_steps column to Int64Array".to_string()))?;
+        let agent_id_array = self.instances.column(5).as_any().downcast_ref::<BinaryArray>()
+            .ok_or_else(|| crate::Error::Workflow("Failed to downcast agent_id column to BinaryArray".to_string()))?;
+        let started_at_array = self.instances.column(6).as_any().downcast_ref::<Int64Array>()
+            .ok_or_else(|| crate::Error::Workflow("Failed to downcast started_at column to Int64Array".to_string()))?;
+        let completed_at_array = self.instances.column(7).as_any().downcast_ref::<Int64Array>()
+            .ok_or_else(|| crate::Error::Workflow("Failed to downcast completed_at column to Int64Array".to_string()))?;
+        let context_array = self.instances.column(8).as_any().downcast_ref::<arrow::array::StringArray>()
+            .ok_or_else(|| crate::Error::Workflow("Failed to downcast context column to StringArray".to_string()))?;
+        let metadata_array = self.instances.column(9).as_any().downcast_ref::<arrow::array::StringArray>()
+            .ok_or_else(|| crate::Error::Workflow("Failed to downcast metadata column to StringArray".to_string()))?;
 
         // Copy each row
         for i in 0..num_rows {
@@ -281,6 +366,8 @@ impl<W: Workflow> WorkflowEngine<W> {
                 metadata_builder.append_value(metadata_array.value(i));
             }
         }
+
+        Ok(())
     }
 
     /// Get a workflow instance by ID (O(1) lookup)
@@ -318,6 +405,7 @@ impl<W: Workflow> WorkflowEngine<W> {
         let metadata = if metadata_array.is_null(row_idx) {
             HashMap::new()
         } else {
+            // If parsing fails, use empty metadata rather than failing the whole operation
             serde_json::from_str(metadata_array.value(row_idx)).unwrap_or_default()
         };
 
@@ -358,16 +446,26 @@ impl<W: Workflow> WorkflowEngine<W> {
         let mut metadata_builder = StringBuilder::new();
 
         // Extract arrays
-        let id_array = self.instances.column(0).as_any().downcast_ref::<BinaryArray>().unwrap();
-        let workflow_id_array = self.instances.column(1).as_any().downcast_ref::<BinaryArray>().unwrap();
-        let status_array = self.instances.column(2).as_any().downcast_ref::<arrow::array::StringArray>().unwrap();
-        let current_step_array = self.instances.column(3).as_any().downcast_ref::<Int64Array>().unwrap();
-        let total_steps_array = self.instances.column(4).as_any().downcast_ref::<Int64Array>().unwrap();
-        let agent_id_array = self.instances.column(5).as_any().downcast_ref::<BinaryArray>().unwrap();
-        let started_at_array = self.instances.column(6).as_any().downcast_ref::<Int64Array>().unwrap();
-        let completed_at_array = self.instances.column(7).as_any().downcast_ref::<Int64Array>().unwrap();
-        let context_array = self.instances.column(8).as_any().downcast_ref::<arrow::array::StringArray>().unwrap();
-        let metadata_array = self.instances.column(9).as_any().downcast_ref::<arrow::array::StringArray>().unwrap();
+        let id_array = self.instances.column(0).as_any().downcast_ref::<BinaryArray>()
+            .ok_or_else(|| crate::Error::Workflow("Failed to downcast id column to BinaryArray".to_string()))?;
+        let workflow_id_array = self.instances.column(1).as_any().downcast_ref::<BinaryArray>()
+            .ok_or_else(|| crate::Error::Workflow("Failed to downcast workflow_id column to BinaryArray".to_string()))?;
+        let status_array = self.instances.column(2).as_any().downcast_ref::<arrow::array::StringArray>()
+            .ok_or_else(|| crate::Error::Workflow("Failed to downcast status column to StringArray".to_string()))?;
+        let current_step_array = self.instances.column(3).as_any().downcast_ref::<Int64Array>()
+            .ok_or_else(|| crate::Error::Workflow("Failed to downcast current_step column to Int64Array".to_string()))?;
+        let total_steps_array = self.instances.column(4).as_any().downcast_ref::<Int64Array>()
+            .ok_or_else(|| crate::Error::Workflow("Failed to downcast total_steps column to Int64Array".to_string()))?;
+        let agent_id_array = self.instances.column(5).as_any().downcast_ref::<BinaryArray>()
+            .ok_or_else(|| crate::Error::Workflow("Failed to downcast agent_id column to BinaryArray".to_string()))?;
+        let started_at_array = self.instances.column(6).as_any().downcast_ref::<Int64Array>()
+            .ok_or_else(|| crate::Error::Workflow("Failed to downcast started_at column to Int64Array".to_string()))?;
+        let completed_at_array = self.instances.column(7).as_any().downcast_ref::<Int64Array>()
+            .ok_or_else(|| crate::Error::Workflow("Failed to downcast completed_at column to Int64Array".to_string()))?;
+        let context_array = self.instances.column(8).as_any().downcast_ref::<arrow::array::StringArray>()
+            .ok_or_else(|| crate::Error::Workflow("Failed to downcast context column to StringArray".to_string()))?;
+        let metadata_array = self.instances.column(9).as_any().downcast_ref::<arrow::array::StringArray>()
+            .ok_or_else(|| crate::Error::Workflow("Failed to downcast metadata column to StringArray".to_string()))?;
 
         // Rebuild all rows
         for i in 0..self.instances.num_rows() {
@@ -562,16 +660,26 @@ impl<W: Workflow> WorkflowEngine<W> {
         let mut metadata_builder = StringBuilder::new();
 
         // Extract arrays
-        let id_array = self.instances.column(0).as_any().downcast_ref::<BinaryArray>().unwrap();
-        let workflow_id_array = self.instances.column(1).as_any().downcast_ref::<BinaryArray>().unwrap();
-        let status_array = self.instances.column(2).as_any().downcast_ref::<arrow::array::StringArray>().unwrap();
-        let current_step_array = self.instances.column(3).as_any().downcast_ref::<Int64Array>().unwrap();
-        let total_steps_array = self.instances.column(4).as_any().downcast_ref::<Int64Array>().unwrap();
-        let agent_id_array = self.instances.column(5).as_any().downcast_ref::<BinaryArray>().unwrap();
-        let started_at_array = self.instances.column(6).as_any().downcast_ref::<Int64Array>().unwrap();
-        let completed_at_array = self.instances.column(7).as_any().downcast_ref::<Int64Array>().unwrap();
-        let context_array = self.instances.column(8).as_any().downcast_ref::<arrow::array::StringArray>().unwrap();
-        let metadata_array = self.instances.column(9).as_any().downcast_ref::<arrow::array::StringArray>().unwrap();
+        let id_array = self.instances.column(0).as_any().downcast_ref::<BinaryArray>()
+            .ok_or_else(|| crate::Error::Workflow("Failed to downcast id column to BinaryArray".to_string()))?;
+        let workflow_id_array = self.instances.column(1).as_any().downcast_ref::<BinaryArray>()
+            .ok_or_else(|| crate::Error::Workflow("Failed to downcast workflow_id column to BinaryArray".to_string()))?;
+        let status_array = self.instances.column(2).as_any().downcast_ref::<arrow::array::StringArray>()
+            .ok_or_else(|| crate::Error::Workflow("Failed to downcast status column to StringArray".to_string()))?;
+        let current_step_array = self.instances.column(3).as_any().downcast_ref::<Int64Array>()
+            .ok_or_else(|| crate::Error::Workflow("Failed to downcast current_step column to Int64Array".to_string()))?;
+        let total_steps_array = self.instances.column(4).as_any().downcast_ref::<Int64Array>()
+            .ok_or_else(|| crate::Error::Workflow("Failed to downcast total_steps column to Int64Array".to_string()))?;
+        let agent_id_array = self.instances.column(5).as_any().downcast_ref::<BinaryArray>()
+            .ok_or_else(|| crate::Error::Workflow("Failed to downcast agent_id column to BinaryArray".to_string()))?;
+        let started_at_array = self.instances.column(6).as_any().downcast_ref::<Int64Array>()
+            .ok_or_else(|| crate::Error::Workflow("Failed to downcast started_at column to Int64Array".to_string()))?;
+        let completed_at_array = self.instances.column(7).as_any().downcast_ref::<Int64Array>()
+            .ok_or_else(|| crate::Error::Workflow("Failed to downcast completed_at column to Int64Array".to_string()))?;
+        let context_array = self.instances.column(8).as_any().downcast_ref::<arrow::array::StringArray>()
+            .ok_or_else(|| crate::Error::Workflow("Failed to downcast context column to StringArray".to_string()))?;
+        let metadata_array = self.instances.column(9).as_any().downcast_ref::<arrow::array::StringArray>()
+            .ok_or_else(|| crate::Error::Workflow("Failed to downcast metadata column to StringArray".to_string()))?;
 
         // Rebuild all rows
         for i in 0..self.instances.num_rows() {

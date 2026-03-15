@@ -9,6 +9,8 @@ mod traits;
 
 #[cfg(test)]
 mod arrow_tests;
+#[cfg(test)]
+mod batch_performance_tests;
 
 pub use handler::PopulationHandler;
 pub use schema::agent_schema;

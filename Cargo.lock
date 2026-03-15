@@ -4155,6 +4155,7 @@ dependencies = [
  "sim-geo",
  "tempfile",
  "thiserror 2.0.17",
+ "uuid",
 ]
 
 [[package]]

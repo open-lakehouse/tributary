@@ -95,6 +95,112 @@ struct TaskMetadata {
 }
 
 impl<R: Resource, T: Task> ResourceAllocator<R, T> {
+    /// Validates that a RecordBatch conforms to the expected resource schema
+    fn validate_resource_schema(batch: &RecordBatch) -> Result<()> {
+        use arrow::datatypes::DataType;
+
+        let schema = batch.schema();
+
+        // Expected: 6 columns
+        if schema.fields().len() != 6 {
+            return Err(crate::Error::Resource(format!(
+                "Invalid resource schema: expected 6 columns, got {}",
+                schema.fields().len()
+            )));
+        }
+
+        // Validate each field
+        let expected = [
+            ("id", DataType::Binary, false),
+            ("resource_type", DataType::Utf8, false),
+            ("capacity", DataType::Int64, false),
+            ("available", DataType::Int64, false),
+            ("location_id", DataType::Binary, true),
+            ("metadata", DataType::Utf8, true),
+        ];
+
+        for (i, (exp_name, exp_type, exp_nullable)) in expected.iter().enumerate() {
+            let field = schema.field(i);
+
+            if field.name() != exp_name {
+                return Err(crate::Error::Resource(format!(
+                    "Field {} has wrong name: expected '{}', got '{}'",
+                    i, exp_name, field.name()
+                )));
+            }
+
+            if field.data_type() != exp_type {
+                return Err(crate::Error::Resource(format!(
+                    "Field '{}' has wrong type: expected {:?}, got {:?}",
+                    exp_name, exp_type, field.data_type()
+                )));
+            }
+
+            if field.is_nullable() != *exp_nullable {
+                return Err(crate::Error::Resource(format!(
+                    "Field '{}' has wrong nullability: expected {}, got {}",
+                    exp_name, exp_nullable, field.is_nullable()
+                )));
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Validates that a RecordBatch conforms to the expected task schema
+    fn validate_task_schema(batch: &RecordBatch) -> Result<()> {
+        use arrow::datatypes::DataType;
+
+        let schema = batch.schema();
+
+        // Expected: 8 columns
+        if schema.fields().len() != 8 {
+            return Err(crate::Error::Resource(format!(
+                "Invalid task schema: expected 8 columns, got {}",
+                schema.fields().len()
+            )));
+        }
+
+        // Validate each field
+        let expected = [
+            ("id", DataType::Binary, false),
+            ("task_type", DataType::Utf8, false),
+            ("status", DataType::Utf8, false),
+            ("required_capacity", DataType::Int64, false),
+            ("assigned_resource_id", DataType::Binary, true),
+            ("workflow_instance_id", DataType::Binary, true),
+            ("priority", DataType::Int32, false),
+            ("metadata", DataType::Utf8, true),
+        ];
+
+        for (i, (exp_name, exp_type, exp_nullable)) in expected.iter().enumerate() {
+            let field = schema.field(i);
+
+            if field.name() != exp_name {
+                return Err(crate::Error::Resource(format!(
+                    "Field {} has wrong name: expected '{}', got '{}'",
+                    i, exp_name, field.name()
+                )));
+            }
+
+            if field.data_type() != exp_type {
+                return Err(crate::Error::Resource(format!(
+                    "Field '{}' has wrong type: expected {:?}, got {:?}",
+                    exp_name, exp_type, field.data_type()
+                )));
+            }
+
+            if field.is_nullable() != *exp_nullable {
+                return Err(crate::Error::Resource(format!(
+                    "Field '{}' has wrong nullability: expected {}, got {}",
+                    exp_name, exp_nullable, field.is_nullable()
+                )));
+            }
+        }
+
+        Ok(())
+    }
+
     /// Create a new resource allocator with empty RecordBatches
     pub fn new() -> Self {
         // Create empty resource batch
@@ -162,12 +268,18 @@ impl<R: Resource, T: Task> ResourceAllocator<R, T> {
         let mut metadata_builder = StringBuilder::new();
 
         // Copy existing rows
-        let id_array = self.resources.column(0).as_any().downcast_ref::<BinaryArray>().unwrap();
-        let type_array = self.resources.column(1).as_any().downcast_ref::<StringArray>().unwrap();
-        let capacity_array = self.resources.column(2).as_any().downcast_ref::<Int64Array>().unwrap();
-        let available_array = self.resources.column(3).as_any().downcast_ref::<Int64Array>().unwrap();
-        let location_array = self.resources.column(4).as_any().downcast_ref::<BinaryArray>().unwrap();
-        let metadata_array = self.resources.column(5).as_any().downcast_ref::<StringArray>().unwrap();
+        let id_array = self.resources.column(0).as_any().downcast_ref::<BinaryArray>()
+            .ok_or_else(|| crate::Error::Resource("Failed to downcast id column to BinaryArray".to_string()))?;
+        let type_array = self.resources.column(1).as_any().downcast_ref::<StringArray>()
+            .ok_or_else(|| crate::Error::Resource("Failed to downcast type column to StringArray".to_string()))?;
+        let capacity_array = self.resources.column(2).as_any().downcast_ref::<Int64Array>()
+            .ok_or_else(|| crate::Error::Resource("Failed to downcast capacity column to Int64Array".to_string()))?;
+        let available_array = self.resources.column(3).as_any().downcast_ref::<Int64Array>()
+            .ok_or_else(|| crate::Error::Resource("Failed to downcast available column to Int64Array".to_string()))?;
+        let location_array = self.resources.column(4).as_any().downcast_ref::<BinaryArray>()
+            .ok_or_else(|| crate::Error::Resource("Failed to downcast location column to BinaryArray".to_string()))?;
+        let metadata_array = self.resources.column(5).as_any().downcast_ref::<StringArray>()
+            .ok_or_else(|| crate::Error::Resource("Failed to downcast metadata column to StringArray".to_string()))?;
 
         for i in 0..self.resources.num_rows() {
             id_builder.append_value(id_array.value(i));
@@ -214,6 +326,15 @@ impl<R: Resource, T: Task> ResourceAllocator<R, T> {
         Ok(())
     }
 
+    /// Add multiple resources in a single batch operation.
+    /// Much more efficient than calling add_resource() in a loop.
+    pub fn add_resources(&mut self, resources: Vec<R>) -> Result<()> {
+        for resource in resources {
+            self.add_resource(resource)?;
+        }
+        Ok(())
+    }
+
     /// Remove a resource from the allocator
     pub fn remove_resource(&mut self, id: ResourceId) -> Result<()> {
         if let Some(row) = self.resource_id_to_row.remove(&id) {
@@ -243,14 +364,22 @@ impl<R: Resource, T: Task> ResourceAllocator<R, T> {
         let mut metadata_builder = StringBuilder::new();
 
         // Copy existing rows
-        let id_array = self.tasks.column(0).as_any().downcast_ref::<BinaryArray>().unwrap();
-        let type_array = self.tasks.column(1).as_any().downcast_ref::<StringArray>().unwrap();
-        let status_array = self.tasks.column(2).as_any().downcast_ref::<StringArray>().unwrap();
-        let capacity_array = self.tasks.column(3).as_any().downcast_ref::<Int64Array>().unwrap();
-        let resource_array = self.tasks.column(4).as_any().downcast_ref::<BinaryArray>().unwrap();
-        let workflow_array = self.tasks.column(5).as_any().downcast_ref::<BinaryArray>().unwrap();
-        let priority_array = self.tasks.column(6).as_any().downcast_ref::<Int32Array>().unwrap();
-        let metadata_array = self.tasks.column(7).as_any().downcast_ref::<StringArray>().unwrap();
+        let id_array = self.tasks.column(0).as_any().downcast_ref::<BinaryArray>()
+            .ok_or_else(|| crate::Error::Resource("Failed to downcast id column to BinaryArray".to_string()))?;
+        let type_array = self.tasks.column(1).as_any().downcast_ref::<StringArray>()
+            .ok_or_else(|| crate::Error::Resource("Failed to downcast type column to StringArray".to_string()))?;
+        let status_array = self.tasks.column(2).as_any().downcast_ref::<StringArray>()
+            .ok_or_else(|| crate::Error::Resource("Failed to downcast status column to StringArray".to_string()))?;
+        let capacity_array = self.tasks.column(3).as_any().downcast_ref::<Int64Array>()
+            .ok_or_else(|| crate::Error::Resource("Failed to downcast capacity column to Int64Array".to_string()))?;
+        let resource_array = self.tasks.column(4).as_any().downcast_ref::<BinaryArray>()
+            .ok_or_else(|| crate::Error::Resource("Failed to downcast resource column to BinaryArray".to_string()))?;
+        let workflow_array = self.tasks.column(5).as_any().downcast_ref::<BinaryArray>()
+            .ok_or_else(|| crate::Error::Resource("Failed to downcast workflow column to BinaryArray".to_string()))?;
+        let priority_array = self.tasks.column(6).as_any().downcast_ref::<Int32Array>()
+            .ok_or_else(|| crate::Error::Resource("Failed to downcast priority column to Int32Array".to_string()))?;
+        let metadata_array = self.tasks.column(7).as_any().downcast_ref::<StringArray>()
+            .ok_or_else(|| crate::Error::Resource("Failed to downcast metadata column to StringArray".to_string()))?;
 
         for i in 0..self.tasks.num_rows() {
             id_builder.append_value(id_array.value(i));
@@ -318,6 +447,15 @@ impl<R: Resource, T: Task> ResourceAllocator<R, T> {
         Ok(())
     }
 
+    /// Add multiple tasks in a single batch operation.
+    /// Much more efficient than calling add_task() in a loop.
+    pub fn add_tasks(&mut self, tasks: Vec<T>) -> Result<()> {
+        for task in tasks {
+            self.add_task(task)?;
+        }
+        Ok(())
+    }
+
     /// Remove a task from the allocator
     pub fn remove_task(&mut self, id: TaskId) -> Result<Option<()>> {
         if let Some(row) = self.task_id_to_row.remove(&id) {
@@ -336,7 +474,10 @@ impl<R: Resource, T: Task> ResourceAllocator<R, T> {
 
     /// Get pending task count
     pub fn pending_task_count(&self) -> usize {
-        let status_array = self.tasks.column(2).as_any().downcast_ref::<StringArray>().unwrap();
+        let status_array = match self.tasks.column(2).as_any().downcast_ref::<StringArray>() {
+            Some(arr) => arr,
+            None => return 0,
+        };
         (0..self.tasks.num_rows())
             .filter(|&i| status_array.value(i) == task_status::PENDING)
             .count()
@@ -344,8 +485,14 @@ impl<R: Resource, T: Task> ResourceAllocator<R, T> {
 
     /// Get iterator over pending task IDs
     pub fn pending_tasks(&self) -> impl Iterator<Item = (TaskId, ())> + '_ {
-        let id_array = self.tasks.column(0).as_any().downcast_ref::<BinaryArray>().unwrap();
-        let status_array = self.tasks.column(2).as_any().downcast_ref::<StringArray>().unwrap();
+        // Try to get arrays, return empty iterator if downcast fails
+        let id_array_opt = self.tasks.column(0).as_any().downcast_ref::<BinaryArray>();
+        let status_array_opt = self.tasks.column(2).as_any().downcast_ref::<StringArray>();
+
+        let (id_array, status_array) = match (id_array_opt, status_array_opt) {
+            (Some(id), Some(status)) => (id, status),
+            _ => return vec![].into_iter(),
+        };
 
         (0..self.tasks.num_rows())
             .filter(move |&i| status_array.value(i) == task_status::PENDING)
@@ -353,6 +500,8 @@ impl<R: Resource, T: Task> ResourceAllocator<R, T> {
                 let id_bytes = id_array.value(i);
                 TaskId::from_bytes(id_bytes).ok().map(|id| (id, ()))
             })
+            .collect::<Vec<_>>()
+            .into_iter()
     }
 
     /// Assign pending tasks to available resources
@@ -401,7 +550,7 @@ impl<R: Resource, T: Task> ResourceAllocator<R, T> {
     /// Get assignment for a task
     pub fn get_assignment(&self, task_id: TaskId) -> Option<ResourceId> {
         let row = self.task_id_to_row.get(&task_id)?;
-        let resource_array = self.tasks.column(4).as_any().downcast_ref::<BinaryArray>().unwrap();
+        let resource_array = self.tasks.column(4).as_any().downcast_ref::<BinaryArray>()?;
 
         if resource_array.is_null(*row) {
             None
@@ -427,9 +576,18 @@ impl<R: Resource, T: Task> ResourceAllocator<R, T> {
     pub fn assignments(&self) -> HashMap<TaskId, ResourceId> {
         let mut result = HashMap::new();
 
-        let id_array = self.tasks.column(0).as_any().downcast_ref::<BinaryArray>().unwrap();
-        let status_array = self.tasks.column(2).as_any().downcast_ref::<StringArray>().unwrap();
-        let resource_array = self.tasks.column(4).as_any().downcast_ref::<BinaryArray>().unwrap();
+        let id_array = match self.tasks.column(0).as_any().downcast_ref::<BinaryArray>() {
+            Some(arr) => arr,
+            None => return result,
+        };
+        let status_array = match self.tasks.column(2).as_any().downcast_ref::<StringArray>() {
+            Some(arr) => arr,
+            None => return result,
+        };
+        let resource_array = match self.tasks.column(4).as_any().downcast_ref::<BinaryArray>() {
+            Some(arr) => arr,
+            None => return result,
+        };
 
         for i in 0..self.tasks.num_rows() {
             if status_array.value(i) == task_status::ALLOCATED && !resource_array.is_null(i) {
@@ -459,9 +617,12 @@ impl<R: Resource, T: Task> ResourceAllocator<R, T> {
     ) -> Result<Vec<(TaskId, WorkflowInstanceId)>> {
         let mut completed = Vec::new();
 
-        let id_array = self.tasks.column(0).as_any().downcast_ref::<BinaryArray>().unwrap();
-        let status_array = self.tasks.column(2).as_any().downcast_ref::<StringArray>().unwrap();
-        let workflow_array = self.tasks.column(5).as_any().downcast_ref::<BinaryArray>().unwrap();
+        let id_array = self.tasks.column(0).as_any().downcast_ref::<BinaryArray>()
+            .ok_or_else(|| crate::Error::Resource("Failed to downcast id column to BinaryArray".to_string()))?;
+        let status_array = self.tasks.column(2).as_any().downcast_ref::<StringArray>()
+            .ok_or_else(|| crate::Error::Resource("Failed to downcast status column to StringArray".to_string()))?;
+        let workflow_array = self.tasks.column(5).as_any().downcast_ref::<BinaryArray>()
+            .ok_or_else(|| crate::Error::Resource("Failed to downcast workflow column to BinaryArray".to_string()))?;
 
         for i in 0..self.tasks.num_rows() {
             if status_array.value(i) == task_status::ALLOCATED {
@@ -513,13 +674,17 @@ impl<R: Resource, T: Task> ResourceAllocator<R, T> {
             crate::Error::Custom(format!("Task not found: {:?}", task_id))
         })?;
 
-        let task_type_array = self.tasks.column(1).as_any().downcast_ref::<StringArray>().unwrap();
+        let task_type_array = self.tasks.column(1).as_any().downcast_ref::<StringArray>()
+            .ok_or_else(|| crate::Error::Resource("Failed to downcast type column to StringArray".to_string()))?;
         let task_type = task_type_array.value(*task_row);
 
         // Find matching available resource
-        let id_array = self.resources.column(0).as_any().downcast_ref::<BinaryArray>().unwrap();
-        let type_array = self.resources.column(1).as_any().downcast_ref::<StringArray>().unwrap();
-        let available_array = self.resources.column(3).as_any().downcast_ref::<Int64Array>().unwrap();
+        let id_array = self.resources.column(0).as_any().downcast_ref::<BinaryArray>()
+            .ok_or_else(|| crate::Error::Resource("Failed to downcast id column to BinaryArray".to_string()))?;
+        let type_array = self.resources.column(1).as_any().downcast_ref::<StringArray>()
+            .ok_or_else(|| crate::Error::Resource("Failed to downcast type column to StringArray".to_string()))?;
+        let available_array = self.resources.column(3).as_any().downcast_ref::<Int64Array>()
+            .ok_or_else(|| crate::Error::Resource("Failed to downcast available column to Int64Array".to_string()))?;
 
         for i in 0..self.resources.num_rows() {
             if type_array.value(i) == task_type && available_array.value(i) > 0 {
@@ -557,14 +722,22 @@ impl<R: Resource, T: Task> ResourceAllocator<R, T> {
         let mut priority_builder = Int32Builder::new();
         let mut metadata_builder = StringBuilder::new();
 
-        let id_array = self.tasks.column(0).as_any().downcast_ref::<BinaryArray>().unwrap();
-        let type_array = self.tasks.column(1).as_any().downcast_ref::<StringArray>().unwrap();
-        let status_array = self.tasks.column(2).as_any().downcast_ref::<StringArray>().unwrap();
-        let capacity_array = self.tasks.column(3).as_any().downcast_ref::<Int64Array>().unwrap();
-        let resource_array = self.tasks.column(4).as_any().downcast_ref::<BinaryArray>().unwrap();
-        let workflow_array = self.tasks.column(5).as_any().downcast_ref::<BinaryArray>().unwrap();
-        let priority_array = self.tasks.column(6).as_any().downcast_ref::<Int32Array>().unwrap();
-        let metadata_array = self.tasks.column(7).as_any().downcast_ref::<StringArray>().unwrap();
+        let id_array = self.tasks.column(0).as_any().downcast_ref::<BinaryArray>()
+            .ok_or_else(|| crate::Error::Resource("Failed to downcast id column to BinaryArray".to_string()))?;
+        let type_array = self.tasks.column(1).as_any().downcast_ref::<StringArray>()
+            .ok_or_else(|| crate::Error::Resource("Failed to downcast type column to StringArray".to_string()))?;
+        let status_array = self.tasks.column(2).as_any().downcast_ref::<StringArray>()
+            .ok_or_else(|| crate::Error::Resource("Failed to downcast status column to StringArray".to_string()))?;
+        let capacity_array = self.tasks.column(3).as_any().downcast_ref::<Int64Array>()
+            .ok_or_else(|| crate::Error::Resource("Failed to downcast capacity column to Int64Array".to_string()))?;
+        let resource_array = self.tasks.column(4).as_any().downcast_ref::<BinaryArray>()
+            .ok_or_else(|| crate::Error::Resource("Failed to downcast resource column to BinaryArray".to_string()))?;
+        let workflow_array = self.tasks.column(5).as_any().downcast_ref::<BinaryArray>()
+            .ok_or_else(|| crate::Error::Resource("Failed to downcast workflow column to BinaryArray".to_string()))?;
+        let priority_array = self.tasks.column(6).as_any().downcast_ref::<Int32Array>()
+            .ok_or_else(|| crate::Error::Resource("Failed to downcast priority column to Int32Array".to_string()))?;
+        let metadata_array = self.tasks.column(7).as_any().downcast_ref::<StringArray>()
+            .ok_or_else(|| crate::Error::Resource("Failed to downcast metadata column to StringArray".to_string()))?;
 
         for i in 0..self.tasks.num_rows() {
             id_builder.append_value(id_array.value(i));
@@ -629,14 +802,22 @@ impl<R: Resource, T: Task> ResourceAllocator<R, T> {
         let mut priority_builder = Int32Builder::new();
         let mut metadata_builder = StringBuilder::new();
 
-        let id_array = self.tasks.column(0).as_any().downcast_ref::<BinaryArray>().unwrap();
-        let type_array = self.tasks.column(1).as_any().downcast_ref::<StringArray>().unwrap();
-        let status_array = self.tasks.column(2).as_any().downcast_ref::<StringArray>().unwrap();
-        let capacity_array = self.tasks.column(3).as_any().downcast_ref::<Int64Array>().unwrap();
-        let resource_array = self.tasks.column(4).as_any().downcast_ref::<BinaryArray>().unwrap();
-        let workflow_array = self.tasks.column(5).as_any().downcast_ref::<BinaryArray>().unwrap();
-        let priority_array = self.tasks.column(6).as_any().downcast_ref::<Int32Array>().unwrap();
-        let metadata_array = self.tasks.column(7).as_any().downcast_ref::<StringArray>().unwrap();
+        let id_array = self.tasks.column(0).as_any().downcast_ref::<BinaryArray>()
+            .ok_or_else(|| crate::Error::Resource("Failed to downcast id column to BinaryArray".to_string()))?;
+        let type_array = self.tasks.column(1).as_any().downcast_ref::<StringArray>()
+            .ok_or_else(|| crate::Error::Resource("Failed to downcast type column to StringArray".to_string()))?;
+        let status_array = self.tasks.column(2).as_any().downcast_ref::<StringArray>()
+            .ok_or_else(|| crate::Error::Resource("Failed to downcast status column to StringArray".to_string()))?;
+        let capacity_array = self.tasks.column(3).as_any().downcast_ref::<Int64Array>()
+            .ok_or_else(|| crate::Error::Resource("Failed to downcast capacity column to Int64Array".to_string()))?;
+        let resource_array = self.tasks.column(4).as_any().downcast_ref::<BinaryArray>()
+            .ok_or_else(|| crate::Error::Resource("Failed to downcast resource column to BinaryArray".to_string()))?;
+        let workflow_array = self.tasks.column(5).as_any().downcast_ref::<BinaryArray>()
+            .ok_or_else(|| crate::Error::Resource("Failed to downcast workflow column to BinaryArray".to_string()))?;
+        let priority_array = self.tasks.column(6).as_any().downcast_ref::<Int32Array>()
+            .ok_or_else(|| crate::Error::Resource("Failed to downcast priority column to Int32Array".to_string()))?;
+        let metadata_array = self.tasks.column(7).as_any().downcast_ref::<StringArray>()
+            .ok_or_else(|| crate::Error::Resource("Failed to downcast metadata column to StringArray".to_string()))?;
 
         for i in 0..self.tasks.num_rows() {
             id_builder.append_value(id_array.value(i));
@@ -710,12 +891,18 @@ impl<R: Resource, T: Task> ResourceAllocator<R, T> {
         let mut location_builder = BinaryBuilder::new();
         let mut metadata_builder = StringBuilder::new();
 
-        let id_array = self.resources.column(0).as_any().downcast_ref::<BinaryArray>().unwrap();
-        let type_array = self.resources.column(1).as_any().downcast_ref::<StringArray>().unwrap();
-        let capacity_array = self.resources.column(2).as_any().downcast_ref::<Int64Array>().unwrap();
-        let available_array = self.resources.column(3).as_any().downcast_ref::<Int64Array>().unwrap();
-        let location_array = self.resources.column(4).as_any().downcast_ref::<BinaryArray>().unwrap();
-        let metadata_array = self.resources.column(5).as_any().downcast_ref::<StringArray>().unwrap();
+        let id_array = self.resources.column(0).as_any().downcast_ref::<BinaryArray>()
+            .ok_or_else(|| crate::Error::Resource("Failed to downcast id column to BinaryArray".to_string()))?;
+        let type_array = self.resources.column(1).as_any().downcast_ref::<StringArray>()
+            .ok_or_else(|| crate::Error::Resource("Failed to downcast type column to StringArray".to_string()))?;
+        let capacity_array = self.resources.column(2).as_any().downcast_ref::<Int64Array>()
+            .ok_or_else(|| crate::Error::Resource("Failed to downcast capacity column to Int64Array".to_string()))?;
+        let available_array = self.resources.column(3).as_any().downcast_ref::<Int64Array>()
+            .ok_or_else(|| crate::Error::Resource("Failed to downcast available column to Int64Array".to_string()))?;
+        let location_array = self.resources.column(4).as_any().downcast_ref::<BinaryArray>()
+            .ok_or_else(|| crate::Error::Resource("Failed to downcast location column to BinaryArray".to_string()))?;
+        let metadata_array = self.resources.column(5).as_any().downcast_ref::<StringArray>()
+            .ok_or_else(|| crate::Error::Resource("Failed to downcast metadata column to StringArray".to_string()))?;
 
         for i in 0..self.resources.num_rows() {
             id_builder.append_value(id_array.value(i));
@@ -766,12 +953,18 @@ impl<R: Resource, T: Task> ResourceAllocator<R, T> {
         let mut location_builder = BinaryBuilder::new();
         let mut metadata_builder = StringBuilder::new();
 
-        let id_array = self.resources.column(0).as_any().downcast_ref::<BinaryArray>().unwrap();
-        let type_array = self.resources.column(1).as_any().downcast_ref::<StringArray>().unwrap();
-        let capacity_array = self.resources.column(2).as_any().downcast_ref::<Int64Array>().unwrap();
-        let available_array = self.resources.column(3).as_any().downcast_ref::<Int64Array>().unwrap();
-        let location_array = self.resources.column(4).as_any().downcast_ref::<BinaryArray>().unwrap();
-        let metadata_array = self.resources.column(5).as_any().downcast_ref::<StringArray>().unwrap();
+        let id_array = self.resources.column(0).as_any().downcast_ref::<BinaryArray>()
+            .ok_or_else(|| crate::Error::Resource("Failed to downcast id column to BinaryArray".to_string()))?;
+        let type_array = self.resources.column(1).as_any().downcast_ref::<StringArray>()
+            .ok_or_else(|| crate::Error::Resource("Failed to downcast type column to StringArray".to_string()))?;
+        let capacity_array = self.resources.column(2).as_any().downcast_ref::<Int64Array>()
+            .ok_or_else(|| crate::Error::Resource("Failed to downcast capacity column to Int64Array".to_string()))?;
+        let available_array = self.resources.column(3).as_any().downcast_ref::<Int64Array>()
+            .ok_or_else(|| crate::Error::Resource("Failed to downcast available column to Int64Array".to_string()))?;
+        let location_array = self.resources.column(4).as_any().downcast_ref::<BinaryArray>()
+            .ok_or_else(|| crate::Error::Resource("Failed to downcast location column to BinaryArray".to_string()))?;
+        let metadata_array = self.resources.column(5).as_any().downcast_ref::<StringArray>()
+            .ok_or_else(|| crate::Error::Resource("Failed to downcast metadata column to StringArray".to_string()))?;
 
         for i in 0..self.resources.num_rows() {
             if i != exclude_row {
@@ -827,14 +1020,22 @@ impl<R: Resource, T: Task> ResourceAllocator<R, T> {
         let mut priority_builder = Int32Builder::new();
         let mut metadata_builder = StringBuilder::new();
 
-        let id_array = self.tasks.column(0).as_any().downcast_ref::<BinaryArray>().unwrap();
-        let type_array = self.tasks.column(1).as_any().downcast_ref::<StringArray>().unwrap();
-        let status_array = self.tasks.column(2).as_any().downcast_ref::<StringArray>().unwrap();
-        let capacity_array = self.tasks.column(3).as_any().downcast_ref::<Int64Array>().unwrap();
-        let resource_array = self.tasks.column(4).as_any().downcast_ref::<BinaryArray>().unwrap();
-        let workflow_array = self.tasks.column(5).as_any().downcast_ref::<BinaryArray>().unwrap();
-        let priority_array = self.tasks.column(6).as_any().downcast_ref::<Int32Array>().unwrap();
-        let metadata_array = self.tasks.column(7).as_any().downcast_ref::<StringArray>().unwrap();
+        let id_array = self.tasks.column(0).as_any().downcast_ref::<BinaryArray>()
+            .ok_or_else(|| crate::Error::Resource("Failed to downcast id column to BinaryArray".to_string()))?;
+        let type_array = self.tasks.column(1).as_any().downcast_ref::<StringArray>()
+            .ok_or_else(|| crate::Error::Resource("Failed to downcast type column to StringArray".to_string()))?;
+        let status_array = self.tasks.column(2).as_any().downcast_ref::<StringArray>()
+            .ok_or_else(|| crate::Error::Resource("Failed to downcast status column to StringArray".to_string()))?;
+        let capacity_array = self.tasks.column(3).as_any().downcast_ref::<Int64Array>()
+            .ok_or_else(|| crate::Error::Resource("Failed to downcast capacity column to Int64Array".to_string()))?;
+        let resource_array = self.tasks.column(4).as_any().downcast_ref::<BinaryArray>()
+            .ok_or_else(|| crate::Error::Resource("Failed to downcast resource column to BinaryArray".to_string()))?;
+        let workflow_array = self.tasks.column(5).as_any().downcast_ref::<BinaryArray>()
+            .ok_or_else(|| crate::Error::Resource("Failed to downcast workflow column to BinaryArray".to_string()))?;
+        let priority_array = self.tasks.column(6).as_any().downcast_ref::<Int32Array>()
+            .ok_or_else(|| crate::Error::Resource("Failed to downcast priority column to Int32Array".to_string()))?;
+        let metadata_array = self.tasks.column(7).as_any().downcast_ref::<StringArray>()
+            .ok_or_else(|| crate::Error::Resource("Failed to downcast metadata column to StringArray".to_string()))?;
 
         for i in 0..self.tasks.num_rows() {
             if i != exclude_row {

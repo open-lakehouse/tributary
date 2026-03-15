@@ -38,7 +38,7 @@ impl AgentStatus for TestStatus {
 }
 
 // Test agent
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct TestAgent {
     id: AgentId,
 }
@@ -62,6 +62,19 @@ impl Agent for TestAgent {
 
     fn tick(&mut self, _ctx: &SimulationContext) -> sim_core::Result<AgentTickResult> {
         Ok(AgentTickResult::default())
+    }
+
+    fn from_arrow_row(
+        row: &sim_core::population::ArrowAgentRow,
+    ) -> sim_core::Result<Self> {
+        use uuid::Uuid;
+
+        let id = AgentId::from_uuid(
+            Uuid::from_slice(&row.id)
+                .map_err(|e| sim_core::Error::Agent(format!("Invalid UUID: {}", e)))?,
+        );
+
+        Ok(TestAgent { id })
     }
 }
 

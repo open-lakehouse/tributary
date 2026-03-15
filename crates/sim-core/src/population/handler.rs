@@ -79,6 +79,58 @@ pub struct PopulationHandler<A: Agent> {
 }
 
 impl<A: Agent> PopulationHandler<A> {
+    /// Validates that a RecordBatch conforms to the expected agent schema
+    fn validate_agent_schema(batch: &RecordBatch) -> Result<()> {
+        use arrow::datatypes::DataType;
+
+        let schema = batch.schema();
+
+        // Expected: 6 columns
+        if schema.fields().len() != 6 {
+            return Err(Error::Agent(format!(
+                "Invalid agent schema: expected 6 columns, got {}",
+                schema.fields().len()
+            )));
+        }
+
+        // Validate each field
+        let expected = [
+            ("id", DataType::FixedSizeBinary(16), false),
+            ("agent_type", DataType::Utf8, false),
+            ("status", DataType::Utf8, false),
+            ("position_x", DataType::Float64, true),
+            ("position_y", DataType::Float64, true),
+            ("metadata", DataType::Utf8, true),
+        ];
+
+        for (i, (exp_name, exp_type, exp_nullable)) in expected.iter().enumerate() {
+            let field = schema.field(i);
+
+            if field.name() != exp_name {
+                return Err(Error::Agent(format!(
+                    "Field {} has wrong name: expected '{}', got '{}'",
+                    i, exp_name, field.name()
+                )));
+            }
+
+            if field.data_type() != exp_type {
+                return Err(Error::Agent(format!(
+                    "Field '{}' has wrong type: expected {:?}, got {:?}",
+                    exp_name, exp_type, field.data_type()
+                )));
+            }
+
+            if field.is_nullable() != *exp_nullable {
+                return Err(Error::Agent(format!(
+                    "Field '{}' has wrong nullability: expected {}, got {}",
+                    exp_name, exp_nullable, field.is_nullable()
+                )));
+            }
+        }
+
+        Ok(())
+    }
+
     /// Create a new population handler
     ///
     /// Initializes with an empty RecordBatch using the agent schema.
@@ -154,6 +206,133 @@ impl<A: Agent> PopulationHandler<A> {
         self.id_to_row.insert(id, self.next_row);
         self.next_row += 1;
     }
+
+    /// Add multiple agents in a single batch operation.
+    /// This is much more efficient than calling add_agent() in a loop.
+    ///
+    /// # Arguments
+    ///
+    /// * `agents` - Vector of agents to add
+    ///
+    /// # Performance
+    ///
+    /// - Time: O(n) where n is total agents (existing + new)
+    /// - Avoids O(n²) cost of calling add_agent() in a loop
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let agents = vec![agent1, agent2, agent3];
+    /// handler.add_agents(agents)?;
+    /// ```
+    pub fn add_agents(&mut self, agents: Vec<A>) -> Result<()> {
+        if agents.is_empty() {
+            return Ok(());
+        }
+
+        // Convert all agents to rows
+        let rows: Vec<ArrowAgentRow> = agents.iter()
+            .map(|agent| agent.to_arrow_row())
+            .collect();
+
+        // Update index for all agents BEFORE batch rebuild
+        let start_row = self.next_row;
+        for (i, agent) in agents.iter().enumerate() {
+            self.id_to_row.insert(agent.id(), start_row + i);
+        }
+        self.next_row += agents.len();
+
+        // Append all rows in single operation
+        match self.append_rows_to_batch(rows) {
+            Ok(new_batch) => {
+                self.agents = new_batch;
+                Ok(())
+            }
+            Err(e) => {
+                // Rollback index changes
+                for agent in agents.iter() {
+                    self.id_to_row.remove(&agent.id());
+                }
+                self.next_row -= agents.len();
+                Err(e)
+            }
+        }
+    }
+
+    /// Helper method to append multiple rows to RecordBatch
+    fn append_rows_to_batch(&self, rows: Vec<ArrowAgentRow>) -> Result<RecordBatch> {
+        // Collect all existing rows
+        let mut all_rows = Vec::new();
+        for i in 0..self.agents.num_rows() {
+            all_rows.push(self.extract_row(i).ok_or_else(|| {
+                Error::Agent(format!("Failed to extract row {}", i))
+            })?);
+        }
+
+        // Add new rows
+        all_rows.extend(rows);
+
+        // Build new batch from all rows
+        self.build_batch_from_rows(&all_rows)
+    }
+
+    /// Build a RecordBatch from a vector of rows
+    fn build_batch_from_rows(&self, rows: &[ArrowAgentRow]) -> Result<RecordBatch> {
+        let mut id_builder = FixedSizeBinaryBuilder::new(16);
+        let mut type_builder = StringBuilder::new();
+        let mut status_builder = StringBuilder::new();
+        let mut pos_x_builder = Float64Builder::new();
+        let mut pos_y_builder = Float64Builder::new();
+        let mut metadata_builder = StringBuilder::new();
+
+        for row in rows {
+            id_builder.append_value(&row.id).map_err(|e| {
+                Error::Agent(format!("Failed to append id: {}", e))
+            })?;
+            type_builder.append_value(&row.agent_type);
+            status_builder.append_value(&row.status);
+
+            if let Some(x) = row.position_x {
+                pos_x_builder.append_value(x);
+            } else {
+                pos_x_builder.append_null();
+            }
+
+            if let Some(y) = row.position_y {
+                pos_y_builder.append_value(y);
+            } else {
+                pos_y_builder.append_null();
+            }
+
+            if let Some(ref metadata) = row.metadata {
+                metadata_builder.append_value(metadata);
+            } else {
+                metadata_builder.append_null();
+            }
+        }
+
+        // Build arrays
+        let id_array: ArrayRef = Arc::new(id_builder.finish());
+        let type_array: ArrayRef = Arc::new(type_builder.finish());
+        let status_array: ArrayRef = Arc::new(status_builder.finish());
+        let pos_x_array: ArrayRef = Arc::new(pos_x_builder.finish());
+        let pos_y_array: ArrayRef = Arc::new(pos_y_builder.finish());
+        let metadata_array: ArrayRef = Arc::new(metadata_builder.finish());
+
+        RecordBatch::try_new(
+            self.schema.clone(),
+            vec![
+                id_array,
+                type_array,
+                status_array,
+                pos_x_array,
+                pos_y_array,
+                metadata_array,
+            ],
+        )
+        .map_err(|e| Error::Agent(format!("Failed to create RecordBatch: {}", e)))
+    }
+
 
     /// Append a row to the RecordBatch
     fn append_row_to_batch(&self, row: ArrowAgentRow) -> RecordBatch {
@@ -460,6 +639,46 @@ impl<A: Agent> PopulationHandler<A> {
         Ok(())
     }
 
+    /// Update multiple agents in a single batch operation.
+    ///
+    /// # Arguments
+    ///
+    /// * `agents` - Vector of agents to update
+    ///
+    /// # Performance
+    ///
+    /// - Time: O(n) where n is total agents
+    /// - Much faster than calling update_agent() in a loop
+    pub fn update_agents(&mut self, agents: Vec<A>) -> Result<()> {
+        if agents.is_empty() {
+            return Ok(());
+        }
+
+        // Build map of row index -> updated agent
+        let mut updates: std::collections::HashMap<usize, ArrowAgentRow> = std::collections::HashMap::new();
+        for agent in agents.iter() {
+            if let Some(&row_idx) = self.id_to_row.get(&agent.id()) {
+                updates.insert(row_idx, agent.to_arrow_row());
+            }
+        }
+
+        // Build new batch with all updates
+        let mut all_rows = Vec::new();
+        for i in 0..self.agents.num_rows() {
+            if let Some(updated_row) = updates.get(&i) {
+                all_rows.push(updated_row.clone());
+            } else {
+                all_rows.push(self.extract_row(i).ok_or_else(|| {
+                    Error::Agent(format!("Failed to extract row {}", i))
+                })?);
+            }
+        }
+
+        self.agents = self.build_batch_from_rows(&all_rows)?;
+        Ok(())
+    }
+
+
     /// Update a row in the RecordBatch
     fn update_row_in_batch(&self, row_to_update: usize, new_row: ArrowAgentRow) -> RecordBatch {
         let current_len = self.agents.num_rows();
@@ -588,8 +807,12 @@ impl<A: Agent> PopulationHandler<A> {
         }
 
         // Update all agents in batch
-        for (row_idx, agent) in updated_agents {
-            self.agents = self.update_row_in_batch(row_idx, agent.to_arrow_row());
+        // Update all agents in batch
+        if !updated_agents.is_empty() {
+            let agents_to_update: Vec<A> = updated_agents.into_iter()
+                .map(|(_, agent)| agent)
+                .collect();
+            self.update_agents(agents_to_update)?;
         }
 
         Ok(all_results)
