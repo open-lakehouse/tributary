@@ -211,17 +211,16 @@ impl<W: Workflow> WorkflowEngine<W> {
         let current_time = ctx.current_time();
 
         for instance in self.instances.values_mut() {
-            if instance.is_processing() {
-                if let Some(completion_time) = instance.step_completion_time {
-                    if current_time >= completion_time {
-                        // Step is complete, ready for next step
-                        instance.step_completion_time = None;
+            if instance.is_processing()
+                && let Some(completion_time) = instance.step_completion_time
+                && current_time >= completion_time
+            {
+                // Step is complete, ready for next step
+                instance.step_completion_time = None;
 
-                        if instance.current_step >= instance.total_steps {
-                            instance.is_complete = true;
-                            completed.push(instance.id);
-                        }
-                    }
+                if instance.current_step >= instance.total_steps {
+                    instance.is_complete = true;
+                    completed.push(instance.id);
                 }
             }
         }

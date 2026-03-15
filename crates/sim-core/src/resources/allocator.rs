@@ -202,10 +202,10 @@ impl<R: Resource, T: Task> ResourceAllocator<R, T> {
         // Find completed tasks
         for (task_id, allocated) in &self.allocated_tasks {
             let completion_time = allocated.allocated_at + allocated.task.estimated_duration();
-            if completion_time <= current_time {
-                if let Some(instance_id) = allocated.task.workflow_instance_id() {
-                    completed.push((*task_id, instance_id));
-                }
+            if completion_time <= current_time
+                && let Some(instance_id) = allocated.task.workflow_instance_id()
+            {
+                completed.push((*task_id, instance_id));
             }
         }
 
@@ -558,7 +558,7 @@ mod tests {
         assert_eq!(completed.len(), 3);
 
         // Verify all task IDs and instance IDs are present
-        for (i, (task_id, instance_id)) in completed.iter().enumerate() {
+        for (task_id, instance_id) in &completed {
             assert!(task_ids.contains(task_id));
             assert!(instance_ids.contains(instance_id));
         }

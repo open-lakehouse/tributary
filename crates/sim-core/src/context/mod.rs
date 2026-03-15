@@ -89,7 +89,7 @@ impl SimulationContext {
 
     /// Advance the simulation time by one step
     pub fn advance_time(&mut self) {
-        self.current_time = self.current_time + self.config.time_step;
+        self.current_time += self.config.time_step;
         self.step += 1;
     }
 

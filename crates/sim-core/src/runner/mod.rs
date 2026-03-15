@@ -277,10 +277,10 @@ where
                     // Collect info about ready instances first (to avoid borrow issues)
                     let mut instances_to_create = Vec::new();
                     for instance in workflows.get_ready_instances() {
-                        if let Some(workflow) = workflows.get_workflow(instance.workflow_id) {
-                            if let Some(step) = workflow.get_step(instance.current_step) {
-                                instances_to_create.push((instance.id, step.clone(), current_time));
-                            }
+                        if let Some(workflow) = workflows.get_workflow(instance.workflow_id)
+                            && let Some(step) = workflow.get_step(instance.current_step)
+                        {
+                            instances_to_create.push((instance.id, step.clone(), current_time));
                         }
                     }
 
@@ -340,11 +340,11 @@ where
             if let Some(workflows) = &mut self.workflows {
                 for (task_id, instance_id, duration) in workflow_tasks {
                     // Check if this task was assigned
-                    if assignments.iter().any(|a| a.task_id == task_id) {
-                        if let Some(instance) = workflows.get_instance_mut(instance_id) {
-                            let expected_completion = current_time + duration;
-                            instance.mark_assigned(expected_completion);
-                        }
+                    if assignments.iter().any(|a| a.task_id == task_id)
+                        && let Some(instance) = workflows.get_instance_mut(instance_id)
+                    {
+                        let expected_completion = current_time + duration;
+                        instance.mark_assigned(expected_completion);
                     }
                 }
             }
@@ -705,8 +705,7 @@ mod tests {
     #[test]
     fn test_runner_advances_workflows_on_task_completion() {
         use crate::resources::{ResourceAllocator, LeastLoaded};
-        use crate::workflows::{WorkflowEngine, WorkflowInstance};
-        use crate::utils::idents::WorkflowInstanceId;
+        use crate::workflows::WorkflowEngine;
         use std::collections::HashMap;
 
         let config = SimulationConfig::default();

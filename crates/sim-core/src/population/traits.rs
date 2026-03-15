@@ -184,6 +184,7 @@ mod tests {
     #[derive(Debug, Clone)]
     enum TestStatus {
         Idle,
+        #[allow(dead_code)]
         Active,
     }
 
