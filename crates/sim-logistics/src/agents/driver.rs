@@ -34,9 +34,8 @@
 use geo::Point;
 use serde_json::Value;
 use sim_core::{
-    Agent, AgentId, AgentStatus, SimulationContext,
+    Agent, AgentId, AgentStatus, Result, SimulationContext,
     population::{AgentTickResult, ArrowAgentRow},
-    Result,
 };
 use uuid::Uuid;
 
@@ -67,9 +66,7 @@ pub enum DriverState {
     },
 
     /// Driver is returning to home base
-    Returning {
-        home_location: Point<f64>,
-    },
+    Returning { home_location: Point<f64> },
 }
 
 impl AgentStatus for DriverState {
@@ -211,9 +208,9 @@ impl Driver {
     pub fn current_package_count(&self) -> u32 {
         match &self.state {
             DriverState::LoadingPackages { package_count, .. } => *package_count,
-            DriverState::DeliveringPackages { packages_on_board, .. } => {
-                packages_on_board.len() as u32
-            }
+            DriverState::DeliveringPackages {
+                packages_on_board, ..
+            } => packages_on_board.len() as u32,
             _ => 0,
         }
     }
@@ -248,7 +245,10 @@ impl Agent for Driver {
                 // Waiting for assignment
             }
 
-            DriverState::TravelingToWarehouse { warehouse_location, warehouse_id } => {
+            DriverState::TravelingToWarehouse {
+                warehouse_location,
+                warehouse_id,
+            } => {
                 let arrived = self.move_towards(*warehouse_location, step_duration);
 
                 if arrived {
@@ -267,7 +267,11 @@ impl Agent for Driver {
                 }
             }
 
-            DriverState::LoadingPackages { warehouse_id, package_count, loading_started_at } => {
+            DriverState::LoadingPackages {
+                warehouse_id,
+                package_count,
+                loading_started_at,
+            } => {
                 // Loading takes 12 ticks (6 minutes at 30 sec/tick)
                 let loading_duration = 12;
                 let elapsed_ticks = self.tick_count - loading_started_at;
@@ -330,10 +334,9 @@ impl Agent for Driver {
                             home_location: self.home_location,
                         };
 
-                        result.state_changes.insert(
-                            "all_deliveries_complete".to_string(),
-                            Value::Bool(true),
-                        );
+                        result
+                            .state_changes
+                            .insert("all_deliveries_complete".to_string(), Value::Bool(true));
                     }
                 }
             }
@@ -349,10 +352,9 @@ impl Agent for Driver {
                     self.metadata_destinations.clear();
                     self.metadata_package_ids.clear();
 
-                    result.state_changes.insert(
-                        "returned_to_base".to_string(),
-                        Value::Bool(true),
-                    );
+                    result
+                        .state_changes
+                        .insert("returned_to_base".to_string(), Value::Bool(true));
                 }
             }
         }
@@ -363,33 +365,61 @@ impl Agent for Driver {
     fn state_data(&self) -> serde_json::Value {
         let mut map = serde_json::Map::new();
 
-        map.insert("home_x".to_string(), Value::Number(
-            serde_json::Number::from_f64(self.home_location.x()).unwrap()
-        ));
-        map.insert("home_y".to_string(), Value::Number(
-            serde_json::Number::from_f64(self.home_location.y()).unwrap()
-        ));
+        map.insert(
+            "home_x".to_string(),
+            Value::Number(serde_json::Number::from_f64(self.home_location.x()).unwrap()),
+        );
+        map.insert(
+            "home_y".to_string(),
+            Value::Number(serde_json::Number::from_f64(self.home_location.y()).unwrap()),
+        );
         map.insert("capacity".to_string(), Value::Number(self.capacity.into()));
 
         match &self.state {
-            DriverState::TravelingToWarehouse { warehouse_id, warehouse_location } => {
-                map.insert("warehouse_id".to_string(), Value::String(warehouse_id.clone()));
-                map.insert("warehouse_x".to_string(), Value::Number(
-                    serde_json::Number::from_f64(warehouse_location.x()).unwrap()
-                ));
-                map.insert("warehouse_y".to_string(), Value::Number(
-                    serde_json::Number::from_f64(warehouse_location.y()).unwrap()
-                ));
+            DriverState::TravelingToWarehouse {
+                warehouse_id,
+                warehouse_location,
+            } => {
+                map.insert(
+                    "warehouse_id".to_string(),
+                    Value::String(warehouse_id.clone()),
+                );
+                map.insert(
+                    "warehouse_x".to_string(),
+                    Value::Number(serde_json::Number::from_f64(warehouse_location.x()).unwrap()),
+                );
+                map.insert(
+                    "warehouse_y".to_string(),
+                    Value::Number(serde_json::Number::from_f64(warehouse_location.y()).unwrap()),
+                );
             }
-            DriverState::LoadingPackages { warehouse_id, package_count, .. } => {
-                map.insert("warehouse_id".to_string(), Value::String(warehouse_id.clone()));
-                map.insert("package_count".to_string(), Value::Number((*package_count).into()));
+            DriverState::LoadingPackages {
+                warehouse_id,
+                package_count,
+                ..
+            } => {
+                map.insert(
+                    "warehouse_id".to_string(),
+                    Value::String(warehouse_id.clone()),
+                );
+                map.insert(
+                    "package_count".to_string(),
+                    Value::Number((*package_count).into()),
+                );
             }
-            DriverState::DeliveringPackages { remaining_stops, packages_on_board, .. } => {
-                map.insert("remaining_stops".to_string(), Value::Number((*remaining_stops).into()));
-                map.insert("packages_on_board".to_string(), Value::Number(
-                    (packages_on_board.len() as u32).into()
-                ));
+            DriverState::DeliveringPackages {
+                remaining_stops,
+                packages_on_board,
+                ..
+            } => {
+                map.insert(
+                    "remaining_stops".to_string(),
+                    Value::Number((*remaining_stops).into()),
+                );
+                map.insert(
+                    "packages_on_board".to_string(),
+                    Value::Number((packages_on_board.len() as u32).into()),
+                );
             }
             _ => {}
         }
@@ -401,8 +431,7 @@ impl Agent for Driver {
         use sim_core::Error;
 
         let id = AgentId::from_uuid(
-            Uuid::from_slice(&row.id)
-                .map_err(|e| Error::Agent(format!("Invalid UUID: {}", e)))?,
+            Uuid::from_slice(&row.id).map_err(|e| Error::Agent(format!("Invalid UUID: {}", e)))?,
         );
 
         let location = if let (Some(x), Some(y)) = (row.position_x, row.position_y) {
@@ -417,11 +446,18 @@ impl Agent for Driver {
             serde_json::Value::Null
         };
 
-        let home_x = metadata.get("home_x").and_then(|v| v.as_f64()).unwrap_or(0.0);
-        let home_y = metadata.get("home_y").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let home_x = metadata
+            .get("home_x")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0);
+        let home_y = metadata
+            .get("home_y")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0);
         let home_location = Point::new(home_x, home_y);
 
-        let capacity = metadata.get("capacity")
+        let capacity = metadata
+            .get("capacity")
             .and_then(|v| v.as_u64())
             .unwrap_or(20) as u32;
 

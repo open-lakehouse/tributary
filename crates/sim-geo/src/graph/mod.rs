@@ -235,10 +235,7 @@ impl RoadNetwork {
         self.edges.insert(edge_id, edge);
 
         // Add edge to adjacency list for source node
-        self.adjacency
-            .entry(from_node)
-            .or_default()
-            .push(edge_id);
+        self.adjacency.entry(from_node).or_default().push(edge_id);
     }
 
     /// Retrieves a node by ID
@@ -435,10 +432,10 @@ impl RoadType {
     /// ```
     pub fn default_speed_mps(&self) -> f64 {
         match self {
-            RoadType::Highway => 30.0,      // ~108 km/h
-            RoadType::Arterial => 15.0,     // ~54 km/h
-            RoadType::Residential => 8.0,   // ~29 km/h
-            RoadType::ServiceRoad => 5.0,   // ~18 km/h
+            RoadType::Highway => 30.0,    // ~108 km/h
+            RoadType::Arterial => 15.0,   // ~54 km/h
+            RoadType::Residential => 8.0, // ~29 km/h
+            RoadType::ServiceRoad => 5.0, // ~18 km/h
         }
     }
 }

@@ -48,11 +48,11 @@ use crate::resources::Assignment;
 use crate::workflows::WorkflowStepEvent;
 use crate::{Error, Result};
 
+use serde_json::json;
 use sim_telemetry::{
     EventToLogGenerator, EventToMetricGenerator, EventToTraceGenerator, TelemetryCollector,
     TelemetryRecord,
 };
-use serde_json::json;
 
 /// Telemetry hooks for SimulationRunner.
 ///
@@ -372,7 +372,9 @@ mod tests {
             },
         ];
 
-        telemetry.on_resources_allocated(&ctx, &assignments).unwrap();
+        telemetry
+            .on_resources_allocated(&ctx, &assignments)
+            .unwrap();
         assert!(telemetry.telemetry_count() > 0);
     }
 
@@ -388,9 +390,7 @@ mod tests {
             completion_time: ctx.current_time(),
         };
 
-        telemetry
-            .on_workflow_step_completed(&ctx, &event)
-            .unwrap();
+        telemetry.on_workflow_step_completed(&ctx, &event).unwrap();
         assert!(telemetry.telemetry_count() > 0);
     }
 
@@ -437,9 +437,7 @@ mod tests {
         telemetry
             .on_agents_ticked(&ctx, &[AgentTickResult::default()])
             .unwrap();
-        telemetry
-            .on_resources_allocated(&ctx, &Vec::new())
-            .unwrap();
+        telemetry.on_resources_allocated(&ctx, &Vec::new()).unwrap();
         telemetry.on_after_tick(&ctx).unwrap();
         telemetry.on_end(&ctx).unwrap();
 

@@ -120,8 +120,8 @@ impl EventToLogGenerator {
         } else {
             // Distribute remaining probability among Info, Debug, Warn
             let remaining = 1.0 - self.error_probability - self.trace_probability;
-            let adjusted = (random_value - self.error_probability - self.trace_probability)
-                / remaining;
+            let adjusted =
+                (random_value - self.error_probability - self.trace_probability) / remaining;
 
             if adjusted < 0.33 {
                 LogLevel::Debug
@@ -192,7 +192,12 @@ impl EventToLogGenerator {
         if details.is_empty() {
             format!("Event {} from {}", event_type, source)
         } else {
-            format!("Event {} from {} ({})", event_type, source, details.join(", "))
+            format!(
+                "Event {} from {} ({})",
+                event_type,
+                source,
+                details.join(", ")
+            )
         }
     }
 }
@@ -430,7 +435,10 @@ mod tests {
 
         let result = generator.generate(&event);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), TelemetryError::InvalidEvent(_)));
+        assert!(matches!(
+            result.unwrap_err(),
+            TelemetryError::InvalidEvent(_)
+        ));
     }
 
     #[test]
@@ -517,8 +525,20 @@ mod tests {
 
         // Check rough distribution (with tolerance for randomness)
         // We expect approximately: 10% error, 20% trace, 70% other
-        assert!((5..=15).contains(&error_count), "Error count: {}", error_count);
-        assert!((15..=25).contains(&trace_count), "Trace count: {}", trace_count);
-        assert!((65..=75).contains(&other_count), "Other count: {}", other_count);
+        assert!(
+            (5..=15).contains(&error_count),
+            "Error count: {}",
+            error_count
+        );
+        assert!(
+            (15..=25).contains(&trace_count),
+            "Trace count: {}",
+            trace_count
+        );
+        assert!(
+            (65..=75).contains(&other_count),
+            "Other count: {}",
+            other_count
+        );
     }
 }

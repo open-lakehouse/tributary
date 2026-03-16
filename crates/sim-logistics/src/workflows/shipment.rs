@@ -28,7 +28,6 @@ use sim_core::{
     workflows::WorkflowStep,
 };
 use std::collections::HashMap;
-use uuid::Uuid;
 
 /// Package Shipment Workflow
 ///
@@ -427,26 +426,14 @@ mod tests {
         let dest3 = Point::new(3.0, 3.0);
 
         // Create multiple workflow instances
-        let workflow1 = PackageShipmentWorkflow::new(
-            "PKG-001".to_string(),
-            "w1".to_string(),
-            dest1,
-            1.0,
-        );
+        let workflow1 =
+            PackageShipmentWorkflow::new("PKG-001".to_string(), "w1".to_string(), dest1, 1.0);
 
-        let workflow2 = PackageShipmentWorkflow::new(
-            "PKG-002".to_string(),
-            "w1".to_string(),
-            dest2,
-            2.0,
-        );
+        let workflow2 =
+            PackageShipmentWorkflow::new("PKG-002".to_string(), "w1".to_string(), dest2, 2.0);
 
-        let workflow3 = PackageShipmentWorkflow::new(
-            "PKG-003".to_string(),
-            "w2".to_string(),
-            dest3,
-            3.0,
-        );
+        let workflow3 =
+            PackageShipmentWorkflow::new("PKG-003".to_string(), "w2".to_string(), dest3, 3.0);
 
         // Each should have unique workflow IDs
         assert_ne!(workflow1.id(), workflow2.id());
@@ -489,12 +476,8 @@ mod tests {
         let instance_id = WorkflowInstanceId::new();
         let destination = Point::new(1.0, 1.0);
 
-        let factory = ShipmentTaskFactory::new(
-            "PKG-TEST".to_string(),
-            2.0,
-            "w1".to_string(),
-            destination,
-        );
+        let factory =
+            ShipmentTaskFactory::new("PKG-TEST".to_string(), 2.0, "w1".to_string(), destination);
 
         let step = WorkflowStep {
             step_index: 1,
@@ -513,12 +496,8 @@ mod tests {
     #[test]
     fn test_task_factory_creates_unique_task_ids() {
         let destination = Point::new(0.0, 0.0);
-        let factory = ShipmentTaskFactory::new(
-            "PKG-UNIQUE".to_string(),
-            1.0,
-            "w1".to_string(),
-            destination,
-        );
+        let factory =
+            ShipmentTaskFactory::new("PKG-UNIQUE".to_string(), 1.0, "w1".to_string(), destination);
 
         let step = WorkflowStep {
             step_index: 0,

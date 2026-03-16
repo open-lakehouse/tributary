@@ -2,7 +2,7 @@ use std::sync::{Arc, LazyLock};
 
 use arrow::{
     array::{ArrayRef, AsArray, FixedSizeBinaryBuilder, Int64Builder, RecordBatch},
-    datatypes::{Float64Type, Int64Type, Field, Schema},
+    datatypes::{Field, Float64Type, Int64Type, Schema},
 };
 use arrow_schema::{DataType, SchemaRef};
 use datafusion::{

@@ -21,7 +21,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     collector.add_generator(Box::new(EventToMetricGenerator::new()));
     collector.add_generator(Box::new(EventToTraceGenerator::new()));
 
-    println!("Created TelemetryCollector with {} generators", collector.generator_count());
+    println!(
+        "Created TelemetryCollector with {} generators",
+        collector.generator_count()
+    );
     println!();
 
     // Simulate a complete workflow
@@ -163,7 +166,9 @@ fn simulate_workflow(collector: &mut TelemetryCollector) -> Result<(), Box<dyn s
     Ok(())
 }
 
-fn export_examples(records: &[sim_telemetry::TelemetryRecord]) -> Result<(), Box<dyn std::error::Error>> {
+fn export_examples(
+    records: &[sim_telemetry::TelemetryRecord],
+) -> Result<(), Box<dyn std::error::Error>> {
     // JSON export (simple serialization)
     println!("\n1. JSON Export:");
     let json_export = serde_json::to_string_pretty(&records)?;
@@ -174,22 +179,52 @@ fn export_examples(records: &[sim_telemetry::TelemetryRecord]) -> Result<(), Box
     let metric_records: Vec<_> = records
         .iter()
         .filter_map(|r| match r {
-            sim_telemetry::TelemetryRecord::Metric { name, value, timestamp, .. } => {
-                Some(format!("# TYPE {} gauge\n{} {} {}", name, name, value, timestamp.timestamp()))
-            }
+            sim_telemetry::TelemetryRecord::Metric {
+                name,
+                value,
+                timestamp,
+                ..
+            } => Some(format!(
+                "# TYPE {} gauge\n{} {} {}",
+                name,
+                name,
+                value,
+                timestamp.timestamp()
+            )),
             _ => None,
         })
         .collect();
     println!("   Generated {} metric entries", metric_records.len());
     if !metric_records.is_empty() {
-        println!("   Sample: {}", metric_records[0].lines().next().unwrap_or(""));
+        println!(
+            "   Sample: {}",
+            metric_records[0].lines().next().unwrap_or("")
+        );
     }
 
     // OTLP export format info (would require actual OTLP library)
     println!("\n3. OTLP Export:");
-    println!("   Logs:    {} records ready for export", records.iter().filter(|r| matches!(r, sim_telemetry::TelemetryRecord::Log { .. })).count());
-    println!("   Traces:  {} spans ready for export", records.iter().filter(|r| matches!(r, sim_telemetry::TelemetryRecord::Trace { .. })).count());
-    println!("   Metrics: {} datapoints ready for export", records.iter().filter(|r| matches!(r, sim_telemetry::TelemetryRecord::Metric { .. })).count());
+    println!(
+        "   Logs:    {} records ready for export",
+        records
+            .iter()
+            .filter(|r| matches!(r, sim_telemetry::TelemetryRecord::Log { .. }))
+            .count()
+    );
+    println!(
+        "   Traces:  {} spans ready for export",
+        records
+            .iter()
+            .filter(|r| matches!(r, sim_telemetry::TelemetryRecord::Trace { .. }))
+            .count()
+    );
+    println!(
+        "   Metrics: {} datapoints ready for export",
+        records
+            .iter()
+            .filter(|r| matches!(r, sim_telemetry::TelemetryRecord::Metric { .. }))
+            .count()
+    );
 
     Ok(())
 }

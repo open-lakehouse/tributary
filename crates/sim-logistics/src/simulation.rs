@@ -2,13 +2,11 @@
 //!
 //! This module provides the main simulation runner and metrics collection.
 
-use crate::{Driver, Package, PackagePriority, Warehouse, DeliveryAddress};
+use crate::{DeliveryAddress, Driver, Package, PackagePriority, Warehouse};
 use chrono::Duration;
 use geo::Point;
 use rand::Rng;
-use sim_core::{
-    Agent, SimulationConfig, SimulationContext, SimulationRunner, PopulationHandler,
-};
+use sim_core::{PopulationHandler, SimulationConfig, SimulationContext};
 
 /// Logistics simulation metrics
 #[derive(Debug, Clone, Default)]
@@ -54,12 +52,14 @@ impl LogisticsSimulation {
                 "Warehouse North".to_string(),
                 Point::new(-122.4, 37.8),
                 1000,
-            ).unwrap(),
+            )
+            .unwrap(),
             Warehouse::new(
                 "Warehouse South".to_string(),
                 Point::new(-122.3, 37.7),
                 1000,
-            ).unwrap(),
+            )
+            .unwrap(),
         ];
 
         // Create delivery addresses (1000 addresses in Bay Area)
@@ -68,10 +68,7 @@ impl LogisticsSimulation {
             .map(|i| {
                 let lat = 37.7 + rng.random::<f64>() * 0.2;
                 let lon = -122.5 + rng.random::<f64>() * 0.3;
-                DeliveryAddress::new(
-                    Point::new(lon, lat),
-                    format!("Customer-{}", i),
-                ).unwrap()
+                DeliveryAddress::new(Point::new(lon, lat), format!("Customer-{}", i)).unwrap()
             })
             .collect();
 
@@ -130,10 +127,14 @@ impl LogisticsSimulation {
         priority: PackagePriority,
     ) -> crate::Result<()> {
         if warehouse_idx >= self.warehouses.len() {
-            return Err(crate::Error::Logistics("Invalid warehouse index".to_string()));
+            return Err(crate::Error::Logistics(
+                "Invalid warehouse index".to_string(),
+            ));
         }
         if destination_idx >= self.delivery_addresses.len() {
-            return Err(crate::Error::Logistics("Invalid destination index".to_string()));
+            return Err(crate::Error::Logistics(
+                "Invalid destination index".to_string(),
+            ));
         }
 
         let warehouse = &self.warehouses[warehouse_idx];
@@ -202,11 +203,13 @@ mod tests {
     fn test_create_package() {
         let mut sim = LogisticsSimulation::new();
 
-        sim.create_package(0, 0, 2.5, PackagePriority::Standard).unwrap();
+        sim.create_package(0, 0, 2.5, PackagePriority::Standard)
+            .unwrap();
         assert_eq!(sim.package_count(), 1);
         assert_eq!(sim.get_metrics().packages_created, 1);
 
-        sim.create_package(1, 5, 1.0, PackagePriority::Express).unwrap();
+        sim.create_package(1, 5, 1.0, PackagePriority::Express)
+            .unwrap();
         assert_eq!(sim.package_count(), 2);
     }
 
@@ -231,8 +234,10 @@ mod tests {
         let mut sim = LogisticsSimulation::new();
 
         // Add some packages
-        sim.create_package(0, 0, 1.0, PackagePriority::Standard).unwrap();
-        sim.create_package(0, 1, 1.5, PackagePriority::Express).unwrap();
+        sim.create_package(0, 0, 1.0, PackagePriority::Standard)
+            .unwrap();
+        sim.create_package(0, 1, 1.5, PackagePriority::Express)
+            .unwrap();
 
         // Run for 1 hour (120 steps)
         let result = sim.run_for_hours(1);
@@ -245,10 +250,12 @@ mod tests {
 
         assert_eq!(sim.get_metrics().packages_created, 0);
 
-        sim.create_package(0, 0, 1.0, PackagePriority::Standard).unwrap();
+        sim.create_package(0, 0, 1.0, PackagePriority::Standard)
+            .unwrap();
         assert_eq!(sim.get_metrics().packages_created, 1);
 
-        sim.create_package(0, 1, 2.0, PackagePriority::Express).unwrap();
+        sim.create_package(0, 1, 2.0, PackagePriority::Express)
+            .unwrap();
         assert_eq!(sim.get_metrics().packages_created, 2);
     }
 
@@ -275,7 +282,13 @@ mod tests {
 
         // Create 10 packages
         for i in 0..10 {
-            sim.create_package(i % 2, i * 10, 1.0 + i as f64 * 0.1, PackagePriority::Standard).unwrap();
+            sim.create_package(
+                i % 2,
+                i * 10,
+                1.0 + i as f64 * 0.1,
+                PackagePriority::Standard,
+            )
+            .unwrap();
         }
 
         assert_eq!(sim.package_count(), 10);

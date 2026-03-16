@@ -54,7 +54,10 @@ impl SpatialDemandGenerator {
         base_generator: Box<dyn DemandGenerator>,
         h3_probabilities: HashMap<CellIndex, f64>,
     ) -> Self {
-        assert!(!h3_probabilities.is_empty(), "Must have at least one H3 cell");
+        assert!(
+            !h3_probabilities.is_empty(),
+            "Must have at least one H3 cell"
+        );
 
         // Validate probabilities are non-negative
         for (cell, &prob) in &h3_probabilities {

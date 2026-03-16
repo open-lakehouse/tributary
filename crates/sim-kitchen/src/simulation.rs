@@ -55,8 +55,8 @@
 
 use crate::agents::{Customer, CustomerStatus};
 use crate::events::*;
-use crate::resources::{Kitchen, Order, InventoryManager};
 use crate::locations::DistributionSite;
+use crate::resources::{InventoryManager, Kitchen, Order};
 use chrono::{DateTime, Utc};
 use sim_core::{
     AgentId, PopulationHandler, ResourceAllocator, SimulationContext, SimulationHooks,
@@ -323,7 +323,11 @@ impl KitchenSimulationHooks {
     ///
     /// In a real system, this would use spatial queries and distance calculations.
     /// For now, we return the first available distribution site that has the item.
-    fn select_distribution_site(&self, _kitchen_id: Uuid, item_type: &str) -> Option<&DistributionSite> {
+    fn select_distribution_site(
+        &self,
+        _kitchen_id: Uuid,
+        item_type: &str,
+    ) -> Option<&DistributionSite> {
         self.distribution_sites
             .iter()
             .find(|site| site.can_fulfill(item_type, 1))
@@ -378,7 +382,8 @@ impl KitchenSimulationHooks {
                 self.dispatcher.emit(low_event);
 
                 // Select distribution site
-                let source_site_id = self.select_distribution_site(kitchen_id, &item_type)
+                let source_site_id = self
+                    .select_distribution_site(kitchen_id, &item_type)
                     .map(|site| site.site_id);
 
                 if let Some(site_id) = source_site_id {
@@ -595,7 +600,8 @@ impl SimulationHooks for KitchenSimulationHooks {
                         // In production, this would come from the Order task's items field
                         // For now, we'll consume a standard "meal" recipe
                         for (item_type, quantity) in [("flour", 2), ("beef", 1), ("lettuce", 1)] {
-                            *total_ingredients.entry(item_type.to_string()).or_insert(0) += quantity;
+                            *total_ingredients.entry(item_type.to_string()).or_insert(0) +=
+                                quantity;
                         }
 
                         // Try to consume ingredients
@@ -693,7 +699,9 @@ impl KitchenSimulationHooks {
         instance_id: WorkflowInstanceId,
     ) -> sim_core::Result<()> {
         // Check if this is a supply chain workflow completion
-        if let Some((kitchen_id, item_type, quantity)) = self.supply_order_metadata.remove(&instance_id) {
+        if let Some((kitchen_id, item_type, quantity)) =
+            self.supply_order_metadata.remove(&instance_id)
+        {
             if ctx.config().verbose {
                 println!(
                     "🚚 [Step {}] Supply delivery completed for kitchen {} item {} qty {}",
@@ -792,13 +800,11 @@ pub fn build_simulation_with_demand(
     kitchen_capacity: usize,
     verbose: bool,
 ) -> SimulationRunner<Customer, Kitchen, Order, FoodPrepWorkflow> {
+    use h3o::{LatLng, Resolution};
     use sim_core::demand::{
-        CompositeDemandGenerator, PoissonDemandGenerator, SpatialDemandGenerator,
-        TimeOfDayDemandGenerator,
+        PoissonDemandGenerator, SpatialDemandGenerator, TimeOfDayDemandGenerator,
     };
-    use h3o::{CellIndex, LatLng, Resolution};
     use std::collections::HashMap;
-    use std::str::FromStr;
 
     let mut runner = build_simulation(num_kitchens, kitchen_capacity, verbose);
 
@@ -814,10 +820,7 @@ pub fn build_simulation_with_demand(
     let poisson = Box::new(PoissonDemandGenerator::new(10.0, "food_order"));
 
     // Time-of-day wrapper
-    let time_of_day = Box::new(TimeOfDayDemandGenerator::new(
-        poisson,
-        hourly_multipliers,
-    ));
+    let time_of_day = Box::new(TimeOfDayDemandGenerator::new(poisson, hourly_multipliers));
 
     // Spatial clustering (3 neighborhood H3 cells around SF Bay Area)
     let mut h3_probs = HashMap::new();
@@ -1896,7 +1899,8 @@ mod tests {
             ..Default::default()
         };
 
-        let mut runner: SimulationRunner<Customer, Kitchen, Order, FoodPrepWorkflow> = SimulationRunner::new(config);
+        let mut runner: SimulationRunner<Customer, Kitchen, Order, FoodPrepWorkflow> =
+            SimulationRunner::new(config);
 
         // Create kitchens and store IDs
         let mut allocator: ResourceAllocator<Kitchen, Order> = ResourceAllocator::new();
@@ -1945,8 +1949,8 @@ mod tests {
     #[test]
     fn test_low_inventory_detection_triggers_supply_order() {
         // Test that low inventory triggers a supply order
-        use crate::resources::{Inventory, InventoryManager};
         use crate::locations::DistributionSite;
+        use crate::resources::{Inventory, InventoryManager};
         use geo::Point;
 
         let mut hooks = KitchenSimulationHooks::new();
@@ -1970,23 +1974,35 @@ mod tests {
         let ctx = SimulationContext::new(Utc::now(), config);
 
         // Trigger supply order check
-        hooks.check_and_trigger_supply_orders(&ctx, kitchen_id).unwrap();
+        hooks
+            .check_and_trigger_supply_orders(&ctx, kitchen_id)
+            .unwrap();
 
         // Verify supply order was created
         assert_eq!(hooks.pending_supply_orders.len(), 1);
-        assert!(hooks.pending_supply_orders.contains_key(&(kitchen_id, "flour".to_string())));
+        assert!(
+            hooks
+                .pending_supply_orders
+                .contains_key(&(kitchen_id, "flour".to_string()))
+        );
 
         // Verify events were emitted
         let event_counts = hooks.dispatcher.event_counts();
-        assert_eq!(event_counts.get("io.kitchen.inventory.low").copied(), Some(1));
-        assert_eq!(event_counts.get("io.kitchen.supply.order.created").copied(), Some(1));
+        assert_eq!(
+            event_counts.get("io.kitchen.inventory.low").copied(),
+            Some(1)
+        );
+        assert_eq!(
+            event_counts.get("io.kitchen.supply.order.created").copied(),
+            Some(1)
+        );
     }
 
     #[test]
     fn test_duplicate_supply_order_prevention() {
         // Test that duplicate supply orders are prevented
-        use crate::resources::{Inventory, InventoryManager};
         use crate::locations::DistributionSite;
+        use crate::resources::{Inventory, InventoryManager};
         use geo::Point;
 
         let mut hooks = KitchenSimulationHooks::new();
@@ -2009,17 +2025,27 @@ mod tests {
         let ctx = SimulationContext::new(Utc::now(), config);
 
         // First call - should create supply order
-        hooks.check_and_trigger_supply_orders(&ctx, kitchen_id).unwrap();
+        hooks
+            .check_and_trigger_supply_orders(&ctx, kitchen_id)
+            .unwrap();
         assert_eq!(hooks.pending_supply_orders.len(), 1);
 
         // Second call - should NOT create duplicate
-        hooks.check_and_trigger_supply_orders(&ctx, kitchen_id).unwrap();
+        hooks
+            .check_and_trigger_supply_orders(&ctx, kitchen_id)
+            .unwrap();
         assert_eq!(hooks.pending_supply_orders.len(), 1); // Still just 1
 
         // Verify only 1 of each event type
         let event_counts = hooks.dispatcher.event_counts();
-        assert_eq!(event_counts.get("io.kitchen.inventory.low").copied(), Some(1));
-        assert_eq!(event_counts.get("io.kitchen.supply.order.created").copied(), Some(1));
+        assert_eq!(
+            event_counts.get("io.kitchen.inventory.low").copied(),
+            Some(1)
+        );
+        assert_eq!(
+            event_counts.get("io.kitchen.supply.order.created").copied(),
+            Some(1)
+        );
     }
 
     #[test]
@@ -2040,7 +2066,9 @@ mod tests {
         // Simulate a pending supply order
         let key = (kitchen_id, "flour".to_string());
         hooks.pending_supply_orders.insert(key, instance_id);
-        hooks.supply_order_metadata.insert(instance_id, (kitchen_id, "flour".to_string(), 200));
+        hooks
+            .supply_order_metadata
+            .insert(instance_id, (kitchen_id, "flour".to_string(), 200));
 
         let config = sim_core::SimulationConfig::default();
         let ctx = SimulationContext::new(Utc::now(), config);
@@ -2057,14 +2085,19 @@ mod tests {
 
         // Verify replenishment event was emitted
         let event_counts = hooks.dispatcher.event_counts();
-        assert_eq!(event_counts.get("io.kitchen.inventory.replenished").copied(), Some(1));
+        assert_eq!(
+            event_counts
+                .get("io.kitchen.inventory.replenished")
+                .copied(),
+            Some(1)
+        );
     }
 
     #[test]
     fn test_multiple_kitchens_independent_supply_orders() {
         // Test that multiple kitchens can have independent supply orders
-        use crate::resources::{Inventory, InventoryManager};
         use crate::locations::DistributionSite;
+        use crate::resources::{Inventory, InventoryManager};
         use geo::Point;
 
         let mut hooks = KitchenSimulationHooks::new();
@@ -2092,25 +2125,43 @@ mod tests {
         let ctx = SimulationContext::new(Utc::now(), config);
 
         // Trigger supply orders for both kitchens
-        hooks.check_and_trigger_supply_orders(&ctx, kitchen1_id).unwrap();
-        hooks.check_and_trigger_supply_orders(&ctx, kitchen2_id).unwrap();
+        hooks
+            .check_and_trigger_supply_orders(&ctx, kitchen1_id)
+            .unwrap();
+        hooks
+            .check_and_trigger_supply_orders(&ctx, kitchen2_id)
+            .unwrap();
 
         // Verify both supply orders were created
         assert_eq!(hooks.pending_supply_orders.len(), 2);
-        assert!(hooks.pending_supply_orders.contains_key(&(kitchen1_id, "flour".to_string())));
-        assert!(hooks.pending_supply_orders.contains_key(&(kitchen2_id, "sugar".to_string())));
+        assert!(
+            hooks
+                .pending_supply_orders
+                .contains_key(&(kitchen1_id, "flour".to_string()))
+        );
+        assert!(
+            hooks
+                .pending_supply_orders
+                .contains_key(&(kitchen2_id, "sugar".to_string()))
+        );
 
         // Verify events
         let event_counts = hooks.dispatcher.event_counts();
-        assert_eq!(event_counts.get("io.kitchen.inventory.low").copied(), Some(2));
-        assert_eq!(event_counts.get("io.kitchen.supply.order.created").copied(), Some(2));
+        assert_eq!(
+            event_counts.get("io.kitchen.inventory.low").copied(),
+            Some(2)
+        );
+        assert_eq!(
+            event_counts.get("io.kitchen.supply.order.created").copied(),
+            Some(2)
+        );
     }
 
     #[test]
     fn test_supply_order_without_distribution_site() {
         // Test graceful handling when no distribution site has the item
-        use crate::resources::{Inventory, InventoryManager};
         use crate::locations::DistributionSite;
+        use crate::resources::{Inventory, InventoryManager};
         use geo::Point;
 
         let mut hooks = KitchenSimulationHooks::new();
@@ -2133,22 +2184,30 @@ mod tests {
         let ctx = SimulationContext::new(Utc::now(), config);
 
         // Trigger supply order check
-        hooks.check_and_trigger_supply_orders(&ctx, kitchen_id).unwrap();
+        hooks
+            .check_and_trigger_supply_orders(&ctx, kitchen_id)
+            .unwrap();
 
         // Verify NO supply order was created (no matching site)
         assert_eq!(hooks.pending_supply_orders.len(), 0);
 
         // Verify low inventory event still emitted, but no supply order created
         let event_counts = hooks.dispatcher.event_counts();
-        assert_eq!(event_counts.get("io.kitchen.inventory.low").copied(), Some(1));
-        assert_eq!(event_counts.get("io.kitchen.supply.order.created").copied(), None);
+        assert_eq!(
+            event_counts.get("io.kitchen.inventory.low").copied(),
+            Some(1)
+        );
+        assert_eq!(
+            event_counts.get("io.kitchen.supply.order.created").copied(),
+            None
+        );
     }
 
     #[test]
     fn test_supply_workflow_metadata_tracking() {
         // Test that supply order metadata is correctly tracked
-        use crate::resources::{Inventory, InventoryManager};
         use crate::locations::DistributionSite;
+        use crate::resources::{Inventory, InventoryManager};
         use geo::Point;
 
         let mut hooks = KitchenSimulationHooks::new();
@@ -2171,7 +2230,9 @@ mod tests {
         let ctx = SimulationContext::new(Utc::now(), config);
 
         // Trigger supply order
-        hooks.check_and_trigger_supply_orders(&ctx, kitchen_id).unwrap();
+        hooks
+            .check_and_trigger_supply_orders(&ctx, kitchen_id)
+            .unwrap();
 
         // Verify metadata was stored
         assert_eq!(hooks.supply_order_metadata.len(), 1);
@@ -2185,8 +2246,8 @@ mod tests {
     #[test]
     fn test_event_emission_validation() {
         // Comprehensive test that all supply chain events are emitted correctly
-        use crate::resources::{Inventory, InventoryManager};
         use crate::locations::DistributionSite;
+        use crate::resources::{Inventory, InventoryManager};
         use geo::Point;
         use sim_core::utils::idents::WorkflowInstanceId;
 
@@ -2210,22 +2271,40 @@ mod tests {
         let ctx = SimulationContext::new(Utc::now(), config);
 
         // Step 1: Trigger low inventory and supply order
-        hooks.check_and_trigger_supply_orders(&ctx, kitchen_id).unwrap();
+        hooks
+            .check_and_trigger_supply_orders(&ctx, kitchen_id)
+            .unwrap();
 
         let event_counts = hooks.dispatcher.event_counts();
-        assert_eq!(event_counts.get("io.kitchen.inventory.low").copied(), Some(1));
-        assert_eq!(event_counts.get("io.kitchen.supply.order.created").copied(), Some(1));
+        assert_eq!(
+            event_counts.get("io.kitchen.inventory.low").copied(),
+            Some(1)
+        );
+        assert_eq!(
+            event_counts.get("io.kitchen.supply.order.created").copied(),
+            Some(1)
+        );
 
         // Step 2: Simulate supply order metadata
         let key = (kitchen_id, "oil".to_string());
         let tracked_instance = *hooks.pending_supply_orders.get(&key).unwrap();
-        assert_eq!(tracked_instance, hooks.supply_order_metadata.keys().next().copied().unwrap());
+        assert_eq!(
+            tracked_instance,
+            hooks.supply_order_metadata.keys().next().copied().unwrap()
+        );
 
         // Step 3: Complete supply delivery
-        hooks.complete_supply_delivery(&ctx, tracked_instance).unwrap();
+        hooks
+            .complete_supply_delivery(&ctx, tracked_instance)
+            .unwrap();
 
         let event_counts = hooks.dispatcher.event_counts();
-        assert_eq!(event_counts.get("io.kitchen.inventory.replenished").copied(), Some(1));
+        assert_eq!(
+            event_counts
+                .get("io.kitchen.inventory.replenished")
+                .copied(),
+            Some(1)
+        );
 
         // Verify final state
         assert_eq!(hooks.pending_supply_orders.len(), 0);

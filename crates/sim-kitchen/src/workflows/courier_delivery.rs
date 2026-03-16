@@ -325,12 +325,7 @@ mod tests {
         let pickup = Point::new(-122.5, 37.9);
         let delivery = Point::new(-122.3, 37.7);
 
-        let workflow = CourierDeliveryWorkflow::new(
-            customer_id,
-            pickup,
-            delivery,
-            order_id,
-        );
+        let workflow = CourierDeliveryWorkflow::new(customer_id, pickup, delivery, order_id);
 
         assert_eq!(workflow.workflow_type(), "courier_delivery");
         assert_eq!(workflow.customer_id(), customer_id);
@@ -377,19 +372,9 @@ mod tests {
         let pickup = Point::new(-122.5, 37.9);
         let delivery = Point::new(-122.3, 37.7);
 
-        let factory = CourierDeliveryTaskFactory::new(
-            customer_id,
-            pickup,
-            delivery,
-            order_id,
-        );
+        let factory = CourierDeliveryTaskFactory::new(customer_id, pickup, delivery, order_id);
 
-        let workflow = CourierDeliveryWorkflow::new(
-            customer_id,
-            pickup,
-            delivery,
-            order_id,
-        );
+        let workflow = CourierDeliveryWorkflow::new(customer_id, pickup, delivery, order_id);
 
         let steps = workflow.steps();
         let current_time = chrono::Utc::now();
@@ -564,12 +549,7 @@ mod tests {
         let pickup = Point::new(-122.5, 37.9);
         let delivery = Point::new(-122.3, 37.7);
 
-        let factory = CourierDeliveryTaskFactory::new(
-            customer_id,
-            pickup,
-            delivery,
-            order_id,
-        );
+        let factory = CourierDeliveryTaskFactory::new(customer_id, pickup, delivery, order_id);
 
         let step = WorkflowStep {
             step_index: 1,

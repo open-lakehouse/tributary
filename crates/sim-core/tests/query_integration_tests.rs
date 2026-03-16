@@ -3,16 +3,16 @@
 //! These tests verify that SimulationRunner.query() can execute SQL queries
 //! across multiple entity types using JOIN operations.
 
-use sim_core::{
-    Agent, AgentStatus, AllocationStrategy, PopulationHandler, Resource, ResourceAllocator,
-    SimulationConfig, SimulationRunner, Task, Workflow, WorkflowEngine, WorkflowStep,
-};
+use arrow::array::{Array, Int32Array, Int64Array, StringArray};
+use geo::Point;
 use sim_core::context::SimulationContext;
 use sim_core::population::AgentTickResult;
 use sim_core::resources::LeastLoaded;
 use sim_core::utils::idents::{AgentId, ResourceId, TaskId, WorkflowId, WorkflowInstanceId};
-use arrow::array::{Array, Int32Array, Int64Array, StringArray};
-use geo::Point;
+use sim_core::{
+    Agent, AgentStatus, AllocationStrategy, PopulationHandler, Resource, ResourceAllocator,
+    SimulationConfig, SimulationRunner, Task, Workflow, WorkflowEngine, WorkflowStep,
+};
 use std::collections::HashMap;
 
 // Test types
@@ -137,8 +137,8 @@ impl Workflow for TestWorkflow {
 }
 
 // Helper function to create a runner with all components
-fn create_test_runner_with_all_components(
-) -> SimulationRunner<TestAgent, TestResource, TestTask, TestWorkflow> {
+fn create_test_runner_with_all_components()
+-> SimulationRunner<TestAgent, TestResource, TestTask, TestWorkflow> {
     let config = SimulationConfig::default();
     let mut runner = SimulationRunner::new(config);
 
@@ -368,7 +368,9 @@ async fn test_query_complex_three_way_join() {
 
     // Add tasks with workflow instance IDs
     let workflows = runner.workflows().unwrap();
-    let instances: Vec<_> = workflows.instance_table.export_batch()
+    let instances: Vec<_> = workflows
+        .instance_table
+        .export_batch()
         .column(0)
         .as_any()
         .downcast_ref::<arrow::array::BinaryArray>()
@@ -379,11 +381,15 @@ async fn test_query_complex_three_way_join() {
         .collect();
 
     if let Some(instance_id) = instances.first() {
-        runner.resources_mut().unwrap().add_task(TestTask {
-            id: TaskId::new(),
-            task_type: "kitchen".to_string(),
-            workflow_instance_id: Some(*instance_id),
-        }).unwrap();
+        runner
+            .resources_mut()
+            .unwrap()
+            .add_task(TestTask {
+                id: TaskId::new(),
+                task_type: "kitchen".to_string(),
+                workflow_instance_id: Some(*instance_id),
+            })
+            .unwrap();
     }
 
     // Three-way join: workflows, tasks, resources
@@ -458,10 +464,7 @@ async fn test_query_subquery() {
     assert!(!result.is_empty());
     assert!(result[0].num_rows() > 0);
 
-    let capacity_col = result[0]
-        .column(1)
-        .as_any()
-        .downcast_ref::<Int32Array>();
+    let capacity_col = result[0].column(1).as_any().downcast_ref::<Int32Array>();
 
     // If we have results, verify the max capacity
     if let Some(col) = capacity_col {

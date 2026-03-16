@@ -907,10 +907,7 @@ impl<R: Resource, T: Task> ResourceAllocator<R, T> {
     /// let available = allocator.find_available_resources_by_type("gpu")?;
     /// println!("Found {} available GPU resources", available.len());
     /// ```
-    pub fn find_available_resources_by_type(
-        &self,
-        resource_type: &str,
-    ) -> Result<Vec<ResourceId>> {
+    pub fn find_available_resources_by_type(&self, resource_type: &str) -> Result<Vec<ResourceId>> {
         let mut results = Vec::new();
 
         let id_array = self
@@ -992,9 +989,7 @@ impl<R: Resource, T: Task> ResourceAllocator<R, T> {
                         .as_any()
                         .downcast_ref::<StringArray>()
                         .ok_or_else(|| {
-                            crate::Error::Resource(
-                                "Failed to downcast status column".to_string(),
-                            )
+                            crate::Error::Resource("Failed to downcast status column".to_string())
                         })
                 {
                     return status_array.value(*row) == task_status::PENDING;

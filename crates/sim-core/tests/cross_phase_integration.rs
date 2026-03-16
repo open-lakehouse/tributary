@@ -14,13 +14,13 @@
 
 use chrono::{Duration, TimeZone, Utc};
 use geo_types::Point;
-use sim_core::runner::telemetry::{SimulationTelemetry, TelemetryHooks};
 use sim_core::runner::SimulationHooks;
+use sim_core::runner::telemetry::{SimulationTelemetry, TelemetryHooks};
 use sim_core::utils::idents::AgentId;
 use sim_core::{SimulationConfig, SimulationContext};
 use sim_geo::{MovementHandler, RoadNetwork, TimeOfDayVelocity};
-use sim_telemetry::formats::OtlpExporter;
 use sim_telemetry::TelemetryRecord;
+use sim_telemetry::formats::OtlpExporter;
 use std::collections::HashMap;
 
 /// Helper to get test data path
@@ -62,7 +62,12 @@ fn test_journey_with_telemetry() {
     let start_time = Utc::now();
 
     let journey = handler
-        .plan_journey(agent_id, origin_node.position, dest_node.position, start_time)
+        .plan_journey(
+            agent_id,
+            origin_node.position,
+            dest_node.position,
+            start_time,
+        )
         .expect("Journey planning should succeed");
 
     let journey_distance = journey.distance_m;
@@ -77,7 +82,10 @@ fn test_journey_with_telemetry() {
         journey_waypoints >= 2,
         "Journey should have at least 2 waypoints"
     );
-    assert!(journey_distance > 0.0, "Journey should have positive distance");
+    assert!(
+        journey_distance > 0.0,
+        "Journey should have positive distance"
+    );
 
     // Note: If waypoints == 2, it may be using straight-line fallback if nodes are too far from network
 
@@ -130,7 +138,10 @@ fn test_journey_with_telemetry() {
     println!("Active journeys remaining: {}", handler.active_count());
 
     if !completed_within_limit {
-        println!("WARNING: Journey did not complete within {} ticks", max_ticks);
+        println!(
+            "WARNING: Journey did not complete within {} ticks",
+            max_ticks
+        );
         println!("This may be due to low velocity or long distance");
         // Don't fail the test - the important thing is telemetry was captured
     } else {
@@ -180,7 +191,10 @@ fn test_journey_with_telemetry() {
     // 9. Verify journey completed (or at least progressed)
     let completed = handler.get_completed_journeys();
     if !completed.is_empty() {
-        assert_eq!(completed[0].progress, 1.0, "Journey should be 100% complete");
+        assert_eq!(
+            completed[0].progress, 1.0,
+            "Journey should be 100% complete"
+        );
         println!("✓ Journey verification: completed successfully");
     } else {
         // Journey may still be active if it didn't complete within tick limit
@@ -267,7 +281,12 @@ fn test_network_routing_generates_traces() {
                 parent_span_id,
                 name,
                 ..
-            } => Some((trace_id.clone(), span_id.clone(), parent_span_id.clone(), name.clone())),
+            } => Some((
+                trace_id.clone(),
+                span_id.clone(),
+                parent_span_id.clone(),
+                name.clone(),
+            )),
             _ => None,
         })
         .collect();
@@ -283,7 +302,10 @@ fn test_network_routing_generates_traces() {
     // Should have some trace correlation (multiple spans under same trace)
     if traces.len() > 1 {
         let first_trace_id = &traces[0].0;
-        let same_trace_count = traces.iter().filter(|(tid, _, _, _)| tid == first_trace_id).count();
+        let same_trace_count = traces
+            .iter()
+            .filter(|(tid, _, _, _)| tid == first_trace_id)
+            .count();
         println!(
             "Spans sharing first trace ID: {} out of {}",
             same_trace_count,
@@ -301,10 +323,7 @@ fn test_network_routing_generates_traces() {
         println!("\nSample trace:");
         println!("  Trace ID: {}", tid);
         println!("  Span ID: {}", sid);
-        println!(
-            "  Parent Span ID: {}",
-            pid.as_deref().unwrap_or("(root)")
-        );
+        println!("  Parent Span ID: {}", pid.as_deref().unwrap_or("(root)"));
         println!("  Name: {}", name);
     }
 
@@ -350,7 +369,9 @@ fn test_velocity_changes_generate_metrics() {
     while rush_handler.active_count() > 0 && rush_ticks < 2000 {
         ctx.advance_time();
         rush_telemetry.on_before_tick(&ctx).unwrap();
-        rush_handler.advance_journeys(Duration::seconds(10)).unwrap();
+        rush_handler
+            .advance_journeys(Duration::seconds(10))
+            .unwrap();
         rush_telemetry.on_after_tick(&ctx).unwrap();
         rush_ticks += 1;
     }
@@ -434,7 +455,10 @@ fn test_velocity_changes_generate_metrics() {
     println!("Rush hour metrics: {}", rush_metrics.len());
     println!("Off-peak metrics: {}", off_peak_metrics.len());
 
-    assert!(!rush_metrics.is_empty(), "Rush hour should generate metrics");
+    assert!(
+        !rush_metrics.is_empty(),
+        "Rush hour should generate metrics"
+    );
     assert!(
         !off_peak_metrics.is_empty(),
         "Off-peak should generate metrics"
@@ -515,7 +539,11 @@ fn test_full_observability_pipeline() {
 
     // Verify all journeys completed
     let completed = handler.get_completed_journeys();
-    assert_eq!(completed.len(), num_journeys, "All journeys should complete");
+    assert_eq!(
+        completed.len(),
+        num_journeys,
+        "All journeys should complete"
+    );
 
     // Collect and analyze telemetry
     let records = telemetry.flush_telemetry();
@@ -738,12 +766,13 @@ fn test_trace_correlation_across_journey_lifecycle() {
     // Verify parent-child relationships are valid
     for trace in &traces {
         if let Some(parent_span_id) = &trace.2 {
-            let parent_exists = traces.iter().any(|(_, sid, _, _, _, _)| sid == parent_span_id);
+            let parent_exists = traces
+                .iter()
+                .any(|(_, sid, _, _, _, _)| sid == parent_span_id);
             assert!(
                 parent_exists,
                 "Parent span {} should exist for span {}",
-                parent_span_id,
-                trace.1
+                parent_span_id, trace.1
             );
         }
     }
@@ -789,7 +818,11 @@ fn test_backward_compatibility() {
     }
 
     let completed = handler_no_network.get_completed_journeys();
-    assert_eq!(completed.len(), 1, "Journey should complete without network");
+    assert_eq!(
+        completed.len(),
+        1,
+        "Journey should complete without network"
+    );
     println!("  Completed in {} ticks", tick);
 
     // Test 2: Journey with network but without telemetry

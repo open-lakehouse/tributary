@@ -25,11 +25,7 @@ pub struct Warehouse {
 
 impl Warehouse {
     /// Create a new warehouse
-    pub fn new(
-        name: String,
-        location: Point<f64>,
-        package_capacity: u32,
-    ) -> Result<Self, String> {
+    pub fn new(name: String, location: Point<f64>, package_capacity: u32) -> Result<Self, String> {
         let h3_cell = location_to_h3(location, Resolution::Nine)?;
 
         Ok(Self {
@@ -51,7 +47,8 @@ impl Warehouse {
 
     /// Get available capacity
     pub fn available_capacity(&self) -> u32 {
-        self.package_capacity.saturating_sub(self.current_package_count)
+        self.package_capacity
+            .saturating_sub(self.current_package_count)
     }
 
     /// Add packages to warehouse
@@ -94,10 +91,7 @@ pub struct DeliveryAddress {
 
 impl DeliveryAddress {
     /// Create a new delivery address
-    pub fn new(
-        location: Point<f64>,
-        recipient_name: String,
-    ) -> Result<Self, String> {
+    pub fn new(location: Point<f64>, recipient_name: String) -> Result<Self, String> {
         let h3_cell = location_to_h3(location, Resolution::Nine)?;
 
         Ok(Self {
@@ -119,7 +113,10 @@ impl DeliveryAddress {
 
     /// Check if delivery can be made at current hour
     pub fn accepts_delivery_at(&self, hour: u8) -> bool {
-        if let (Some(start), Some(end)) = (self.delivery_time_window_start, self.delivery_time_window_end) {
+        if let (Some(start), Some(end)) = (
+            self.delivery_time_window_start,
+            self.delivery_time_window_end,
+        ) {
             hour >= start && hour < end
         } else {
             true // No restriction
@@ -163,11 +160,7 @@ mod tests {
 
     #[test]
     fn test_warehouse_capacity() {
-        let mut warehouse = Warehouse::new(
-            "Test".to_string(),
-            Point::new(0.0, 0.0),
-            100,
-        ).unwrap();
+        let mut warehouse = Warehouse::new("Test".to_string(), Point::new(0.0, 0.0), 100).unwrap();
 
         assert!(warehouse.add_packages(50).is_ok());
         assert_eq!(warehouse.current_package_count, 50);
@@ -182,11 +175,7 @@ mod tests {
 
     #[test]
     fn test_warehouse_remove_packages() {
-        let mut warehouse = Warehouse::new(
-            "Test".to_string(),
-            Point::new(0.0, 0.0),
-            100,
-        ).unwrap();
+        let mut warehouse = Warehouse::new("Test".to_string(), Point::new(0.0, 0.0), 100).unwrap();
 
         warehouse.add_packages(50).unwrap();
         assert!(warehouse.remove_packages(30).is_ok());
@@ -197,11 +186,7 @@ mod tests {
 
     #[test]
     fn test_warehouse_operating_hours() {
-        let warehouse = Warehouse::new(
-            "24/7".to_string(),
-            Point::new(0.0, 0.0),
-            100,
-        ).unwrap();
+        let warehouse = Warehouse::new("24/7".to_string(), Point::new(0.0, 0.0), 100).unwrap();
 
         assert!(warehouse.is_operating(0));
         assert!(warehouse.is_operating(12));

@@ -12,5 +12,7 @@
 pub mod courier_delivery;
 pub mod supply_chain;
 
-pub use courier_delivery::{CourierDeliveryTask, CourierDeliveryTaskFactory, CourierDeliveryWorkflow};
+pub use courier_delivery::{
+    CourierDeliveryTask, CourierDeliveryTaskFactory, CourierDeliveryWorkflow,
+};
 pub use supply_chain::{SupplyChainTaskFactory, SupplyChainWorkflow, SupplyDeliveryTask};

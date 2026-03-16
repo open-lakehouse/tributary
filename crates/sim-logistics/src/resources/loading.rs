@@ -67,7 +67,8 @@ impl LoadingDock {
 
     /// Get number of available slots
     pub fn available_slots(&self) -> u32 {
-        self.vehicle_slots.saturating_sub(self.active_vehicles.len() as u32)
+        self.vehicle_slots
+            .saturating_sub(self.active_vehicles.len() as u32)
     }
 
     /// Assign a vehicle for loading
@@ -175,9 +176,9 @@ impl LoadingDock {
     /// * `Some((loaded, total))` - Progress tuple
     /// * `None` - Vehicle not found
     pub fn get_vehicle_progress(&self, driver_id: &str) -> Option<(usize, usize)> {
-        self.active_vehicles.get(driver_id).map(|state| {
-            (state.packages_loaded, state.packages_to_load.len())
-        })
+        self.active_vehicles
+            .get(driver_id)
+            .map(|state| (state.packages_loaded, state.packages_to_load.len()))
     }
 
     /// Check if a vehicle is loading
@@ -261,8 +262,10 @@ mod tests {
         let mut dock = LoadingDock::standard("D1".to_string());
 
         // Assign 2 vehicles (fills capacity)
-        dock.assign_vehicle("driver-1".to_string(), vec!["p1".to_string()], 1).unwrap();
-        dock.assign_vehicle("driver-2".to_string(), vec!["p2".to_string()], 1).unwrap();
+        dock.assign_vehicle("driver-1".to_string(), vec!["p1".to_string()], 1)
+            .unwrap();
+        dock.assign_vehicle("driver-2".to_string(), vec!["p2".to_string()], 1)
+            .unwrap();
 
         assert_eq!(dock.available_slots(), 0);
         assert!(!dock.has_available_slot());
@@ -278,7 +281,8 @@ mod tests {
         let mut dock = LoadingDock::standard("D1".to_string());
 
         let packages = vec!["p1".to_string(), "p2".to_string(), "p3".to_string()];
-        dock.assign_vehicle("driver-1".to_string(), packages, 1).unwrap();
+        dock.assign_vehicle("driver-1".to_string(), packages, 1)
+            .unwrap();
 
         // Initial progress
         let progress = dock.get_vehicle_progress("driver-1");
@@ -301,7 +305,8 @@ mod tests {
         let mut dock = LoadingDock::standard("D1".to_string());
 
         let packages = vec!["p1".to_string()];
-        dock.assign_vehicle("driver-1".to_string(), packages, 1).unwrap();
+        dock.assign_vehicle("driver-1".to_string(), packages, 1)
+            .unwrap();
 
         // Process until completion
         // 1 package at 5/hour = 720 sec = 24 ticks
@@ -326,10 +331,12 @@ mod tests {
 
         assert_eq!(dock.utilization(), 0.0);
 
-        dock.assign_vehicle("driver-1".to_string(), vec!["p1".to_string()], 1).unwrap();
+        dock.assign_vehicle("driver-1".to_string(), vec!["p1".to_string()], 1)
+            .unwrap();
         assert_eq!(dock.utilization(), 50.0);
 
-        dock.assign_vehicle("driver-2".to_string(), vec!["p2".to_string()], 1).unwrap();
+        dock.assign_vehicle("driver-2".to_string(), vec!["p2".to_string()], 1)
+            .unwrap();
         assert_eq!(dock.utilization(), 100.0);
     }
 
@@ -361,7 +368,8 @@ mod tests {
             "p4".to_string(),
             "p5".to_string(),
         ];
-        dock.assign_vehicle("driver-1".to_string(), packages, 1).unwrap();
+        dock.assign_vehicle("driver-1".to_string(), packages, 1)
+            .unwrap();
 
         // Process through all package loading
         // 5 packages * 24 ticks = 120 ticks total

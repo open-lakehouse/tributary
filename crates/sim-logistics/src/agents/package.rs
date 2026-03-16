@@ -35,9 +35,8 @@ use chrono::{DateTime, Utc};
 use geo::Point;
 use serde_json::Value;
 use sim_core::{
-    Agent, AgentId, AgentStatus, SimulationContext,
+    Agent, AgentId, AgentStatus, Result, SimulationContext,
     population::{AgentTickResult, ArrowAgentRow},
-    Result,
 };
 use uuid::Uuid;
 
@@ -128,7 +127,10 @@ impl Package {
     ) -> Self {
         Self {
             id: AgentId::new(),
-            state: PackageState::Created { origin, destination },
+            state: PackageState::Created {
+                origin,
+                destination,
+            },
             tracking_number: format!("PKG-{}", Uuid::new_v4().simple()),
             created_at: Utc::now(),
             delivered_at: None,
@@ -159,7 +161,11 @@ impl Package {
 
     /// Transition package to in-transit state
     pub fn mark_in_transit(&mut self, estimated_arrival: DateTime<Utc>) {
-        if let PackageState::Loaded { driver_id, destination } = &self.state {
+        if let PackageState::Loaded {
+            driver_id,
+            destination,
+        } = &self.state
+        {
             self.state = PackageState::InTransit {
                 driver_id: driver_id.clone(),
                 destination: *destination,
@@ -182,9 +188,8 @@ impl Package {
 
     /// Calculate delivery time in seconds (for SLA monitoring)
     pub fn delivery_time_seconds(&self) -> Option<i64> {
-        self.delivered_at.map(|delivered| {
-            (delivered - self.created_at).num_seconds()
-        })
+        self.delivered_at
+            .map(|delivered| (delivered - self.created_at).num_seconds())
     }
 
     /// Check if package is delivered
@@ -225,69 +230,114 @@ impl Agent for Package {
     fn state_data(&self) -> serde_json::Value {
         let mut map = serde_json::Map::new();
 
-        map.insert("tracking_number".to_string(), Value::String(self.tracking_number.clone()));
-        map.insert("weight_kg".to_string(), Value::Number(
-            serde_json::Number::from_f64(self.weight_kg).unwrap()
-        ));
-        map.insert("priority".to_string(), Value::String(
-            match self.priority {
-                PackagePriority::Standard => "standard",
-                PackagePriority::Express => "express",
-                PackagePriority::Overnight => "overnight",
-            }.to_string()
-        ));
+        map.insert(
+            "tracking_number".to_string(),
+            Value::String(self.tracking_number.clone()),
+        );
+        map.insert(
+            "weight_kg".to_string(),
+            Value::Number(serde_json::Number::from_f64(self.weight_kg).unwrap()),
+        );
+        map.insert(
+            "priority".to_string(),
+            Value::String(
+                match self.priority {
+                    PackagePriority::Standard => "standard",
+                    PackagePriority::Express => "express",
+                    PackagePriority::Overnight => "overnight",
+                }
+                .to_string(),
+            ),
+        );
 
         match &self.state {
-            PackageState::Created { origin, destination } => {
-                map.insert("origin_x".to_string(), Value::Number(
-                    serde_json::Number::from_f64(origin.x()).unwrap()
-                ));
-                map.insert("origin_y".to_string(), Value::Number(
-                    serde_json::Number::from_f64(origin.y()).unwrap()
-                ));
-                map.insert("dest_x".to_string(), Value::Number(
-                    serde_json::Number::from_f64(destination.x()).unwrap()
-                ));
-                map.insert("dest_y".to_string(), Value::Number(
-                    serde_json::Number::from_f64(destination.y()).unwrap()
-                ));
+            PackageState::Created {
+                origin,
+                destination,
+            } => {
+                map.insert(
+                    "origin_x".to_string(),
+                    Value::Number(serde_json::Number::from_f64(origin.x()).unwrap()),
+                );
+                map.insert(
+                    "origin_y".to_string(),
+                    Value::Number(serde_json::Number::from_f64(origin.y()).unwrap()),
+                );
+                map.insert(
+                    "dest_x".to_string(),
+                    Value::Number(serde_json::Number::from_f64(destination.x()).unwrap()),
+                );
+                map.insert(
+                    "dest_y".to_string(),
+                    Value::Number(serde_json::Number::from_f64(destination.y()).unwrap()),
+                );
             }
-            PackageState::Sorted { warehouse_id, destination } => {
-                map.insert("warehouse_id".to_string(), Value::String(warehouse_id.clone()));
-                map.insert("dest_x".to_string(), Value::Number(
-                    serde_json::Number::from_f64(destination.x()).unwrap()
-                ));
-                map.insert("dest_y".to_string(), Value::Number(
-                    serde_json::Number::from_f64(destination.y()).unwrap()
-                ));
+            PackageState::Sorted {
+                warehouse_id,
+                destination,
+            } => {
+                map.insert(
+                    "warehouse_id".to_string(),
+                    Value::String(warehouse_id.clone()),
+                );
+                map.insert(
+                    "dest_x".to_string(),
+                    Value::Number(serde_json::Number::from_f64(destination.x()).unwrap()),
+                );
+                map.insert(
+                    "dest_y".to_string(),
+                    Value::Number(serde_json::Number::from_f64(destination.y()).unwrap()),
+                );
             }
-            PackageState::Loaded { driver_id, destination } => {
+            PackageState::Loaded {
+                driver_id,
+                destination,
+            } => {
                 map.insert("driver_id".to_string(), Value::String(driver_id.clone()));
-                map.insert("dest_x".to_string(), Value::Number(
-                    serde_json::Number::from_f64(destination.x()).unwrap()
-                ));
-                map.insert("dest_y".to_string(), Value::Number(
-                    serde_json::Number::from_f64(destination.y()).unwrap()
-                ));
+                map.insert(
+                    "dest_x".to_string(),
+                    Value::Number(serde_json::Number::from_f64(destination.x()).unwrap()),
+                );
+                map.insert(
+                    "dest_y".to_string(),
+                    Value::Number(serde_json::Number::from_f64(destination.y()).unwrap()),
+                );
             }
-            PackageState::InTransit { driver_id, destination, estimated_arrival } => {
+            PackageState::InTransit {
+                driver_id,
+                destination,
+                estimated_arrival,
+            } => {
                 map.insert("driver_id".to_string(), Value::String(driver_id.clone()));
-                map.insert("dest_x".to_string(), Value::Number(
-                    serde_json::Number::from_f64(destination.x()).unwrap()
-                ));
-                map.insert("dest_y".to_string(), Value::Number(
-                    serde_json::Number::from_f64(destination.y()).unwrap()
-                ));
-                map.insert("eta".to_string(), Value::String(estimated_arrival.to_rfc3339()));
+                map.insert(
+                    "dest_x".to_string(),
+                    Value::Number(serde_json::Number::from_f64(destination.x()).unwrap()),
+                );
+                map.insert(
+                    "dest_y".to_string(),
+                    Value::Number(serde_json::Number::from_f64(destination.y()).unwrap()),
+                );
+                map.insert(
+                    "eta".to_string(),
+                    Value::String(estimated_arrival.to_rfc3339()),
+                );
             }
-            PackageState::Delivered { delivery_time, destination } => {
-                map.insert("delivery_time".to_string(), Value::String(delivery_time.to_rfc3339()));
-                map.insert("dest_x".to_string(), Value::Number(
-                    serde_json::Number::from_f64(destination.x()).unwrap()
-                ));
-                map.insert("dest_y".to_string(), Value::Number(
-                    serde_json::Number::from_f64(destination.y()).unwrap()
-                ));
+            PackageState::Delivered {
+                delivery_time,
+                destination,
+            } => {
+                map.insert(
+                    "delivery_time".to_string(),
+                    Value::String(delivery_time.to_rfc3339()),
+                );
+                map.insert(
+                    "dest_x".to_string(),
+                    Value::Number(serde_json::Number::from_f64(destination.x()).unwrap()),
+                );
+                map.insert(
+                    "dest_y".to_string(),
+                    Value::Number(serde_json::Number::from_f64(destination.y()).unwrap()),
+                );
             }
         }
 
@@ -298,8 +348,7 @@ impl Agent for Package {
         use sim_core::Error;
 
         let id = AgentId::from_uuid(
-            Uuid::from_slice(&row.id)
-                .map_err(|e| Error::Agent(format!("Invalid UUID: {}", e)))?,
+            Uuid::from_slice(&row.id).map_err(|e| Error::Agent(format!("Invalid UUID: {}", e)))?,
         );
 
         let metadata: serde_json::Value = if let Some(ref m) = row.metadata {
@@ -308,12 +357,14 @@ impl Agent for Package {
             serde_json::Value::Null
         };
 
-        let tracking_number = metadata.get("tracking_number")
+        let tracking_number = metadata
+            .get("tracking_number")
             .and_then(|v| v.as_str())
             .unwrap_or("PKG-unknown")
             .to_string();
 
-        let weight_kg = metadata.get("weight_kg")
+        let weight_kg = metadata
+            .get("weight_kg")
             .and_then(|v| v.as_f64())
             .unwrap_or(1.0);
 
@@ -326,35 +377,61 @@ impl Agent for Package {
         // Reconstruct state from status string and metadata
         let state = match row.status.as_str() {
             "created" => {
-                let origin_x = metadata.get("origin_x").and_then(|v| v.as_f64()).unwrap_or(0.0);
-                let origin_y = metadata.get("origin_y").and_then(|v| v.as_f64()).unwrap_or(0.0);
-                let dest_x = metadata.get("dest_x").and_then(|v| v.as_f64()).unwrap_or(0.0);
-                let dest_y = metadata.get("dest_y").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                let origin_x = metadata
+                    .get("origin_x")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0);
+                let origin_y = metadata
+                    .get("origin_y")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0);
+                let dest_x = metadata
+                    .get("dest_x")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0);
+                let dest_y = metadata
+                    .get("dest_y")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0);
                 PackageState::Created {
                     origin: Point::new(origin_x, origin_y),
                     destination: Point::new(dest_x, dest_y),
                 }
             }
             "sorted" => {
-                let warehouse_id = metadata.get("warehouse_id")
+                let warehouse_id = metadata
+                    .get("warehouse_id")
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .to_string();
-                let dest_x = metadata.get("dest_x").and_then(|v| v.as_f64()).unwrap_or(0.0);
-                let dest_y = metadata.get("dest_y").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                let dest_x = metadata
+                    .get("dest_x")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0);
+                let dest_y = metadata
+                    .get("dest_y")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0);
                 PackageState::Sorted {
                     warehouse_id,
                     destination: Point::new(dest_x, dest_y),
                 }
             }
             "delivered" => {
-                let delivery_time = metadata.get("delivery_time")
+                let delivery_time = metadata
+                    .get("delivery_time")
                     .and_then(|v| v.as_str())
                     .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
                     .map(|dt| dt.with_timezone(&Utc))
                     .unwrap_or_else(Utc::now);
-                let dest_x = metadata.get("dest_x").and_then(|v| v.as_f64()).unwrap_or(0.0);
-                let dest_y = metadata.get("dest_y").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                let dest_x = metadata
+                    .get("dest_x")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0);
+                let dest_y = metadata
+                    .get("dest_y")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0);
                 PackageState::Delivered {
                     delivery_time,
                     destination: Point::new(dest_x, dest_y),
@@ -363,7 +440,10 @@ impl Agent for Package {
             _ => {
                 let origin = Point::new(0.0, 0.0);
                 let destination = Point::new(0.0, 0.0);
-                PackageState::Created { origin, destination }
+                PackageState::Created {
+                    origin,
+                    destination,
+                }
             }
         };
 

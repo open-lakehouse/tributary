@@ -5,7 +5,9 @@
 use serde_json::json;
 use sim_telemetry::core::TelemetryGenerator;
 use sim_telemetry::formats::{JsonLogExporter, OtlpExporter, PrometheusExporter};
-use sim_telemetry::generators::{EventToLogGenerator, EventToMetricGenerator, EventToTraceGenerator};
+use sim_telemetry::generators::{
+    EventToLogGenerator, EventToMetricGenerator, EventToTraceGenerator,
+};
 
 fn main() {
     println!("=== Telemetry Metrics and Export Formats Demo ===\n");
@@ -72,7 +74,10 @@ fn main() {
 
     // Display metric statistics
     println!("\n2. Metric Statistics:");
-    println!("   Event counter: {} requests", metric_gen.get_counter("events.http_request").unwrap());
+    println!(
+        "   Event counter: {} requests",
+        metric_gen.get_counter("events.http_request").unwrap()
+    );
 
     if let Some(latencies) = metric_gen.get_histogram("http_request.latency_ms.histogram") {
         let avg_latency: f64 = latencies.iter().sum::<f64>() / latencies.len() as f64;

@@ -57,12 +57,23 @@ fn main() {
     // Select origin and destination
     let node_ids: Vec<_> = network.nodes.keys().copied().collect();
     let origin_position = network.get_node(node_ids[0]).unwrap().position;
-    let dest_position = network.get_node(node_ids[50.min(node_ids.len() - 1)]).unwrap().position;
+    let dest_position = network
+        .get_node(node_ids[50.min(node_ids.len() - 1)])
+        .unwrap()
+        .position;
 
     println!("Journey Setup:");
     println!("--------------");
-    println!("Origin:      ({:.6}, {:.6})", origin_position.x(), origin_position.y());
-    println!("Destination: ({:.6}, {:.6})", dest_position.x(), dest_position.y());
+    println!(
+        "Origin:      ({:.6}, {:.6})",
+        origin_position.x(),
+        origin_position.y()
+    );
+    println!(
+        "Destination: ({:.6}, {:.6})",
+        dest_position.x(),
+        dest_position.y()
+    );
     println!();
 
     // Demonstrate TimeOfDayVelocity model
@@ -70,9 +81,18 @@ fn main() {
     println!("---------------------------");
     let velocity_model = TimeOfDayVelocity::default();
     println!("Configuration:");
-    println!("  - Rush hour multiplier: {}", velocity_model.rush_hour_multiplier);
-    println!("  - Off-peak multiplier:  {}", velocity_model.off_peak_multiplier);
-    println!("  - Night multiplier:     {}", velocity_model.night_multiplier);
+    println!(
+        "  - Rush hour multiplier: {}",
+        velocity_model.rush_hour_multiplier
+    );
+    println!(
+        "  - Off-peak multiplier:  {}",
+        velocity_model.off_peak_multiplier
+    );
+    println!(
+        "  - Night multiplier:     {}",
+        velocity_model.night_multiplier
+    );
     println!();
 
     // Show speed calculations for different times and road types
@@ -80,9 +100,18 @@ fn main() {
     println!();
 
     let times = vec![
-        (Utc.with_ymd_and_hms(2024, 1, 15, 8, 0, 0).unwrap(), "Rush Hour (8 AM)"),
-        (Utc.with_ymd_and_hms(2024, 1, 15, 14, 0, 0).unwrap(), "Off-Peak (2 PM)"),
-        (Utc.with_ymd_and_hms(2024, 1, 15, 2, 0, 0).unwrap(), "Night (2 AM)"),
+        (
+            Utc.with_ymd_and_hms(2024, 1, 15, 8, 0, 0).unwrap(),
+            "Rush Hour (8 AM)",
+        ),
+        (
+            Utc.with_ymd_and_hms(2024, 1, 15, 14, 0, 0).unwrap(),
+            "Off-Peak (2 PM)",
+        ),
+        (
+            Utc.with_ymd_and_hms(2024, 1, 15, 2, 0, 0).unwrap(),
+            "Night (2 AM)",
+        ),
     ];
 
     let road_types = vec![
@@ -152,12 +181,7 @@ fn main() {
 
         // Plan journey
         let journey = handler
-            .plan_journey(
-                AgentId::new(),
-                origin_position,
-                dest_position,
-                start_time,
-            )
+            .plan_journey(AgentId::new(), origin_position, dest_position, start_time)
             .expect("Journey planning should succeed");
 
         let distance = journey.distance_m;
@@ -189,10 +213,16 @@ fn main() {
             let travel_time = steps * 10;
             let avg_speed = distance / travel_time as f64;
 
-            println!("  Travel time:    {} seconds ({:.1} minutes)",
-                     travel_time, travel_time as f64 / 60.0);
-            println!("  Avg speed:      {:.2} m/s ({:.1} km/h)",
-                     avg_speed, avg_speed * 3.6);
+            println!(
+                "  Travel time:    {} seconds ({:.1} minutes)",
+                travel_time,
+                travel_time as f64 / 60.0
+            );
+            println!(
+                "  Avg speed:      {:.2} m/s ({:.1} km/h)",
+                avg_speed,
+                avg_speed * 3.6
+            );
 
             results.push((label, distance, travel_time, avg_speed));
         } else {
@@ -217,8 +247,10 @@ fn main() {
             let time_ratio = *travel_time as f64 / off_peak_time as f64;
             let speed_ratio = avg_speed / off_peak_speed;
 
-            println!("{:30} | Time: {:5.1}x | Speed: {:5.1}x",
-                     label, time_ratio, speed_ratio);
+            println!(
+                "{:30} | Time: {:5.1}x | Speed: {:5.1}x",
+                label, time_ratio, speed_ratio
+            );
         }
 
         println!();
@@ -235,12 +267,7 @@ fn main() {
 
     let handler = MovementHandler::new().with_network(network);
     let journey = handler
-        .plan_journey(
-            AgentId::new(),
-            origin_position,
-            dest_position,
-            Utc::now(),
-        )
+        .plan_journey(AgentId::new(), origin_position, dest_position, Utc::now())
         .unwrap();
 
     println!("Route waypoints (first 10):");
@@ -249,7 +276,10 @@ fn main() {
     }
 
     if journey.route.coords().count() > 10 {
-        println!("  ... ({} more waypoints)", journey.route.coords().count() - 10);
+        println!(
+            "  ... ({} more waypoints)",
+            journey.route.coords().count() - 10
+        );
     }
 
     println!("\n========================================");

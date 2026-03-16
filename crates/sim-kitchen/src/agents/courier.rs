@@ -54,9 +54,8 @@
 use geo::Point;
 use serde_json::Value;
 use sim_core::{
-    Agent, AgentId, AgentStatus, SimulationContext,
+    Agent, AgentId, AgentStatus, Result, SimulationContext,
     population::{AgentTickResult, ArrowAgentRow},
-    Result,
 };
 use uuid::Uuid;
 
@@ -278,15 +277,21 @@ impl Agent for Courier {
                 // External system will call assign_delivery()
             }
 
-            CourierState::PickingUp { kitchen_location, order_id } => {
+            CourierState::PickingUp {
+                kitchen_location,
+                order_id,
+            } => {
                 // Move towards kitchen
                 let arrived = self.move_towards(*kitchen_location, step_duration);
 
                 if arrived {
                     // Pick up order and transition to Delivering
-                    let customer_id = self.metadata_customer_id.take()
+                    let customer_id = self
+                        .metadata_customer_id
+                        .take()
                         .expect("Customer ID must be set");
-                    let customer_location = self.metadata_customer_location
+                    let customer_location = self
+                        .metadata_customer_location
                         .expect("Customer location must be set");
 
                     self.state = CourierState::Delivering {
@@ -307,7 +312,11 @@ impl Agent for Courier {
                 }
             }
 
-            CourierState::Delivering { customer_location, order_id, customer_id } => {
+            CourierState::Delivering {
+                customer_location,
+                order_id,
+                customer_id,
+            } => {
                 // Move towards customer
                 let arrived = self.move_towards(*customer_location, step_duration);
 
@@ -350,10 +359,9 @@ impl Agent for Courier {
                         "state_transition".to_string(),
                         Value::String("returning_to_idle".to_string()),
                     );
-                    result.state_changes.insert(
-                        "returned_home".to_string(),
-                        Value::Bool(true),
-                    );
+                    result
+                        .state_changes
+                        .insert("returned_home".to_string(), Value::Bool(true));
                 }
             }
         }
@@ -365,43 +373,61 @@ impl Agent for Courier {
         let mut map = serde_json::Map::new();
 
         match &self.state {
-            CourierState::PickingUp { order_id, kitchen_location } => {
+            CourierState::PickingUp {
+                order_id,
+                kitchen_location,
+            } => {
                 map.insert("order_id".to_string(), Value::String(order_id.clone()));
-                map.insert("kitchen_x".to_string(), Value::Number(
-                    serde_json::Number::from_f64(kitchen_location.x()).unwrap()
-                ));
-                map.insert("kitchen_y".to_string(), Value::Number(
-                    serde_json::Number::from_f64(kitchen_location.y()).unwrap()
-                ));
+                map.insert(
+                    "kitchen_x".to_string(),
+                    Value::Number(serde_json::Number::from_f64(kitchen_location.x()).unwrap()),
+                );
+                map.insert(
+                    "kitchen_y".to_string(),
+                    Value::Number(serde_json::Number::from_f64(kitchen_location.y()).unwrap()),
+                );
             }
-            CourierState::Delivering { order_id, customer_id, customer_location } => {
+            CourierState::Delivering {
+                order_id,
+                customer_id,
+                customer_location,
+            } => {
                 map.insert("order_id".to_string(), Value::String(order_id.clone()));
-                map.insert("customer_id".to_string(), Value::String(customer_id.clone()));
-                map.insert("customer_x".to_string(), Value::Number(
-                    serde_json::Number::from_f64(customer_location.x()).unwrap()
-                ));
-                map.insert("customer_y".to_string(), Value::Number(
-                    serde_json::Number::from_f64(customer_location.y()).unwrap()
-                ));
+                map.insert(
+                    "customer_id".to_string(),
+                    Value::String(customer_id.clone()),
+                );
+                map.insert(
+                    "customer_x".to_string(),
+                    Value::Number(serde_json::Number::from_f64(customer_location.x()).unwrap()),
+                );
+                map.insert(
+                    "customer_y".to_string(),
+                    Value::Number(serde_json::Number::from_f64(customer_location.y()).unwrap()),
+                );
             }
             CourierState::Returning { home_location } => {
-                map.insert("home_x".to_string(), Value::Number(
-                    serde_json::Number::from_f64(home_location.x()).unwrap()
-                ));
-                map.insert("home_y".to_string(), Value::Number(
-                    serde_json::Number::from_f64(home_location.y()).unwrap()
-                ));
+                map.insert(
+                    "home_x".to_string(),
+                    Value::Number(serde_json::Number::from_f64(home_location.x()).unwrap()),
+                );
+                map.insert(
+                    "home_y".to_string(),
+                    Value::Number(serde_json::Number::from_f64(home_location.y()).unwrap()),
+                );
             }
             CourierState::Idle => {}
         }
 
         // Add home location
-        map.insert("home_x".to_string(), Value::Number(
-            serde_json::Number::from_f64(self.home_location.x()).unwrap()
-        ));
-        map.insert("home_y".to_string(), Value::Number(
-            serde_json::Number::from_f64(self.home_location.y()).unwrap()
-        ));
+        map.insert(
+            "home_x".to_string(),
+            Value::Number(serde_json::Number::from_f64(self.home_location.x()).unwrap()),
+        );
+        map.insert(
+            "home_y".to_string(),
+            Value::Number(serde_json::Number::from_f64(self.home_location.y()).unwrap()),
+        );
 
         Value::Object(map)
     }
@@ -411,8 +437,7 @@ impl Agent for Courier {
 
         // Parse UUID from binary ID
         let id = AgentId::from_uuid(
-            Uuid::from_slice(&row.id)
-                .map_err(|e| Error::Agent(format!("Invalid UUID: {}", e)))?,
+            Uuid::from_slice(&row.id).map_err(|e| Error::Agent(format!("Invalid UUID: {}", e)))?,
         );
 
         // Parse location from position
@@ -430,10 +455,12 @@ impl Agent for Courier {
         };
 
         // Parse home location from metadata
-        let home_x = metadata.get("home_x")
+        let home_x = metadata
+            .get("home_x")
             .and_then(|v| v.as_f64())
             .unwrap_or(0.0);
-        let home_y = metadata.get("home_y")
+        let home_y = metadata
+            .get("home_y")
             .and_then(|v| v.as_f64())
             .unwrap_or(0.0);
         let home_location = Point::new(home_x, home_y);
@@ -442,37 +469,50 @@ impl Agent for Courier {
         let state = match row.status.as_str() {
             "idle" => CourierState::Idle,
             "picking_up" => {
-                let order_id = metadata.get("order_id")
+                let order_id = metadata
+                    .get("order_id")
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .to_string();
-                let kitchen_x = metadata.get("kitchen_x").and_then(|v| v.as_f64()).unwrap_or(0.0);
-                let kitchen_y = metadata.get("kitchen_y").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                let kitchen_x = metadata
+                    .get("kitchen_x")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0);
+                let kitchen_y = metadata
+                    .get("kitchen_y")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0);
                 CourierState::PickingUp {
                     order_id,
                     kitchen_location: Point::new(kitchen_x, kitchen_y),
                 }
             }
             "delivering" => {
-                let order_id = metadata.get("order_id")
+                let order_id = metadata
+                    .get("order_id")
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .to_string();
-                let customer_id = metadata.get("customer_id")
+                let customer_id = metadata
+                    .get("customer_id")
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .to_string();
-                let customer_x = metadata.get("customer_x").and_then(|v| v.as_f64()).unwrap_or(0.0);
-                let customer_y = metadata.get("customer_y").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                let customer_x = metadata
+                    .get("customer_x")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0);
+                let customer_y = metadata
+                    .get("customer_y")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0);
                 CourierState::Delivering {
                     order_id,
                     customer_id,
                     customer_location: Point::new(customer_x, customer_y),
                 }
             }
-            "returning" => {
-                CourierState::Returning { home_location }
-            }
+            "returning" => CourierState::Returning { home_location },
             _ => CourierState::Idle,
         };
 
@@ -531,7 +571,10 @@ mod tests {
         assert_eq!(courier.state.as_str(), "picking_up");
 
         match &courier.state {
-            CourierState::PickingUp { kitchen_location, order_id: oid } => {
+            CourierState::PickingUp {
+                kitchen_location,
+                order_id: oid,
+            } => {
                 assert_eq!(*kitchen_location, kitchen);
                 assert_eq!(oid, &order_id);
             }
@@ -561,7 +604,11 @@ mod tests {
         assert!(result.state_changes.contains_key("picked_up_order"));
 
         match &courier.state {
-            CourierState::Delivering { customer_location, order_id: oid, customer_id: cid } => {
+            CourierState::Delivering {
+                customer_location,
+                order_id: oid,
+                customer_id: cid,
+            } => {
                 assert_eq!(*customer_location, customer);
                 assert_eq!(oid, &order_id);
                 assert_eq!(cid, &customer_id);
@@ -656,7 +703,11 @@ mod tests {
         };
 
         match &courier.state {
-            CourierState::Delivering { order_id: oid, customer_id: cid, .. } => {
+            CourierState::Delivering {
+                order_id: oid,
+                customer_id: cid,
+                ..
+            } => {
                 assert_eq!(oid, &order_id);
                 assert_eq!(cid, &customer_id);
             }

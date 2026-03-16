@@ -54,9 +54,8 @@
 use geo::Point;
 use serde_json::Value;
 use sim_core::{
-    Agent, AgentId, AgentStatus, SimulationContext,
+    Agent, AgentId, AgentStatus, Result, SimulationContext,
     population::{AgentTickResult, ArrowAgentRow},
-    Result,
 };
 use uuid::Uuid;
 
@@ -283,10 +282,10 @@ impl Agent for SupplyDriver {
 
                 if arrived {
                     // Load cargo and transition to Delivering
-                    let kitchen_location = self.metadata_kitchen_location
+                    let kitchen_location = self
+                        .metadata_kitchen_location
                         .expect("Kitchen location must be set");
-                    let cargo = self.metadata_cargo.take()
-                        .expect("Cargo must be set");
+                    let cargo = self.metadata_cargo.take().expect("Cargo must be set");
 
                     self.state = DriverState::Delivering {
                         kitchen_id: format!("kitchen-{}", Uuid::new_v4()),
@@ -306,7 +305,11 @@ impl Agent for SupplyDriver {
                 }
             }
 
-            DriverState::Delivering { kitchen_location, cargo, .. } => {
+            DriverState::Delivering {
+                kitchen_location,
+                cargo,
+                ..
+            } => {
                 // Move towards kitchen
                 let arrived = self.move_towards(*kitchen_location, step_duration);
 
@@ -345,10 +348,9 @@ impl Agent for SupplyDriver {
                         "state_transition".to_string(),
                         Value::String("returning_to_idle".to_string()),
                     );
-                    result.state_changes.insert(
-                        "returned_home".to_string(),
-                        Value::Bool(true),
-                    );
+                    result
+                        .state_changes
+                        .insert("returned_home".to_string(), Value::Bool(true));
                 }
             }
         }
@@ -360,45 +362,61 @@ impl Agent for SupplyDriver {
         let mut map = serde_json::Map::new();
 
         match &self.state {
-            DriverState::PickingUp { site_id, site_location } => {
+            DriverState::PickingUp {
+                site_id,
+                site_location,
+            } => {
                 map.insert("site_id".to_string(), Value::String(site_id.clone()));
-                map.insert("site_x".to_string(), Value::Number(
-                    serde_json::Number::from_f64(site_location.x()).unwrap()
-                ));
-                map.insert("site_y".to_string(), Value::Number(
-                    serde_json::Number::from_f64(site_location.y()).unwrap()
-                ));
+                map.insert(
+                    "site_x".to_string(),
+                    Value::Number(serde_json::Number::from_f64(site_location.x()).unwrap()),
+                );
+                map.insert(
+                    "site_y".to_string(),
+                    Value::Number(serde_json::Number::from_f64(site_location.y()).unwrap()),
+                );
             }
-            DriverState::Delivering { kitchen_id, kitchen_location, cargo } => {
+            DriverState::Delivering {
+                kitchen_id,
+                kitchen_location,
+                cargo,
+            } => {
                 map.insert("kitchen_id".to_string(), Value::String(kitchen_id.clone()));
-                map.insert("kitchen_x".to_string(), Value::Number(
-                    serde_json::Number::from_f64(kitchen_location.x()).unwrap()
-                ));
-                map.insert("kitchen_y".to_string(), Value::Number(
-                    serde_json::Number::from_f64(kitchen_location.y()).unwrap()
-                ));
-                map.insert("cargo".to_string(), Value::Array(
-                    cargo.iter().map(|s| Value::String(s.clone())).collect()
-                ));
+                map.insert(
+                    "kitchen_x".to_string(),
+                    Value::Number(serde_json::Number::from_f64(kitchen_location.x()).unwrap()),
+                );
+                map.insert(
+                    "kitchen_y".to_string(),
+                    Value::Number(serde_json::Number::from_f64(kitchen_location.y()).unwrap()),
+                );
+                map.insert(
+                    "cargo".to_string(),
+                    Value::Array(cargo.iter().map(|s| Value::String(s.clone())).collect()),
+                );
             }
             DriverState::Returning { home_location } => {
-                map.insert("home_x".to_string(), Value::Number(
-                    serde_json::Number::from_f64(home_location.x()).unwrap()
-                ));
-                map.insert("home_y".to_string(), Value::Number(
-                    serde_json::Number::from_f64(home_location.y()).unwrap()
-                ));
+                map.insert(
+                    "home_x".to_string(),
+                    Value::Number(serde_json::Number::from_f64(home_location.x()).unwrap()),
+                );
+                map.insert(
+                    "home_y".to_string(),
+                    Value::Number(serde_json::Number::from_f64(home_location.y()).unwrap()),
+                );
             }
             DriverState::Idle => {}
         }
 
         // Add home location
-        map.insert("home_x".to_string(), Value::Number(
-            serde_json::Number::from_f64(self.home_location.x()).unwrap()
-        ));
-        map.insert("home_y".to_string(), Value::Number(
-            serde_json::Number::from_f64(self.home_location.y()).unwrap()
-        ));
+        map.insert(
+            "home_x".to_string(),
+            Value::Number(serde_json::Number::from_f64(self.home_location.x()).unwrap()),
+        );
+        map.insert(
+            "home_y".to_string(),
+            Value::Number(serde_json::Number::from_f64(self.home_location.y()).unwrap()),
+        );
 
         Value::Object(map)
     }
@@ -408,8 +426,7 @@ impl Agent for SupplyDriver {
 
         // Parse UUID from binary ID
         let id = AgentId::from_uuid(
-            Uuid::from_slice(&row.id)
-                .map_err(|e| Error::Agent(format!("Invalid UUID: {}", e)))?,
+            Uuid::from_slice(&row.id).map_err(|e| Error::Agent(format!("Invalid UUID: {}", e)))?,
         );
 
         // Parse location from position
@@ -427,10 +444,12 @@ impl Agent for SupplyDriver {
         };
 
         // Parse home location from metadata
-        let home_x = metadata.get("home_x")
+        let home_x = metadata
+            .get("home_x")
             .and_then(|v| v.as_f64())
             .unwrap_or(0.0);
-        let home_y = metadata.get("home_y")
+        let home_y = metadata
+            .get("home_y")
             .and_then(|v| v.as_f64())
             .unwrap_or(0.0);
         let home_location = Point::new(home_x, home_y);
@@ -439,29 +458,46 @@ impl Agent for SupplyDriver {
         let state = match row.status.as_str() {
             "idle" => DriverState::Idle,
             "picking_up" => {
-                let site_id = metadata.get("site_id")
+                let site_id = metadata
+                    .get("site_id")
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .to_string();
-                let site_x = metadata.get("site_x").and_then(|v| v.as_f64()).unwrap_or(0.0);
-                let site_y = metadata.get("site_y").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                let site_x = metadata
+                    .get("site_x")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0);
+                let site_y = metadata
+                    .get("site_y")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0);
                 DriverState::PickingUp {
                     site_id,
                     site_location: Point::new(site_x, site_y),
                 }
             }
             "delivering" => {
-                let kitchen_id = metadata.get("kitchen_id")
+                let kitchen_id = metadata
+                    .get("kitchen_id")
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .to_string();
-                let kitchen_x = metadata.get("kitchen_x").and_then(|v| v.as_f64()).unwrap_or(0.0);
-                let kitchen_y = metadata.get("kitchen_y").and_then(|v| v.as_f64()).unwrap_or(0.0);
-                let cargo = metadata.get("cargo")
+                let kitchen_x = metadata
+                    .get("kitchen_x")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0);
+                let kitchen_y = metadata
+                    .get("kitchen_y")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0);
+                let cargo = metadata
+                    .get("cargo")
                     .and_then(|v| v.as_array())
-                    .map(|arr| arr.iter()
-                        .filter_map(|v| v.as_str().map(String::from))
-                        .collect())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str().map(String::from))
+                            .collect()
+                    })
                     .unwrap_or_default();
                 DriverState::Delivering {
                     kitchen_id,
@@ -469,9 +505,7 @@ impl Agent for SupplyDriver {
                     cargo,
                 }
             }
-            "returning" => {
-                DriverState::Returning { home_location }
-            }
+            "returning" => DriverState::Returning { home_location },
             _ => DriverState::Idle,
         };
 
@@ -557,7 +591,11 @@ mod tests {
         assert!(result.state_changes.contains_key("loaded_cargo"));
 
         match &driver.state {
-            DriverState::Delivering { kitchen_location, cargo: delivered_cargo, .. } => {
+            DriverState::Delivering {
+                kitchen_location,
+                cargo: delivered_cargo,
+                ..
+            } => {
                 assert_eq!(*kitchen_location, kitchen);
                 assert_eq!(delivered_cargo, &cargo);
             }
@@ -650,7 +688,10 @@ mod tests {
         };
 
         match &driver.state {
-            DriverState::Delivering { cargo: current_cargo, .. } => {
+            DriverState::Delivering {
+                cargo: current_cargo,
+                ..
+            } => {
                 assert_eq!(current_cargo.len(), 3);
                 assert_eq!(current_cargo, &cargo);
             }

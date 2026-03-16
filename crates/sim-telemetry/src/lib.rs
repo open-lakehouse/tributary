@@ -84,15 +84,24 @@ mod integration_tests {
 
         // Verify record structure
         match &records[0] {
-            TelemetryRecord::Log { message, attributes, level, .. } => {
+            TelemetryRecord::Log {
+                message,
+                attributes,
+                level,
+                ..
+            } => {
                 assert!(message.contains("com.simulation.agent_ticked"));
                 assert_eq!(attributes.get("event.id").unwrap(), "integration-test-001");
                 assert_eq!(attributes.get("data.agent_id").unwrap(), "agent-test");
                 assert_eq!(attributes.get("data.tick").unwrap(), "42");
                 assert!(matches!(
                     level,
-                    LogLevel::Trace | LogLevel::Debug | LogLevel::Info |
-                    LogLevel::Warn | LogLevel::Error | LogLevel::Fatal
+                    LogLevel::Trace
+                        | LogLevel::Debug
+                        | LogLevel::Info
+                        | LogLevel::Warn
+                        | LogLevel::Error
+                        | LogLevel::Fatal
                 ));
             }
             _ => panic!("Expected Log record"),

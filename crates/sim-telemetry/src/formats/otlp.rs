@@ -4,7 +4,7 @@
 //! OTLP-compatible JSON format for logs, traces, and metrics.
 
 use crate::core::{LogLevel, MetricType, TelemetryRecord};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 /// OTLP exporter for telemetry records.
 ///
@@ -95,9 +95,7 @@ impl OtlpExporter {
     /// let otlp_json = OtlpExporter::export_traces(&records).unwrap();
     /// assert!(otlp_json.get("resourceSpans").is_some());
     /// ```
-    pub fn export_traces(
-        records: &[TelemetryRecord],
-    ) -> Result<Value, Box<dyn std::error::Error>> {
+    pub fn export_traces(records: &[TelemetryRecord]) -> Result<Value, Box<dyn std::error::Error>> {
         let spans: Vec<Value> = records
             .iter()
             .filter_map(|r| {
@@ -431,13 +429,31 @@ mod tests {
         let records: Vec<TelemetryRecord> = vec![];
 
         let logs = OtlpExporter::export_logs(&records).unwrap();
-        assert_eq!(logs["resourceLogs"][0]["scopeLogs"][0]["logRecords"].as_array().unwrap().len(), 0);
+        assert_eq!(
+            logs["resourceLogs"][0]["scopeLogs"][0]["logRecords"]
+                .as_array()
+                .unwrap()
+                .len(),
+            0
+        );
 
         let traces = OtlpExporter::export_traces(&records).unwrap();
-        assert_eq!(traces["resourceSpans"][0]["scopeSpans"][0]["spans"].as_array().unwrap().len(), 0);
+        assert_eq!(
+            traces["resourceSpans"][0]["scopeSpans"][0]["spans"]
+                .as_array()
+                .unwrap()
+                .len(),
+            0
+        );
 
         let metrics = OtlpExporter::export_metrics(&records).unwrap();
-        assert_eq!(metrics["resourceMetrics"][0]["scopeMetrics"][0]["metrics"].as_array().unwrap().len(), 0);
+        assert_eq!(
+            metrics["resourceMetrics"][0]["scopeMetrics"][0]["metrics"]
+                .as_array()
+                .unwrap()
+                .len(),
+            0
+        );
     }
 
     #[test]
@@ -469,12 +485,30 @@ mod tests {
 
         // Each exporter should filter to its type
         let logs = OtlpExporter::export_logs(&records).unwrap();
-        assert_eq!(logs["resourceLogs"][0]["scopeLogs"][0]["logRecords"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            logs["resourceLogs"][0]["scopeLogs"][0]["logRecords"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
 
         let traces = OtlpExporter::export_traces(&records).unwrap();
-        assert_eq!(traces["resourceSpans"][0]["scopeSpans"][0]["spans"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            traces["resourceSpans"][0]["scopeSpans"][0]["spans"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
 
         let metrics = OtlpExporter::export_metrics(&records).unwrap();
-        assert_eq!(metrics["resourceMetrics"][0]["scopeMetrics"][0]["metrics"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            metrics["resourceMetrics"][0]["scopeMetrics"][0]["metrics"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
     }
 }

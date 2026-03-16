@@ -377,10 +377,7 @@ mod tests {
         let journey = JourneyState {
             id: JourneyId::new(),
             agent_id: AgentId::new(),
-            route: LineString::from(vec![
-                Point::new(0.0, 0.0),
-                Point::new(1.0, 1.0),
-            ]),
+            route: LineString::from(vec![Point::new(0.0, 0.0), Point::new(1.0, 1.0)]),
             distance_m: 1000.0,
             progress: 0.5,
             start_time: rush_time,

@@ -73,7 +73,9 @@ impl PrometheusExporter {
                 } else {
                     let label_pairs: Vec<String> = tags
                         .iter()
-                        .map(|(k, v)| format!("{}=\"{}\"", sanitize_label_name(k), escape_label_value(v)))
+                        .map(|(k, v)| {
+                            format!("{}=\"{}\"", sanitize_label_name(k), escape_label_value(v))
+                        })
                         .collect();
                     format!("{{{}}}", label_pairs.join(","))
                 };
@@ -117,10 +119,7 @@ impl PrometheusExporter {
 
         for record in records {
             if let TelemetryRecord::Metric {
-                name,
-                value,
-                tags,
-                ..
+                name, value, tags, ..
             } = record
             {
                 let metric_name = sanitize_metric_name(name);
@@ -130,7 +129,9 @@ impl PrometheusExporter {
                 } else {
                     let label_pairs: Vec<String> = tags
                         .iter()
-                        .map(|(k, v)| format!("{}=\"{}\"", sanitize_label_name(k), escape_label_value(v)))
+                        .map(|(k, v)| {
+                            format!("{}=\"{}\"", sanitize_label_name(k), escape_label_value(v))
+                        })
                         .collect();
                     format!("{{{}}}", label_pairs.join(","))
                 };
@@ -147,14 +148,26 @@ impl PrometheusExporter {
 fn sanitize_metric_name(name: &str) -> String {
     name.replace('.', "_")
         .chars()
-        .map(|c| if c.is_alphanumeric() || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect()
 }
 
 /// Sanitize label name for Prometheus.
 fn sanitize_label_name(name: &str) -> String {
     name.chars()
-        .map(|c| if c.is_alphanumeric() || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect()
 }
 
@@ -263,7 +276,10 @@ mod tests {
 
     #[test]
     fn test_sanitize_metric_name() {
-        assert_eq!(sanitize_metric_name("http.requests.total"), "http_requests_total");
+        assert_eq!(
+            sanitize_metric_name("http.requests.total"),
+            "http_requests_total"
+        );
         assert_eq!(sanitize_metric_name("cpu-usage"), "cpu_usage");
         assert_eq!(sanitize_metric_name("memory@used"), "memory_used");
     }
@@ -351,6 +367,9 @@ mod tests {
     fn test_metric_type_conversion() {
         assert_eq!(metric_type_to_prometheus(&MetricType::Counter), "counter");
         assert_eq!(metric_type_to_prometheus(&MetricType::Gauge), "gauge");
-        assert_eq!(metric_type_to_prometheus(&MetricType::Histogram), "histogram");
+        assert_eq!(
+            metric_type_to_prometheus(&MetricType::Histogram),
+            "histogram"
+        );
     }
 }

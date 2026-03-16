@@ -141,9 +141,7 @@ where
             .map_err(|e| crate::Error::Query(format!("Failed to create agents table: {}", e)))?;
 
         ctx.register_table("agents", Arc::new(mem_table))
-            .map_err(|e| {
-                crate::Error::Query(format!("Failed to register agents table: {}", e))
-            })?;
+            .map_err(|e| crate::Error::Query(format!("Failed to register agents table: {}", e)))?;
     }
 
     // Register resources and tasks tables (if ResourceAllocator exists)
@@ -153,9 +151,7 @@ where
         // Register resources table
         let resources_schema = resources_batch.schema();
         let resources_mem_table = MemTable::try_new(resources_schema, vec![vec![resources_batch]])
-            .map_err(|e| {
-                crate::Error::Query(format!("Failed to create resources table: {}", e))
-            })?;
+            .map_err(|e| crate::Error::Query(format!("Failed to create resources table: {}", e)))?;
 
         ctx.register_table("resources", Arc::new(resources_mem_table))
             .map_err(|e| {
@@ -168,9 +164,7 @@ where
             .map_err(|e| crate::Error::Query(format!("Failed to create tasks table: {}", e)))?;
 
         ctx.register_table("tasks", Arc::new(tasks_mem_table))
-            .map_err(|e| {
-                crate::Error::Query(format!("Failed to register tasks table: {}", e))
-            })?;
+            .map_err(|e| crate::Error::Query(format!("Failed to register tasks table: {}", e)))?;
     }
 
     // Register workflow_instances table (if WorkflowEngine exists)
@@ -178,8 +172,8 @@ where
         let instances_batch = wf.instance_table.export_batch();
         let instances_schema = instances_batch.schema();
 
-        let instances_mem_table =
-            MemTable::try_new(instances_schema, vec![vec![instances_batch]]).map_err(|e| {
+        let instances_mem_table = MemTable::try_new(instances_schema, vec![vec![instances_batch]])
+            .map_err(|e| {
                 crate::Error::Query(format!("Failed to create workflow_instances table: {}", e))
             })?;
 
@@ -193,14 +187,16 @@ where
     }
 
     // Execute SQL query
-    let df = ctx.sql(sql).await.map_err(|e| {
-        crate::Error::Query(format!("SQL execution failed: {}", e))
-    })?;
+    let df = ctx
+        .sql(sql)
+        .await
+        .map_err(|e| crate::Error::Query(format!("SQL execution failed: {}", e)))?;
 
     // Collect results
-    let batches = df.collect().await.map_err(|e| {
-        crate::Error::Query(format!("Failed to collect query results: {}", e))
-    })?;
+    let batches = df
+        .collect()
+        .await
+        .map_err(|e| crate::Error::Query(format!("Failed to collect query results: {}", e)))?;
 
     Ok(batches)
 }
@@ -251,10 +247,7 @@ mod tests {
             None
         }
 
-        fn tick(
-            &mut self,
-            _ctx: &crate::context::SimulationContext,
-        ) -> Result<AgentTickResult> {
+        fn tick(&mut self, _ctx: &crate::context::SimulationContext) -> Result<AgentTickResult> {
             Ok(AgentTickResult::default())
         }
 
@@ -369,7 +362,9 @@ mod tests {
         });
         runner.set_population_handler(pop);
 
-        let result = query_simulation(&runner, "SELECT * FROM agents").await.unwrap();
+        let result = query_simulation(&runner, "SELECT * FROM agents")
+            .await
+            .unwrap();
         assert_eq!(result[0].num_rows(), 2);
     }
 

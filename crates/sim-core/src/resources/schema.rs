@@ -95,7 +95,7 @@ pub fn task_schema() -> SchemaRef {
         Field::new("workflow_instance_id", DataType::Binary, true), // Optional WorkflowInstanceId (Phase 5)
         Field::new("priority", DataType::Int32, false),             // Task priority
         Field::new("metadata", DataType::Utf8, true),               // JSON for domain fields
-        Field::new("allocated_at_millis", DataType::Int64, true), // Allocated timestamp (millis)
+        Field::new("allocated_at_millis", DataType::Int64, true),   // Allocated timestamp (millis)
         Field::new("estimated_duration_secs", DataType::Int64, false), // Duration (seconds)
     ]))
 }
