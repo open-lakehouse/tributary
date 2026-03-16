@@ -2,7 +2,6 @@
 
 use super::traits::{AllocationStrategy, Resource, Task};
 use crate::utils::idents::ResourceId;
-use rand::Rng;
 
 /// Round-robin allocation strategy
 ///
@@ -67,7 +66,9 @@ impl<R: Resource, T: Task> AllocationStrategy<R, T> for Random {
             return None;
         }
 
-        let idx = rand::rng().random_range(0..available.len());
+        use rand::Rng;
+        let mut rng = rand::thread_rng();
+        let idx = rng.gen_range(0..available.len());
         Some(available[idx].id())
     }
 }

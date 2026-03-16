@@ -39,7 +39,11 @@ pub mod workflows;
 
 // Re-export commonly used types
 pub use context::{SimulationConfig, SimulationContext};
-pub use population::{Agent, AgentStatus, PopulationHandler};
+pub use demand::{
+    CompositeDemandGenerator, DemandGenerator, PoissonDemandGenerator, SpatialDemandGenerator,
+    TimeOfDayDemandGenerator,
+};
+pub use population::{Agent, AgentStatus, Demand, PopulationHandler};
 pub use resources::{AllocationStrategy, Resource, ResourceAllocator, Task};
 pub use runner::{NoOpHooks, SimulationHooks, SimulationRunner, SimulationStats};
 pub use snapshot::{SnapshotBackend, SnapshotData, SnapshotManager, SnapshotMetadata};

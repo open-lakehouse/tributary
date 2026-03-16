@@ -781,6 +781,68 @@ pub fn build_simulation(
     runner
 }
 
+/// Build a simulation with demand generation pipeline
+///
+/// This creates a simulation with realistic time-based and spatial demand patterns:
+/// - Peak hours at lunch (12pm) and dinner (6pm) with 2-3x base rate
+/// - Spatial clustering across 3 H3 cells (downtown, suburbs, airport)
+/// - Base Poisson rate of 10 orders/hour
+pub fn build_simulation_with_demand(
+    num_kitchens: usize,
+    kitchen_capacity: usize,
+    verbose: bool,
+) -> SimulationRunner<Customer, Kitchen, Order, FoodPrepWorkflow> {
+    use sim_core::demand::{
+        CompositeDemandGenerator, PoissonDemandGenerator, SpatialDemandGenerator,
+        TimeOfDayDemandGenerator,
+    };
+    use h3o::{CellIndex, LatLng, Resolution};
+    use std::collections::HashMap;
+    use std::str::FromStr;
+
+    let mut runner = build_simulation(num_kitchens, kitchen_capacity, verbose);
+
+    // Hourly patterns: lunch (12-1pm), dinner (6-8pm) peaks
+    let hourly_multipliers = [
+        0.3, 0.2, 0.2, 0.2, 0.3, 0.4, // 12am-6am (low)
+        0.6, 0.8, 1.0, 1.2, 1.5, 2.0, // 6am-12pm (ramp to lunch)
+        2.5, 1.8, 1.2, 1.0, 1.2, 1.8, // 12pm-6pm (lunch peak, ramp to dinner)
+        2.5, 2.0, 1.5, 1.0, 0.7, 0.5, // 6pm-12am (dinner peak, wind down)
+    ];
+
+    // Base Poisson: 10 orders/hour average
+    let poisson = Box::new(PoissonDemandGenerator::new(10.0, "food_order"));
+
+    // Time-of-day wrapper
+    let time_of_day = Box::new(TimeOfDayDemandGenerator::new(
+        poisson,
+        hourly_multipliers,
+    ));
+
+    // Spatial clustering (3 neighborhood H3 cells around SF Bay Area)
+    let mut h3_probs = HashMap::new();
+
+    // Downtown SF (50%)
+    let downtown_latlng = LatLng::new(37.7749, -122.4194).unwrap();
+    let h3_downtown = downtown_latlng.to_cell(Resolution::Nine);
+    h3_probs.insert(h3_downtown, 0.5);
+
+    // Oakland (30%)
+    let oakland_latlng = LatLng::new(37.8044, -122.2712).unwrap();
+    let h3_oakland = oakland_latlng.to_cell(Resolution::Nine);
+    h3_probs.insert(h3_oakland, 0.3);
+
+    // SFO Airport (20%)
+    let airport_latlng = LatLng::new(37.6213, -122.3790).unwrap();
+    let h3_airport = airport_latlng.to_cell(Resolution::Nine);
+    h3_probs.insert(h3_airport, 0.2);
+
+    let spatial = Box::new(SpatialDemandGenerator::new(time_of_day, h3_probs));
+
+    runner.set_demand_generator(spatial);
+    runner
+}
+
 /// Add customers to the simulation
 pub fn add_customers(
     runner: &mut SimulationRunner<Customer, Kitchen, Order, FoodPrepWorkflow>,
