@@ -157,25 +157,6 @@ impl sim_core::Workflow for FoodPrepWorkflow {
     }
 }
 
-/// Legacy workflow type placeholder (deprecated, use FoodPrepWorkflow)
-#[derive(Debug, Clone)]
-#[deprecated(note = "Use FoodPrepWorkflow instead")]
-pub struct NoWorkflow;
-
-impl sim_core::Workflow for NoWorkflow {
-    fn id(&self) -> sim_core::WorkflowId {
-        sim_core::WorkflowId::new()
-    }
-
-    fn workflow_type(&self) -> &str {
-        "none"
-    }
-
-    fn steps(&self) -> &[sim_core::workflows::WorkflowStep] {
-        &[]
-    }
-}
-
 /// Order tracking information
 ///
 /// Internal struct used by KitchenSimulationHooks to track order lifecycle.
@@ -470,7 +451,7 @@ pub fn build_simulation(
     num_kitchens: usize,
     kitchen_capacity: usize,
     verbose: bool,
-) -> SimulationRunner<Customer, Kitchen, Order, NoWorkflow> {
+) -> SimulationRunner<Customer, Kitchen, Order, FoodPrepWorkflow> {
     let config = sim_core::SimulationConfig {
         name: "ghost-kitchen".to_string(),
         time_step: chrono::Duration::seconds(30), // 30 second steps
@@ -496,7 +477,7 @@ pub fn build_simulation(
 
 /// Add customers to the simulation
 pub fn add_customers(
-    runner: &mut SimulationRunner<Customer, Kitchen, Order, NoWorkflow>,
+    runner: &mut SimulationRunner<Customer, Kitchen, Order, FoodPrepWorkflow>,
     num_customers: usize,
 ) {
     let mut population = PopulationHandler::new();
@@ -519,7 +500,7 @@ pub fn add_customers(
 
 /// Process demands and create orders
 pub fn process_demands(
-    runner: &mut SimulationRunner<Customer, Kitchen, Order, NoWorkflow>,
+    runner: &mut SimulationRunner<Customer, Kitchen, Order, FoodPrepWorkflow>,
     results: &[AgentTickResult],
 ) -> sim_core::Result<()> {
     if let Some(allocator) = runner.resources_mut() {
@@ -575,7 +556,7 @@ pub fn process_demands(
 /// This struct wraps the SimulationRunner and adds kitchen-specific logic
 /// for order completion and food delivery.
 pub struct KitchenSimulation {
-    runner: SimulationRunner<Customer, Kitchen, Order, NoWorkflow>,
+    runner: SimulationRunner<Customer, Kitchen, Order, FoodPrepWorkflow>,
     /// Event dispatcher for emitting customer lifecycle events
     event_dispatcher: EventDispatcher,
 }
@@ -696,12 +677,12 @@ impl KitchenSimulation {
     }
 
     /// Get reference to the underlying runner
-    pub fn runner(&self) -> &SimulationRunner<Customer, Kitchen, Order, NoWorkflow> {
+    pub fn runner(&self) -> &SimulationRunner<Customer, Kitchen, Order, FoodPrepWorkflow> {
         &self.runner
     }
 
     /// Get mutable reference to the underlying runner
-    pub fn runner_mut(&mut self) -> &mut SimulationRunner<Customer, Kitchen, Order, NoWorkflow> {
+    pub fn runner_mut(&mut self) -> &mut SimulationRunner<Customer, Kitchen, Order, FoodPrepWorkflow> {
         &mut self.runner
     }
 }
@@ -1232,8 +1213,7 @@ mod tests {
     #[test]
     fn test_workflow_integration() {
         // Test that workflow can be used with the simulation
-        // Note: Current implementation uses NoWorkflow type parameter
-        // This test verifies FoodPrepWorkflow can be instantiated and used
+        // Verifies FoodPrepWorkflow can be instantiated and used
         use sim_core::Workflow; // Import trait to use its methods
 
         let workflow = FoodPrepWorkflow::new();
