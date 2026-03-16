@@ -183,7 +183,9 @@ impl SimulationHooks for KitchenSimulationHooks {
         let mut completed_order_ids = Vec::new();
 
         for (order_id, order_info) in self.orders.iter_mut() {
-            if order_info.completed_at.is_none() && let Some(assigned_at) = order_info.assigned_at {
+            if order_info.completed_at.is_none()
+                && let Some(assigned_at) = order_info.assigned_at
+            {
                 // Simplified completion check - assume orders take some time
                 // In a real system, we'd check actual task completion
                 let elapsed = current_time - assigned_at;
@@ -196,11 +198,7 @@ impl SimulationHooks for KitchenSimulationHooks {
                         .push((order_id.clone(), order_info.customer_id));
 
                     if ctx.config().verbose {
-                        println!(
-                            "✅ [Step {}] Order {} completed!",
-                            ctx.step(),
-                            order_id
-                        );
+                        println!("✅ [Step {}] Order {} completed!", ctx.step(), order_id);
                     }
 
                     // Emit order completed event
@@ -467,11 +465,7 @@ pub struct KitchenSimulation {
 
 impl KitchenSimulation {
     /// Create a new kitchen simulation
-    pub fn new(
-        num_kitchens: usize,
-        kitchen_capacity: usize,
-        verbose: bool,
-    ) -> Self {
+    pub fn new(num_kitchens: usize, kitchen_capacity: usize, verbose: bool) -> Self {
         let runner = build_simulation(num_kitchens, kitchen_capacity, verbose);
 
         Self { runner }
@@ -528,9 +522,7 @@ impl KitchenSimulation {
                     if verbose {
                         println!(
                             "🍔 [Step {}] Customer {} received order {} and started eating",
-                            current_step,
-                            customer_id,
-                            order_id
+                            current_step, customer_id, order_id
                         );
                     }
                 }
@@ -598,7 +590,7 @@ mod tests {
         for _ in 0..3 {
             let customer = Customer::with_params(
                 geo::Point::new(-122.4, 37.8),
-                0.5, // 50% chance to order per tick
+                0.5,                          // 50% chance to order per tick
                 chrono::Duration::minutes(1), // Short eating time for test
             );
             population.add_agent(customer);
@@ -675,7 +667,8 @@ mod tests {
 
         for customer_id in &customer_ids {
             if let Some(customer) = pop.get_agent(*customer_id)
-                && !matches!(customer.status, CustomerStatus::Idle) {
+                && !matches!(customer.status, CustomerStatus::Idle)
+            {
                 progressed_count += 1;
             }
         }
@@ -857,7 +850,7 @@ mod tests {
         let mut population = PopulationHandler::new();
         let customer = Customer::with_params(
             geo::Point::new(-122.4, 37.8),
-            1.0, // Always order (probabilistically)
+            1.0,                          // Always order (probabilistically)
             chrono::Duration::seconds(1), // Very short eating time
         );
         let customer_id = customer.id();

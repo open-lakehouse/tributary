@@ -763,7 +763,9 @@ impl<'a> InstanceArrays<'a> {
                 .as_any()
                 .downcast_ref::<BinaryArray>()
                 .ok_or_else(|| {
-                    crate::Error::Workflow("Failed to downcast id column to BinaryArray".to_string())
+                    crate::Error::Workflow(
+                        "Failed to downcast id column to BinaryArray".to_string(),
+                    )
                 })?,
             workflow_id: batch
                 .column(1)
@@ -966,8 +968,8 @@ impl<'a> InstanceArrays<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::traits::WorkflowInstance;
+    use super::*;
     use std::time::Instant;
 
     fn create_test_instance(workflow_id: WorkflowId) -> WorkflowInstance {
@@ -990,15 +992,24 @@ mod tests {
 
         // Batch update 3 instances
         let updates: BatchUpdateList = vec![
-            (instances[0].id, Box::new(|u| {
-                u.current_step_index = Some(1);
-            })),
-            (instances[2].id, Box::new(|u| {
-                u.current_step_index = Some(2);
-            })),
-            (instances[4].id, Box::new(|u| {
-                u.status = Some(InstanceStatus::Paused);
-            })),
+            (
+                instances[0].id,
+                Box::new(|u| {
+                    u.current_step_index = Some(1);
+                }),
+            ),
+            (
+                instances[2].id,
+                Box::new(|u| {
+                    u.current_step_index = Some(2);
+                }),
+            ),
+            (
+                instances[4].id,
+                Box::new(|u| {
+                    u.status = Some(InstanceStatus::Paused);
+                }),
+            ),
         ];
 
         let count = table.batch_update_instances(updates).unwrap();
@@ -1035,12 +1046,18 @@ mod tests {
 
         let fake_id = WorkflowInstanceId::new();
         let updates: BatchUpdateList = vec![
-            (instance.id, Box::new(|u| {
-                u.current_step_index = Some(1);
-            })),
-            (fake_id, Box::new(|u| {
-                u.current_step_index = Some(2);
-            })),
+            (
+                instance.id,
+                Box::new(|u| {
+                    u.current_step_index = Some(1);
+                }),
+            ),
+            (
+                fake_id,
+                Box::new(|u| {
+                    u.current_step_index = Some(2);
+                }),
+            ),
         ];
 
         let count = table.batch_update_instances(updates).unwrap();
@@ -1077,9 +1094,11 @@ mod tests {
         let start = Instant::now();
         for instance in instances_single.iter().take(100) {
             let row_idx = *table_single.instance_id_to_row.get(&instance.id).unwrap();
-            table_single.update_instance_at_row(row_idx, |u| {
-                u.current_step_index = Some(1);
-            }).unwrap();
+            table_single
+                .update_instance_at_row(row_idx, |u| {
+                    u.current_step_index = Some(1);
+                })
+                .unwrap();
         }
         let single_duration = start.elapsed();
 
@@ -1089,9 +1108,10 @@ mod tests {
             .iter()
             .take(100)
             .map(|inst| {
-                let update: WorkflowInstanceUpdate = Box::new(|u: &mut WorkflowInstanceRowUpdate| {
-                    u.current_step_index = Some(1);
-                });
+                let update: WorkflowInstanceUpdate =
+                    Box::new(|u: &mut WorkflowInstanceRowUpdate| {
+                        u.current_step_index = Some(1);
+                    });
                 (inst.id, update)
             })
             .collect();
@@ -1142,11 +1162,12 @@ mod tests {
         let updates: BatchUpdateList = instances
             .iter()
             .map(|inst| {
-                let update: WorkflowInstanceUpdate = Box::new(move |u: &mut WorkflowInstanceRowUpdate| {
-                    u.status = Some(InstanceStatus::Complete);
-                    u.current_step_index = Some(3);
-                    u.completed_at = Some(current_tick);
-                });
+                let update: WorkflowInstanceUpdate =
+                    Box::new(move |u: &mut WorkflowInstanceRowUpdate| {
+                        u.status = Some(InstanceStatus::Complete);
+                        u.current_step_index = Some(3);
+                        u.completed_at = Some(current_tick);
+                    });
                 (inst.id, update)
             })
             .collect();
@@ -1155,7 +1176,9 @@ mod tests {
         assert_eq!(count, 10);
 
         // Verify all are complete
-        let completed = table.get_instances_by_status(InstanceStatus::Complete).unwrap();
+        let completed = table
+            .get_instances_by_status(InstanceStatus::Complete)
+            .unwrap();
         assert_eq!(completed.len(), 10);
     }
 
@@ -1178,39 +1201,59 @@ mod tests {
 
         let updates: BatchUpdateList = vec![
             // Complete first two
-            (instances[0].id, Box::new(move |u| {
-                u.status = Some(InstanceStatus::Complete);
-                u.current_step_index = Some(3);
-                u.completed_at = Some(current_tick);
-            })),
-            (instances[1].id, Box::new(move |u| {
-                u.status = Some(InstanceStatus::Complete);
-                u.current_step_index = Some(3);
-                u.completed_at = Some(current_tick);
-            })),
+            (
+                instances[0].id,
+                Box::new(move |u| {
+                    u.status = Some(InstanceStatus::Complete);
+                    u.current_step_index = Some(3);
+                    u.completed_at = Some(current_tick);
+                }),
+            ),
+            (
+                instances[1].id,
+                Box::new(move |u| {
+                    u.status = Some(InstanceStatus::Complete);
+                    u.current_step_index = Some(3);
+                    u.completed_at = Some(current_tick);
+                }),
+            ),
             // Pause next two
-            (instances[2].id, Box::new(|u| {
-                u.status = Some(InstanceStatus::Paused);
-            })),
-            (instances[3].id, Box::new(|u| {
-                u.status = Some(InstanceStatus::Paused);
-            })),
+            (
+                instances[2].id,
+                Box::new(|u| {
+                    u.status = Some(InstanceStatus::Paused);
+                }),
+            ),
+            (
+                instances[3].id,
+                Box::new(|u| {
+                    u.status = Some(InstanceStatus::Paused);
+                }),
+            ),
             // Advance next two to step 1
-            (instances[4].id, Box::new(|u| {
-                u.current_step_index = Some(1);
-                u.status = Some(InstanceStatus::Running);
-            })),
-            (instances[5].id, Box::new(|u| {
-                u.current_step_index = Some(1);
-                u.status = Some(InstanceStatus::Running);
-            })),
+            (
+                instances[4].id,
+                Box::new(|u| {
+                    u.current_step_index = Some(1);
+                    u.status = Some(InstanceStatus::Running);
+                }),
+            ),
+            (
+                instances[5].id,
+                Box::new(|u| {
+                    u.current_step_index = Some(1);
+                    u.status = Some(InstanceStatus::Running);
+                }),
+            ),
         ];
 
         let count = table.batch_update_instances(updates).unwrap();
         assert_eq!(count, 6);
 
         // Verify completed
-        let completed = table.get_instances_by_status(InstanceStatus::Complete).unwrap();
+        let completed = table
+            .get_instances_by_status(InstanceStatus::Complete)
+            .unwrap();
         assert_eq!(completed.len(), 2);
 
         // Verify paused

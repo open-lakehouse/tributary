@@ -166,14 +166,20 @@ impl<W: Workflow> WorkflowEngine<W> {
         instance_id: WorkflowInstanceId,
         completion_time: DateTime<Utc>,
     ) -> Result<Option<WorkflowStepEvent>> {
-        let row_idx = self.instance_table.get_row_index(instance_id).ok_or_else(|| {
-            crate::Error::Workflow(format!("Workflow instance {} not found", instance_id))
-        })?;
+        let row_idx = self
+            .instance_table
+            .get_row_index(instance_id)
+            .ok_or_else(|| {
+                crate::Error::Workflow(format!("Workflow instance {} not found", instance_id))
+            })?;
 
         // Get current instance state
-        let instance = self.instance_table.get_instance_at_row(row_idx).ok_or_else(|| {
-            crate::Error::Workflow(format!("Failed to read instance {}", instance_id))
-        })?;
+        let instance = self
+            .instance_table
+            .get_instance_at_row(row_idx)
+            .ok_or_else(|| {
+                crate::Error::Workflow(format!("Failed to read instance {}", instance_id))
+            })?;
 
         // Check if already complete
         if instance.is_complete {
@@ -192,11 +198,12 @@ impl<W: Workflow> WorkflowEngine<W> {
         // Update the row
         if is_complete {
             let current_tick = self.instance_table.current_tick();
-            self.instance_table.update_instance_at_row(row_idx, |update| {
-                update.current_step_index = Some(new_step);
-                update.status = Some(InstanceStatus::Complete);
-                update.completed_at = Some(current_tick);
-            })?;
+            self.instance_table
+                .update_instance_at_row(row_idx, |update| {
+                    update.current_step_index = Some(new_step);
+                    update.status = Some(InstanceStatus::Complete);
+                    update.completed_at = Some(current_tick);
+                })?;
 
             Ok(Some(WorkflowStepEvent::WorkflowCompleted {
                 instance_id,
@@ -204,10 +211,11 @@ impl<W: Workflow> WorkflowEngine<W> {
                 completion_time,
             }))
         } else {
-            self.instance_table.update_instance_at_row(row_idx, |update| {
-                update.current_step_index = Some(new_step);
-                update.status = Some(InstanceStatus::Running);
-            })?;
+            self.instance_table
+                .update_instance_at_row(row_idx, |update| {
+                    update.current_step_index = Some(new_step);
+                    update.status = Some(InstanceStatus::Running);
+                })?;
 
             Ok(Some(WorkflowStepEvent::StepCompleted {
                 instance_id,
@@ -242,37 +250,49 @@ impl<W: Workflow> WorkflowEngine<W> {
 
     /// Pause a workflow instance
     pub fn pause_instance(&mut self, instance_id: WorkflowInstanceId) -> Result<()> {
-        let row_idx = self.instance_table.get_row_index(instance_id).ok_or_else(|| {
-            crate::Error::Workflow(format!("Workflow instance {} not found", instance_id))
-        })?;
+        let row_idx = self
+            .instance_table
+            .get_row_index(instance_id)
+            .ok_or_else(|| {
+                crate::Error::Workflow(format!("Workflow instance {} not found", instance_id))
+            })?;
 
-        self.instance_table.update_instance_at_row(row_idx, |update| {
-            update.status = Some(InstanceStatus::Paused);
-        })
+        self.instance_table
+            .update_instance_at_row(row_idx, |update| {
+                update.status = Some(InstanceStatus::Paused);
+            })
     }
 
     /// Resume a workflow instance
     pub fn resume_instance(&mut self, instance_id: WorkflowInstanceId) -> Result<()> {
-        let row_idx = self.instance_table.get_row_index(instance_id).ok_or_else(|| {
-            crate::Error::Workflow(format!("Workflow instance {} not found", instance_id))
-        })?;
+        let row_idx = self
+            .instance_table
+            .get_row_index(instance_id)
+            .ok_or_else(|| {
+                crate::Error::Workflow(format!("Workflow instance {} not found", instance_id))
+            })?;
 
-        self.instance_table.update_instance_at_row(row_idx, |update| {
-            update.status = Some(InstanceStatus::Running);
-        })
+        self.instance_table
+            .update_instance_at_row(row_idx, |update| {
+                update.status = Some(InstanceStatus::Running);
+            })
     }
 
     /// Complete a workflow instance
     pub fn complete_instance(&mut self, instance_id: WorkflowInstanceId) -> Result<()> {
-        let row_idx = self.instance_table.get_row_index(instance_id).ok_or_else(|| {
-            crate::Error::Workflow(format!("Workflow instance {} not found", instance_id))
-        })?;
+        let row_idx = self
+            .instance_table
+            .get_row_index(instance_id)
+            .ok_or_else(|| {
+                crate::Error::Workflow(format!("Workflow instance {} not found", instance_id))
+            })?;
 
         let current_tick = self.instance_table.current_tick();
-        self.instance_table.update_instance_at_row(row_idx, |update| {
-            update.status = Some(InstanceStatus::Complete);
-            update.completed_at = Some(current_tick);
-        })
+        self.instance_table
+            .update_instance_at_row(row_idx, |update| {
+                update.status = Some(InstanceStatus::Complete);
+                update.completed_at = Some(current_tick);
+            })
     }
 
     /// Get instance status

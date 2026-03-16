@@ -118,14 +118,16 @@ mod tests {
     #[test]
     fn test_round_robin() {
         let strategy = RoundRobin::new();
-        let resources = [TestResource {
+        let resources = [
+            TestResource {
                 id: ResourceId::new(),
                 load: 0,
             },
             TestResource {
                 id: ResourceId::new(),
                 load: 0,
-            }];
+            },
+        ];
         let refs: Vec<&TestResource> = resources.iter().collect();
         let task = TestTask {
             id: crate::utils::idents::TaskId::new(),
@@ -141,7 +143,8 @@ mod tests {
     #[test]
     fn test_least_loaded() {
         let strategy = LeastLoaded;
-        let resources = [TestResource {
+        let resources = [
+            TestResource {
                 id: ResourceId::new(),
                 load: 5,
             },
@@ -152,7 +155,8 @@ mod tests {
             TestResource {
                 id: ResourceId::new(),
                 load: 8,
-            }];
+            },
+        ];
         let refs: Vec<&TestResource> = resources.iter().collect();
         let task = TestTask {
             id: crate::utils::idents::TaskId::new(),
@@ -166,14 +170,16 @@ mod tests {
     #[test]
     fn test_random() {
         let strategy = Random;
-        let resources = [TestResource {
+        let resources = [
+            TestResource {
                 id: ResourceId::new(),
                 load: 0,
             },
             TestResource {
                 id: ResourceId::new(),
                 load: 0,
-            }];
+            },
+        ];
         let refs: Vec<&TestResource> = resources.iter().collect();
         let task = TestTask {
             id: crate::utils::idents::TaskId::new(),

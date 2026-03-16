@@ -9,7 +9,6 @@ use arrow::array::{
 };
 use std::sync::Arc;
 
-
 /// Collection of typed array builders for location data
 pub struct LocationArrayBuilders {
     pub id: BinaryBuilder,
@@ -79,14 +78,46 @@ impl<'a> LocationArrays<'a> {
     /// This is intentional - if the schema is wrong, it's a programming error.
     pub fn from_batch(batch: &'a RecordBatch) -> Self {
         Self {
-            id: batch.column(0).as_any().downcast_ref::<BinaryArray>().unwrap(),
-            name: batch.column(1).as_any().downcast_ref::<StringArray>().unwrap(),
-            location_type: batch.column(2).as_any().downcast_ref::<StringArray>().unwrap(),
-            geometry: batch.column(3).as_any().downcast_ref::<BinaryArray>().unwrap(),
-            latitude: batch.column(4).as_any().downcast_ref::<Float64Array>().unwrap(),
-            longitude: batch.column(5).as_any().downcast_ref::<Float64Array>().unwrap(),
-            h3_index: batch.column(6).as_any().downcast_ref::<UInt64Array>().unwrap(),
-            metadata: batch.column(7).as_any().downcast_ref::<StringArray>().unwrap(),
+            id: batch
+                .column(0)
+                .as_any()
+                .downcast_ref::<BinaryArray>()
+                .unwrap(),
+            name: batch
+                .column(1)
+                .as_any()
+                .downcast_ref::<StringArray>()
+                .unwrap(),
+            location_type: batch
+                .column(2)
+                .as_any()
+                .downcast_ref::<StringArray>()
+                .unwrap(),
+            geometry: batch
+                .column(3)
+                .as_any()
+                .downcast_ref::<BinaryArray>()
+                .unwrap(),
+            latitude: batch
+                .column(4)
+                .as_any()
+                .downcast_ref::<Float64Array>()
+                .unwrap(),
+            longitude: batch
+                .column(5)
+                .as_any()
+                .downcast_ref::<Float64Array>()
+                .unwrap(),
+            h3_index: batch
+                .column(6)
+                .as_any()
+                .downcast_ref::<UInt64Array>()
+                .unwrap(),
+            metadata: batch
+                .column(7)
+                .as_any()
+                .downcast_ref::<StringArray>()
+                .unwrap(),
         }
     }
 
@@ -100,10 +131,14 @@ impl<'a> LocationArrays<'a> {
             builders.name.append_value(self.name.value(row_idx));
         }
 
-        builders.location_type.append_value(self.location_type.value(row_idx));
+        builders
+            .location_type
+            .append_value(self.location_type.value(row_idx));
         builders.geometry.append_value(self.geometry.value(row_idx));
         builders.latitude.append_value(self.latitude.value(row_idx));
-        builders.longitude.append_value(self.longitude.value(row_idx));
+        builders
+            .longitude
+            .append_value(self.longitude.value(row_idx));
         builders.h3_index.append_value(self.h3_index.value(row_idx));
 
         if self.metadata.is_null(row_idx) {
@@ -122,7 +157,11 @@ impl<'a> LocationArrays<'a> {
     }
 
     /// Copy all rows except one into builders
-    pub fn copy_all_except_to_builders(&self, skip_row: usize, builders: &mut LocationArrayBuilders) {
+    pub fn copy_all_except_to_builders(
+        &self,
+        skip_row: usize,
+        builders: &mut LocationArrayBuilders,
+    ) {
         let num_rows = self.id.len();
         for i in 0..num_rows {
             if i != skip_row {
@@ -148,7 +187,11 @@ pub fn get_typed_column<'a, T: Array + 'static>(
 }
 
 /// Get an f64 value from a batch at a specific row
-pub fn get_f64_value(batch: &RecordBatch, row_idx: usize, field_name: &str) -> crate::Result<Option<f64>> {
+pub fn get_f64_value(
+    batch: &RecordBatch,
+    row_idx: usize,
+    field_name: &str,
+) -> crate::Result<Option<f64>> {
     let array = get_typed_column::<Float64Array>(batch, field_name)?;
 
     if array.is_null(row_idx) {
@@ -159,7 +202,11 @@ pub fn get_f64_value(batch: &RecordBatch, row_idx: usize, field_name: &str) -> c
 }
 
 /// Get a u64 value from a batch at a specific row
-pub fn get_u64_value(batch: &RecordBatch, row_idx: usize, field_name: &str) -> crate::Result<Option<u64>> {
+pub fn get_u64_value(
+    batch: &RecordBatch,
+    row_idx: usize,
+    field_name: &str,
+) -> crate::Result<Option<u64>> {
     let array = get_typed_column::<UInt64Array>(batch, field_name)?;
 
     if array.is_null(row_idx) {
@@ -170,7 +217,11 @@ pub fn get_u64_value(batch: &RecordBatch, row_idx: usize, field_name: &str) -> c
 }
 
 /// Get a string value from a batch at a specific row
-pub fn get_string_value(batch: &RecordBatch, row_idx: usize, field_name: &str) -> crate::Result<Option<String>> {
+pub fn get_string_value(
+    batch: &RecordBatch,
+    row_idx: usize,
+    field_name: &str,
+) -> crate::Result<Option<String>> {
     let array = get_typed_column::<StringArray>(batch, field_name)?;
 
     if array.is_null(row_idx) {

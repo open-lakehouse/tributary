@@ -4,8 +4,8 @@
 //! storage combined with H3 spatial indexing for fast geospatial queries.
 
 use super::array_utils::{
-    get_f64_value, get_string_value, get_typed_column, get_u64_value, LocationArrayBuilders,
-    LocationArrays,
+    LocationArrayBuilders, LocationArrays, get_f64_value, get_string_value, get_typed_column,
+    get_u64_value,
 };
 use super::schema::{fields, location_schema};
 use super::traits::Location;

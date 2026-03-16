@@ -9,4 +9,4 @@ mod traits;
 mod arrow_tests;
 
 pub use handler::LocationHandler;
-pub use traits::{validate_coordinates, Location};
+pub use traits::{Location, validate_coordinates};
