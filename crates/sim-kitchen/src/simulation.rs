@@ -93,7 +93,10 @@ impl FoodPrepWorkflow {
                 metadata: {
                     let mut m = HashMap::new();
                     m.insert("name".to_string(), "Prep".to_string());
-                    m.insert("description".to_string(), "Gather ingredients and prepare materials".to_string());
+                    m.insert(
+                        "description".to_string(),
+                        "Gather ingredients and prepare materials".to_string(),
+                    );
                     m
                 },
             },
@@ -104,7 +107,10 @@ impl FoodPrepWorkflow {
                 metadata: {
                     let mut m = HashMap::new();
                     m.insert("name".to_string(), "Cook".to_string());
-                    m.insert("description".to_string(), "Prepare dish according to recipe".to_string());
+                    m.insert(
+                        "description".to_string(),
+                        "Prepare dish according to recipe".to_string(),
+                    );
                     m
                 },
             },
@@ -115,7 +121,10 @@ impl FoodPrepWorkflow {
                 metadata: {
                     let mut m = HashMap::new();
                     m.insert("name".to_string(), "Package".to_string());
-                    m.insert("description".to_string(), "Box order for delivery".to_string());
+                    m.insert(
+                        "description".to_string(),
+                        "Box order for delivery".to_string(),
+                    );
                     m
                 },
             },
@@ -240,8 +249,14 @@ impl KitchenSimulationHooks {
     }
 
     /// Record that a customer started eating (for event emission)
-    pub fn record_eating_customer(&mut self, customer_id: AgentId, order_id: String, finish_time: DateTime<Utc>) {
-        self.eating_customers.push((customer_id, order_id, finish_time));
+    pub fn record_eating_customer(
+        &mut self,
+        customer_id: AgentId,
+        order_id: String,
+        finish_time: DateTime<Utc>,
+    ) {
+        self.eating_customers
+            .push((customer_id, order_id, finish_time));
     }
 
     /// Emit eating events for customers that started eating
@@ -571,7 +586,10 @@ impl KitchenSimulation {
         let runner = build_simulation(num_kitchens, kitchen_capacity, verbose);
         let event_dispatcher = EventDispatcher::new();
 
-        Self { runner, event_dispatcher }
+        Self {
+            runner,
+            event_dispatcher,
+        }
     }
 
     /// Add customers to the simulation
@@ -1110,7 +1128,7 @@ mod tests {
         let mut population = PopulationHandler::new();
         let customer = Customer::with_params(
             geo::Point::new(-122.4, 37.8),
-            1.0,                            // Always order
+            1.0,                               // Always order
             chrono::Duration::milliseconds(1), // Extremely short eating time
         );
         population.add_agent(customer);
@@ -1132,20 +1150,21 @@ mod tests {
         if let Some(population) = sim.runner().population() {
             for customer in population.iter() {
                 match customer.status {
-                    CustomerStatus::Idle => {},
-                    CustomerStatus::Ordering |
-                    CustomerStatus::WaitingForFood { .. } => {
+                    CustomerStatus::Idle => {}
+                    CustomerStatus::Ordering | CustomerStatus::WaitingForFood { .. } => {
                         ordered = true;
-                    },
-                    CustomerStatus::Eating { .. } |
-                    CustomerStatus::Done => {
+                    }
+                    CustomerStatus::Eating { .. } | CustomerStatus::Done => {
                         ordered = true;
                         eating_or_done = true;
-                    },
+                    }
                 }
             }
 
-            eprintln!("Customer ordered: {}, eating/done: {}", ordered, eating_or_done);
+            eprintln!(
+                "Customer ordered: {}, eating/done: {}",
+                ordered, eating_or_done
+            );
         }
 
         // With 100% order probability, customer should have at least ordered
@@ -1153,8 +1172,14 @@ mod tests {
 
         // Verify events were emitted - check event dispatcher counts
         let event_counts = sim.event_dispatcher.event_counts();
-        let customer_eating = event_counts.get("io.kitchen.customer.eating").copied().unwrap_or(0);
-        let customer_done = event_counts.get("io.kitchen.customer.done").copied().unwrap_or(0);
+        let customer_eating = event_counts
+            .get("io.kitchen.customer.eating")
+            .copied()
+            .unwrap_or(0);
+        let customer_done = event_counts
+            .get("io.kitchen.customer.done")
+            .copied()
+            .unwrap_or(0);
 
         eprintln!("Event counts from KitchenSimulation dispatcher:");
         eprintln!("  CustomerEating: {}", customer_eating);
@@ -1193,12 +1218,14 @@ mod tests {
         assert_eq!(step3.step_index, 2);
         assert_eq!(step3.required_resource_type, "packaging_station");
         assert_eq!(step3.expected_duration, chrono::Duration::seconds(60));
-        assert_eq!(step3.metadata.get("name").map(|s| s.as_str()), Some("Package"));
+        assert_eq!(
+            step3.metadata.get("name").map(|s| s.as_str()),
+            Some("Package")
+        );
 
         // Verify total time is 480 seconds (8 minutes)
-        let total_duration: chrono::Duration = workflow.steps().iter()
-            .map(|s| s.expected_duration)
-            .sum();
+        let total_duration: chrono::Duration =
+            workflow.steps().iter().map(|s| s.expected_duration).sum();
         assert_eq!(total_duration, chrono::Duration::seconds(480));
     }
 

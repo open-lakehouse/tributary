@@ -77,10 +77,10 @@ fn bench_sequential_vs_batch(c: &mut Criterion) {
 
     // Test different update counts on fixed table sizes
     let test_cases = vec![
-        (1_000, 10),   // 10 updates on 1,000 instances
-        (1_000, 100),  // 100 updates on 1,000 instances
-        (1_000, 500),  // 500 updates on 1,000 instances
-        (10_000, 100), // 100 updates on 10,000 instances
+        (1_000, 10),     // 10 updates on 1,000 instances
+        (1_000, 100),    // 100 updates on 1,000 instances
+        (1_000, 500),    // 500 updates on 1,000 instances
+        (10_000, 100),   // 100 updates on 10,000 instances
         (10_000, 1_000), // 1,000 updates on 10,000 instances
     ];
 
@@ -94,7 +94,10 @@ fn bench_sequential_vs_batch(c: &mut Criterion) {
             |b, &(total_instances, update_count)| {
                 b.iter_batched(
                     || populate_table(total_instances),
-                    |(mut table, instance_ids): (WorkflowInstanceTable, Vec<WorkflowInstanceId>)| {
+                    |(mut table, instance_ids): (
+                        WorkflowInstanceTable,
+                        Vec<WorkflowInstanceId>,
+                    )| {
                         for &instance_id in instance_ids.iter().take(update_count) {
                             let row_idx = table.get_row_index(instance_id).unwrap();
                             table
@@ -116,7 +119,10 @@ fn bench_sequential_vs_batch(c: &mut Criterion) {
             |b, &(total_instances, update_count)| {
                 b.iter_batched(
                     || populate_table(total_instances),
-                    |(mut table, instance_ids): (WorkflowInstanceTable, Vec<WorkflowInstanceId>)| {
+                    |(mut table, instance_ids): (
+                        WorkflowInstanceTable,
+                        Vec<WorkflowInstanceId>,
+                    )| {
                         let updates: BatchUpdateList = instance_ids
                             .iter()
                             .take(update_count)
@@ -159,7 +165,10 @@ fn bench_batch_status_updates(c: &mut Criterion) {
                         table.set_current_tick(100);
                         (table, instance_ids)
                     },
-                    |(mut table, instance_ids): (WorkflowInstanceTable, Vec<WorkflowInstanceId>)| {
+                    |(mut table, instance_ids): (
+                        WorkflowInstanceTable,
+                        Vec<WorkflowInstanceId>,
+                    )| {
                         let current_tick = table.current_tick();
                         let updates: BatchUpdateList = instance_ids
                             .iter()
@@ -200,7 +209,10 @@ fn bench_batch_progress_updates(c: &mut Criterion) {
             |b, &(total_instances, update_count)| {
                 b.iter_batched(
                     || populate_table(total_instances),
-                    |(mut table, instance_ids): (WorkflowInstanceTable, Vec<WorkflowInstanceId>)| {
+                    |(mut table, instance_ids): (
+                        WorkflowInstanceTable,
+                        Vec<WorkflowInstanceId>,
+                    )| {
                         let updates: BatchUpdateList = instance_ids
                             .iter()
                             .take(update_count)
@@ -248,7 +260,10 @@ fn bench_batch_mixed_updates(c: &mut Criterion) {
                         table.set_current_tick(100);
                         (table, instance_ids)
                     },
-                    |(mut table, instance_ids): (WorkflowInstanceTable, Vec<WorkflowInstanceId>)| {
+                    |(mut table, instance_ids): (
+                        WorkflowInstanceTable,
+                        Vec<WorkflowInstanceId>,
+                    )| {
                         let current_tick = table.current_tick();
                         let updates: BatchUpdateList = instance_ids
                             .iter()
@@ -303,21 +318,17 @@ fn bench_append_instances(c: &mut Criterion) {
     let mut group = c.benchmark_group("append_instances");
 
     for count in [10, 100, 1_000].iter() {
-        group.bench_with_input(
-            BenchmarkId::from_parameter(count),
-            count,
-            |b, &count| {
-                let workflow_id = WorkflowId::new();
+        group.bench_with_input(BenchmarkId::from_parameter(count), count, |b, &count| {
+            let workflow_id = WorkflowId::new();
 
-                b.iter(|| {
-                    let mut table = WorkflowInstanceTable::new();
-                    for _ in 0..count {
-                        let instance = create_test_workflow(workflow_id);
-                        table.append_instance(black_box(&instance)).unwrap();
-                    }
-                });
-            },
-        );
+            b.iter(|| {
+                let mut table = WorkflowInstanceTable::new();
+                for _ in 0..count {
+                    let instance = create_test_workflow(workflow_id);
+                    table.append_instance(black_box(&instance)).unwrap();
+                }
+            });
+        });
     }
 
     group.finish();
