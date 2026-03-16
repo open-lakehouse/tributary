@@ -12,15 +12,15 @@
 //! - Restore 1000 agents in <2 seconds
 //! - File size reduction due to Parquet compression
 
+use geo_types::Point;
 use sim_core::{
+    SimulationContext,
     population::{Agent, AgentStatus, AgentTickResult, PopulationHandler},
     resources::{Resource, ResourceAllocator, Task},
     snapshot::{SnapshotBackend, SnapshotData, SnapshotManager},
     utils::idents::{AgentId, ResourceId, TaskId, WorkflowId},
     workflows::{Workflow, WorkflowEngine, WorkflowStep},
-    SimulationContext,
 };
-use geo_types::Point;
 use std::fs;
 use std::path::PathBuf;
 use std::time::Instant;
@@ -249,27 +249,50 @@ async fn test_parquet_roundtrip_100_agents() {
     assert_eq!(original_data.tasks.num_rows(), 50);
 
     // Save snapshot
-    manager.save_snapshot("test_100_agents", original_data.clone())
+    manager
+        .save_snapshot("test_100_agents", original_data.clone())
         .await
         .unwrap();
 
     // Verify files were created
     let snapshot_dir = PathBuf::from(&base_path).join("test_100_agents");
     assert!(snapshot_dir.exists(), "Snapshot directory should exist");
-    assert!(snapshot_dir.join("agents.parquet").exists(), "agents.parquet should exist");
-    assert!(snapshot_dir.join("resources.parquet").exists(), "resources.parquet should exist");
-    assert!(snapshot_dir.join("tasks.parquet").exists(), "tasks.parquet should exist");
-    assert!(snapshot_dir.join("workflow_instances.parquet").exists(), "workflow_instances.parquet should exist");
+    assert!(
+        snapshot_dir.join("agents.parquet").exists(),
+        "agents.parquet should exist"
+    );
+    assert!(
+        snapshot_dir.join("resources.parquet").exists(),
+        "resources.parquet should exist"
+    );
+    assert!(
+        snapshot_dir.join("tasks.parquet").exists(),
+        "tasks.parquet should exist"
+    );
+    assert!(
+        snapshot_dir.join("workflow_instances.parquet").exists(),
+        "workflow_instances.parquet should exist"
+    );
 
     // Restore snapshot
-    let restored_data = manager.restore_snapshot("test_100_agents")
-        .await
-        .unwrap();
+    let restored_data = manager.restore_snapshot("test_100_agents").await.unwrap();
 
     // Verify counts match
-    assert_eq!(restored_data.agents.num_rows(), 100, "Agent count should match");
-    assert_eq!(restored_data.resources.num_rows(), 20, "Resource count should match");
-    assert_eq!(restored_data.tasks.num_rows(), 50, "Task count should match");
+    assert_eq!(
+        restored_data.agents.num_rows(),
+        100,
+        "Agent count should match"
+    );
+    assert_eq!(
+        restored_data.resources.num_rows(),
+        20,
+        "Resource count should match"
+    );
+    assert_eq!(
+        restored_data.tasks.num_rows(),
+        50,
+        "Task count should match"
+    );
 
     // NOTE: Schema type changes due to Parquet optimization
     // Parquet converts Utf8 -> Utf8View for better string handling
@@ -291,10 +314,20 @@ async fn test_parquet_roundtrip_100_agents() {
     );
 
     // Verify field names match
-    for (orig_field, restored_field) in original_data.agents.schema().fields().iter()
-        .zip(restored_data.agents.schema().fields().iter()) {
-        assert_eq!(orig_field.name(), restored_field.name(),
-            "Field names should match: {} vs {}", orig_field.name(), restored_field.name());
+    for (orig_field, restored_field) in original_data
+        .agents
+        .schema()
+        .fields()
+        .iter()
+        .zip(restored_data.agents.schema().fields().iter())
+    {
+        assert_eq!(
+            orig_field.name(),
+            restored_field.name(),
+            "Field names should match: {} vs {}",
+            orig_field.name(),
+            restored_field.name()
+        );
     }
 
     // KNOWN ISSUE: PopulationHandler.import_batch() validates exact schema match
@@ -350,7 +383,8 @@ async fn test_large_simulation_performance() {
 
     // Benchmark save operation
     let save_start = Instant::now();
-    manager.save_snapshot("large_sim", large_data.clone())
+    manager
+        .save_snapshot("large_sim", large_data.clone())
         .await
         .unwrap();
     let save_duration = save_start.elapsed();
@@ -368,9 +402,7 @@ async fn test_large_simulation_performance() {
 
     // Benchmark restore operation
     let restore_start = Instant::now();
-    let restored = manager.restore_snapshot("large_sim")
-        .await
-        .unwrap();
+    let restored = manager.restore_snapshot("large_sim").await.unwrap();
     let restore_duration = restore_start.elapsed();
 
     println!("Restore performance:");
@@ -390,11 +422,13 @@ async fn test_large_simulation_performance() {
     assert_eq!(restored.tasks.num_rows(), 500);
 
     println!("\nPerformance summary:");
-    println!("  - Save:    {:?} ({:.1} agents/ms)",
+    println!(
+        "  - Save:    {:?} ({:.1} agents/ms)",
         save_duration,
         1500.0 / save_duration.as_millis() as f64
     );
-    println!("  - Restore: {:?} ({:.1} agents/ms)",
+    println!(
+        "  - Restore: {:?} ({:.1} agents/ms)",
         restore_duration,
         1500.0 / restore_duration.as_millis() as f64
     );
@@ -413,7 +447,8 @@ async fn test_parquet_compression() {
     // Create snapshot with 500 agents (enough data to show compression)
     let data = create_snapshot_data(500, 50, 100);
 
-    manager.save_snapshot("compression_test", data)
+    manager
+        .save_snapshot("compression_test", data)
         .await
         .unwrap();
 
@@ -432,7 +467,10 @@ async fn test_parquet_compression() {
     println!("  - agents.parquet:    {} bytes", agents_size);
     println!("  - resources.parquet: {} bytes", resources_size);
     println!("  - tasks.parquet:     {} bytes", tasks_size);
-    println!("  - Total:             {} bytes", agents_size + resources_size + tasks_size);
+    println!(
+        "  - Total:             {} bytes",
+        agents_size + resources_size + tasks_size
+    );
 
     // Estimate uncompressed size (rough approximation)
     // Each agent: ~200 bytes (UUID + type + status + position + metadata)
@@ -443,7 +481,10 @@ async fn test_parquet_compression() {
     let compression_ratio = estimated_uncompressed as f64 / actual_size as f64;
 
     println!("\nCompression analysis:");
-    println!("  - Estimated uncompressed: {} bytes", estimated_uncompressed);
+    println!(
+        "  - Estimated uncompressed: {} bytes",
+        estimated_uncompressed
+    );
     println!("  - Actual compressed:      {} bytes", actual_size);
     println!("  - Compression ratio:      {:.2}x", compression_ratio);
 
@@ -458,9 +499,9 @@ async fn test_parquet_compression() {
 // Test 4: File I/O error handling - invalid directory
 #[tokio::test]
 async fn test_invalid_directory_error() {
-    let manager = SnapshotManager::new(
-        SnapshotBackend::Parquet("/nonexistent/invalid/path".to_string())
-    )
+    let manager = SnapshotManager::new(SnapshotBackend::Parquet(
+        "/nonexistent/invalid/path".to_string(),
+    ))
     .await
     .unwrap();
 
@@ -524,15 +565,33 @@ async fn test_multiple_snapshots_different_directories() {
     let snapshot3 = create_snapshot_data(150, 30, 60);
 
     // Save all three
-    manager.save_snapshot("checkpoint_1", snapshot1).await.unwrap();
-    manager.save_snapshot("checkpoint_2", snapshot2).await.unwrap();
-    manager.save_snapshot("checkpoint_3", snapshot3).await.unwrap();
+    manager
+        .save_snapshot("checkpoint_1", snapshot1)
+        .await
+        .unwrap();
+    manager
+        .save_snapshot("checkpoint_2", snapshot2)
+        .await
+        .unwrap();
+    manager
+        .save_snapshot("checkpoint_3", snapshot3)
+        .await
+        .unwrap();
 
     // Verify all directories exist
     let base = PathBuf::from(&base_path);
-    assert!(base.join("checkpoint_1").exists(), "checkpoint_1 should exist");
-    assert!(base.join("checkpoint_2").exists(), "checkpoint_2 should exist");
-    assert!(base.join("checkpoint_3").exists(), "checkpoint_3 should exist");
+    assert!(
+        base.join("checkpoint_1").exists(),
+        "checkpoint_1 should exist"
+    );
+    assert!(
+        base.join("checkpoint_2").exists(),
+        "checkpoint_2 should exist"
+    );
+    assert!(
+        base.join("checkpoint_3").exists(),
+        "checkpoint_3 should exist"
+    );
 
     // Verify each has all required files
     for checkpoint in &["checkpoint_1", "checkpoint_2", "checkpoint_3"] {
@@ -545,13 +604,25 @@ async fn test_multiple_snapshots_different_directories() {
 
     // Restore each snapshot and verify correct counts
     let restored1 = manager.restore_snapshot("checkpoint_1").await.unwrap();
-    assert_eq!(restored1.agents.num_rows(), 50, "Checkpoint 1 should have 50 agents");
+    assert_eq!(
+        restored1.agents.num_rows(),
+        50,
+        "Checkpoint 1 should have 50 agents"
+    );
 
     let restored2 = manager.restore_snapshot("checkpoint_2").await.unwrap();
-    assert_eq!(restored2.agents.num_rows(), 100, "Checkpoint 2 should have 100 agents");
+    assert_eq!(
+        restored2.agents.num_rows(),
+        100,
+        "Checkpoint 2 should have 100 agents"
+    );
 
     let restored3 = manager.restore_snapshot("checkpoint_3").await.unwrap();
-    assert_eq!(restored3.agents.num_rows(), 150, "Checkpoint 3 should have 150 agents");
+    assert_eq!(
+        restored3.agents.num_rows(),
+        150,
+        "Checkpoint 3 should have 150 agents"
+    );
 
     println!("Multi-snapshot test results:");
     println!("  - Created 3 independent snapshots");
@@ -670,7 +741,10 @@ async fn test_schema_consistency() {
 
     println!("Schema consistency test:");
     println!("  - Original field count: {}", schema1.fields().len());
-    println!("  - Restored field count: {}", restored1.agents.schema().fields().len());
+    println!(
+        "  - Restored field count: {}",
+        restored1.agents.schema().fields().len()
+    );
 
     assert_eq!(
         schema1.fields().len(),
@@ -679,11 +753,18 @@ async fn test_schema_consistency() {
     );
 
     // Verify all field names are preserved
-    for (orig_field, restored_field) in schema1.fields().iter()
-        .zip(restored1.agents.schema().fields().iter()) {
-        assert_eq!(orig_field.name(), restored_field.name(),
+    for (orig_field, restored_field) in schema1
+        .fields()
+        .iter()
+        .zip(restored1.agents.schema().fields().iter())
+    {
+        assert_eq!(
+            orig_field.name(),
+            restored_field.name(),
             "Field names should be preserved: {} vs {}",
-            orig_field.name(), restored_field.name());
+            orig_field.name(),
+            restored_field.name()
+        );
     }
 }
 
@@ -700,13 +781,20 @@ async fn test_empty_snapshot() {
     // Create snapshot with zero entities
     let empty_data = create_snapshot_data(0, 0, 0);
 
-    manager.save_snapshot("empty_test", empty_data).await.unwrap();
+    manager
+        .save_snapshot("empty_test", empty_data)
+        .await
+        .unwrap();
 
     // Restore and verify
     let restored = manager.restore_snapshot("empty_test").await.unwrap();
 
     assert_eq!(restored.agents.num_rows(), 0, "Should restore 0 agents");
-    assert_eq!(restored.resources.num_rows(), 0, "Should restore 0 resources");
+    assert_eq!(
+        restored.resources.num_rows(),
+        0,
+        "Should restore 0 resources"
+    );
     assert_eq!(restored.tasks.num_rows(), 0, "Should restore 0 tasks");
 }
 
@@ -737,7 +825,10 @@ async fn test_parquet_roundtrip_with_handler_import() {
     let original_resource_count = original_data.resources.num_rows();
 
     // Save to Parquet
-    manager.save_snapshot("roundtrip_test", original_data).await.unwrap();
+    manager
+        .save_snapshot("roundtrip_test", original_data)
+        .await
+        .unwrap();
 
     // Restore from Parquet
     let restored = manager.restore_snapshot("roundtrip_test").await.unwrap();
@@ -749,17 +840,33 @@ async fn test_parquet_roundtrip_with_handler_import() {
     // CRITICAL: Import into handlers (this will fail if Utf8View isn't handled)
     let mut population = PopulationHandler::<TestAgent>::new();
     population.import_batch(restored.agents).unwrap();
-    assert_eq!(population.count(), original_agent_count, "Population import failed");
+    assert_eq!(
+        population.count(),
+        original_agent_count,
+        "Population import failed"
+    );
 
     let mut allocator = ResourceAllocator::<TestResource, TestTask>::new();
-    allocator.import_batch(restored.resources, restored.tasks).unwrap();
-    assert_eq!(allocator.resource_count(), original_resource_count, "Resource import failed");
+    allocator
+        .import_batch(restored.resources, restored.tasks)
+        .unwrap();
+    assert_eq!(
+        allocator.resource_count(),
+        original_resource_count,
+        "Resource import failed"
+    );
 
     // Verify handlers are functional after import
     let agents: Vec<_> = population.iter().collect();
     assert_eq!(agents.len(), original_agent_count);
 
     println!("✅ Full Parquet roundtrip with handler import successful!");
-    println!("   Agents: {} imported and functional", original_agent_count);
-    println!("   Resources: {} imported and functional", original_resource_count);
+    println!(
+        "   Agents: {} imported and functional",
+        original_agent_count
+    );
+    println!(
+        "   Resources: {} imported and functional",
+        original_resource_count
+    );
 }

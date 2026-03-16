@@ -2,9 +2,9 @@
 //!
 //! This module provides traits and models for generating demand in simulations.
 
+use crate::Result;
 use crate::context::SimulationContext;
 use crate::population::Demand;
-use crate::Result;
 
 /// Generator for creating demands
 ///

@@ -80,10 +80,7 @@ impl<T: Clone + Eq + Hash> H3Index<T> {
 
     /// Get total number of items (across all cells)
     pub fn item_count(&self) -> usize {
-        self.cells
-            .iter()
-            .map(|entry| entry.value().len())
-            .sum()
+        self.cells.iter().map(|entry| entry.value().len()).sum()
     }
 
     /// Clear all data

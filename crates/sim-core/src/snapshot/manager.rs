@@ -223,9 +223,7 @@ impl SnapshotManager {
     /// ```
     pub async fn save_snapshot(&self, snapshot_id: &str, data: SnapshotData) -> Result<()> {
         match &self.backend {
-            SnapshotBackend::Memory => {
-                self.save_to_memory(snapshot_id, data).await
-            }
+            SnapshotBackend::Memory => self.save_to_memory(snapshot_id, data).await,
             SnapshotBackend::Parquet(base_path) => {
                 self.save_to_parquet(base_path, snapshot_id, data).await
             }
@@ -258,9 +256,7 @@ impl SnapshotManager {
     /// ```
     pub async fn restore_snapshot(&self, snapshot_id: &str) -> Result<SnapshotData> {
         match &self.backend {
-            SnapshotBackend::Memory => {
-                self.restore_from_memory(snapshot_id).await
-            }
+            SnapshotBackend::Memory => self.restore_from_memory(snapshot_id).await,
             SnapshotBackend::Parquet(base_path) => {
                 self.restore_from_parquet(base_path, snapshot_id).await
             }
@@ -274,24 +270,18 @@ impl SnapshotManager {
     async fn save_to_memory(&self, snapshot_id: &str, data: SnapshotData) -> Result<()> {
         // Register agents table
         let agents_table = Self::create_mem_table(data.agents)?;
-        self.ctx.register_table(
-            &format!("{}_agents", snapshot_id),
-            agents_table,
-        )?;
+        self.ctx
+            .register_table(&format!("{}_agents", snapshot_id), agents_table)?;
 
         // Register resources table
         let resources_table = Self::create_mem_table(data.resources)?;
-        self.ctx.register_table(
-            &format!("{}_resources", snapshot_id),
-            resources_table,
-        )?;
+        self.ctx
+            .register_table(&format!("{}_resources", snapshot_id), resources_table)?;
 
         // Register tasks table
         let tasks_table = Self::create_mem_table(data.tasks)?;
-        self.ctx.register_table(
-            &format!("{}_tasks", snapshot_id),
-            tasks_table,
-        )?;
+        self.ctx
+            .register_table(&format!("{}_tasks", snapshot_id), tasks_table)?;
 
         // Register workflow_instances table
         let instances_table = Self::create_mem_table(data.workflow_instances)?;
@@ -303,10 +293,8 @@ impl SnapshotManager {
         // Register locations table if present
         if let Some(locations) = data.locations {
             let locations_table = Self::create_mem_table(locations)?;
-            self.ctx.register_table(
-                &format!("{}_locations", snapshot_id),
-                locations_table,
-            )?;
+            self.ctx
+                .register_table(&format!("{}_locations", snapshot_id), locations_table)?;
         }
 
         Ok(())
@@ -320,17 +308,27 @@ impl SnapshotManager {
         let agents = self.read_table(&format!("{}_agents", snapshot_id)).await?;
 
         // Read resources
-        let resources = self.read_table(&format!("{}_resources", snapshot_id)).await?;
+        let resources = self
+            .read_table(&format!("{}_resources", snapshot_id))
+            .await?;
 
         // Read tasks
         let tasks = self.read_table(&format!("{}_tasks", snapshot_id)).await?;
 
         // Read workflow_instances
-        let workflow_instances = self.read_table(&format!("{}_workflow_instances", snapshot_id)).await?;
+        let workflow_instances = self
+            .read_table(&format!("{}_workflow_instances", snapshot_id))
+            .await?;
 
         // Read locations if present
-        let locations = if self.ctx.table_exist(&format!("{}_locations", snapshot_id))? {
-            Some(self.read_table(&format!("{}_locations", snapshot_id)).await?)
+        let locations = if self
+            .ctx
+            .table_exist(&format!("{}_locations", snapshot_id))?
+        {
+            Some(
+                self.read_table(&format!("{}_locations", snapshot_id))
+                    .await?,
+            )
         } else {
             None
         };
@@ -361,20 +359,30 @@ impl SnapshotManager {
         fs::create_dir_all(&snapshot_dir)?;
 
         // Write agents
-        self.write_batch_to_parquet(&snapshot_dir, snapshot_id, "agents", data.agents).await?;
+        self.write_batch_to_parquet(&snapshot_dir, snapshot_id, "agents", data.agents)
+            .await?;
 
         // Write resources
-        self.write_batch_to_parquet(&snapshot_dir, snapshot_id, "resources", data.resources).await?;
+        self.write_batch_to_parquet(&snapshot_dir, snapshot_id, "resources", data.resources)
+            .await?;
 
         // Write tasks
-        self.write_batch_to_parquet(&snapshot_dir, snapshot_id, "tasks", data.tasks).await?;
+        self.write_batch_to_parquet(&snapshot_dir, snapshot_id, "tasks", data.tasks)
+            .await?;
 
         // Write workflow_instances
-        self.write_batch_to_parquet(&snapshot_dir, snapshot_id, "workflow_instances", data.workflow_instances).await?;
+        self.write_batch_to_parquet(
+            &snapshot_dir,
+            snapshot_id,
+            "workflow_instances",
+            data.workflow_instances,
+        )
+        .await?;
 
         // Write locations if present
         if let Some(locations) = data.locations {
-            self.write_batch_to_parquet(&snapshot_dir, snapshot_id, "locations", locations).await?;
+            self.write_batch_to_parquet(&snapshot_dir, snapshot_id, "locations", locations)
+                .await?;
         }
 
         Ok(())
@@ -400,12 +408,13 @@ impl SnapshotManager {
         let file_path = snapshot_dir.join(format!("{}.parquet", name));
 
         df.write_parquet(
-            file_path.to_str().ok_or_else(|| {
-                Error::InvalidState("Invalid file path".to_string())
-            })?,
+            file_path
+                .to_str()
+                .ok_or_else(|| Error::InvalidState("Invalid file path".to_string()))?,
             DataFrameWriteOptions::new(),
             None,
-        ).await?;
+        )
+        .await?;
 
         // Deregister temporary table
         self.ctx.deregister_table(&temp_table_name)?;
@@ -432,15 +441,26 @@ impl SnapshotManager {
         }
 
         // Read all batches
-        let agents = self.read_batch_from_parquet(&snapshot_dir, snapshot_id, "agents").await?;
-        let resources = self.read_batch_from_parquet(&snapshot_dir, snapshot_id, "resources").await?;
-        let tasks = self.read_batch_from_parquet(&snapshot_dir, snapshot_id, "tasks").await?;
-        let workflow_instances = self.read_batch_from_parquet(&snapshot_dir, snapshot_id, "workflow_instances").await?;
+        let agents = self
+            .read_batch_from_parquet(&snapshot_dir, snapshot_id, "agents")
+            .await?;
+        let resources = self
+            .read_batch_from_parquet(&snapshot_dir, snapshot_id, "resources")
+            .await?;
+        let tasks = self
+            .read_batch_from_parquet(&snapshot_dir, snapshot_id, "tasks")
+            .await?;
+        let workflow_instances = self
+            .read_batch_from_parquet(&snapshot_dir, snapshot_id, "workflow_instances")
+            .await?;
 
         // Check if locations file exists
         let locations_path = snapshot_dir.join("locations.parquet");
         let locations = if locations_path.exists() {
-            Some(self.read_batch_from_parquet(&snapshot_dir, snapshot_id, "locations").await?)
+            Some(
+                self.read_batch_from_parquet(&snapshot_dir, snapshot_id, "locations")
+                    .await?,
+            )
         } else {
             None
         };
@@ -472,13 +492,15 @@ impl SnapshotManager {
 
         // Register Parquet file as table
         let table_name = format!("restore_{}_{}", snapshot_id, name);
-        self.ctx.register_parquet(
-            &table_name,
-            file_path.to_str().ok_or_else(|| {
-                Error::InvalidState("Invalid file path".to_string())
-            })?,
-            ParquetReadOptions::default(),
-        ).await?;
+        self.ctx
+            .register_parquet(
+                &table_name,
+                file_path
+                    .to_str()
+                    .ok_or_else(|| Error::InvalidState("Invalid file path".to_string()))?,
+                ParquetReadOptions::default(),
+            )
+            .await?;
 
         // Read into RecordBatch
         let batch = self.read_table(&table_name).await?;
@@ -520,8 +542,7 @@ impl SnapshotManager {
 
         // Concatenate multiple batches
         let schema = batches[0].schema();
-        arrow::compute::concat_batches(&schema, &batches)
-            .map_err(|e| Error::Arrow(e))
+        arrow::compute::concat_batches(&schema, &batches).map_err(|e| Error::Arrow(e))
     }
 }
 
@@ -641,9 +662,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_memory_backend_save_restore() {
-        let manager = SnapshotManager::new(SnapshotBackend::Memory)
-            .await
-            .unwrap();
+        let manager = SnapshotManager::new(SnapshotBackend::Memory).await.unwrap();
 
         let data = SnapshotData {
             agents: create_test_agents_batch(),
@@ -687,7 +706,10 @@ mod tests {
         };
 
         // Save snapshot
-        manager.save_snapshot("test_parquet", data.clone()).await.unwrap();
+        manager
+            .save_snapshot("test_parquet", data.clone())
+            .await
+            .unwrap();
 
         // Verify files were created
         let snapshot_dir = PathBuf::from(&base_path).join("test_parquet");
@@ -710,9 +732,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_restore_nonexistent_snapshot() {
-        let manager = SnapshotManager::new(SnapshotBackend::Memory)
-            .await
-            .unwrap();
+        let manager = SnapshotManager::new(SnapshotBackend::Memory).await.unwrap();
 
         let result = manager.restore_snapshot("nonexistent").await;
         assert!(result.is_err());
@@ -720,9 +740,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_multiple_snapshots() {
-        let manager = SnapshotManager::new(SnapshotBackend::Memory)
-            .await
-            .unwrap();
+        let manager = SnapshotManager::new(SnapshotBackend::Memory).await.unwrap();
 
         let data1 = SnapshotData {
             agents: create_test_agents_batch(),

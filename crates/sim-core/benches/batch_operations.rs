@@ -7,13 +7,13 @@
 //! cargo bench --bench batch_operations
 //! ```
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
 use geo_types::Point;
-use sim_core::{
-    population::{Agent, AgentId, AgentStatus, AgentTickResult, ArrowAgentRow, PopulationHandler},
-    SimulationContext, SimulationConfig, Result,
-};
 use serde_json::Value;
+use sim_core::{
+    Result, SimulationConfig, SimulationContext,
+    population::{Agent, AgentId, AgentStatus, AgentTickResult, ArrowAgentRow, PopulationHandler},
+};
 use uuid::Uuid;
 
 // Simple test agent for benchmarking
@@ -109,14 +109,18 @@ fn bench_batch_add_vs_sequential(c: &mut Criterion) {
     let mut group = c.benchmark_group("agent_addition");
 
     for size in [10, 50, 100, 500].iter() {
-        group.bench_with_input(BenchmarkId::new("sequential_add", size), size, |b, &size| {
-            b.iter(|| {
-                let mut handler = PopulationHandler::new();
-                for _ in 0..size {
-                    handler.add_agent(black_box(create_test_agent())).unwrap();
-                }
-            });
-        });
+        group.bench_with_input(
+            BenchmarkId::new("sequential_add", size),
+            size,
+            |b, &size| {
+                b.iter(|| {
+                    let mut handler = PopulationHandler::new();
+                    for _ in 0..size {
+                        handler.add_agent(black_box(create_test_agent())).unwrap();
+                    }
+                });
+            },
+        );
 
         group.bench_with_input(BenchmarkId::new("batch_add", size), size, |b, &size| {
             b.iter(|| {
@@ -135,18 +139,22 @@ fn bench_batch_update_vs_sequential(c: &mut Criterion) {
 
     for size in [10, 50, 100, 500].iter() {
         // Sequential update
-        group.bench_with_input(BenchmarkId::new("sequential_update", size), size, |b, &size| {
-            let mut handler = PopulationHandler::new();
-            let agents = create_test_agents(size);
-            handler.add_agents(agents.clone()).unwrap();
+        group.bench_with_input(
+            BenchmarkId::new("sequential_update", size),
+            size,
+            |b, &size| {
+                let mut handler = PopulationHandler::new();
+                let agents = create_test_agents(size);
+                handler.add_agents(agents.clone()).unwrap();
 
-            b.iter(|| {
-                let mut modified_agents = agents.clone();
-                for agent in &mut modified_agents {
-                    handler.update_agent(black_box(agent.clone())).unwrap();
-                }
-            });
-        });
+                b.iter(|| {
+                    let mut modified_agents = agents.clone();
+                    for agent in &mut modified_agents {
+                        handler.update_agent(black_box(agent.clone())).unwrap();
+                    }
+                });
+            },
+        );
 
         // Batch update
         group.bench_with_input(BenchmarkId::new("batch_update", size), size, |b, &size| {

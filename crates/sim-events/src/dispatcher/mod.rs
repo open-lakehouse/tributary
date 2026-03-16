@@ -44,7 +44,10 @@ impl EventDispatcher {
     ///
     /// The event is added to the buffer. Call `flush()` to persist.
     pub fn emit(&mut self, event: Event) {
-        *self.counts.entry(event.event_type().to_string()).or_insert(0) += 1;
+        *self
+            .counts
+            .entry(event.event_type().to_string())
+            .or_insert(0) += 1;
         self.buffer.push(event);
     }
 

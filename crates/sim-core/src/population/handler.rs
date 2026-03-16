@@ -110,7 +110,9 @@ impl<A: Agent> PopulationHandler<A> {
             if field.name() != exp_name {
                 return Err(Error::Agent(format!(
                     "Field {} has wrong name: expected '{}', got '{}'",
-                    i, exp_name, field.name()
+                    i,
+                    exp_name,
+                    field.name()
                 )));
             }
 
@@ -123,14 +125,18 @@ impl<A: Agent> PopulationHandler<A> {
             if !type_matches {
                 return Err(Error::Agent(format!(
                     "Field '{}' has wrong type: expected {:?}, got {:?}",
-                    exp_name, exp_type, field.data_type()
+                    exp_name,
+                    exp_type,
+                    field.data_type()
                 )));
             }
 
             if field.is_nullable() != *exp_nullable {
                 return Err(Error::Agent(format!(
                     "Field '{}' has wrong nullability: expected {}, got {}",
-                    exp_name, exp_nullable, field.is_nullable()
+                    exp_name,
+                    exp_nullable,
+                    field.is_nullable()
                 )));
             }
         }
@@ -238,9 +244,7 @@ impl<A: Agent> PopulationHandler<A> {
         }
 
         // Convert all agents to rows
-        let rows: Vec<ArrowAgentRow> = agents.iter()
-            .map(|agent| agent.to_arrow_row())
-            .collect();
+        let rows: Vec<ArrowAgentRow> = agents.iter().map(|agent| agent.to_arrow_row()).collect();
 
         // Update index for all agents BEFORE batch rebuild
         let start_row = self.next_row;
@@ -271,9 +275,10 @@ impl<A: Agent> PopulationHandler<A> {
         // Collect all existing rows
         let mut all_rows = Vec::new();
         for i in 0..self.agents.num_rows() {
-            all_rows.push(self.extract_row(i).ok_or_else(|| {
-                Error::Agent(format!("Failed to extract row {}", i))
-            })?);
+            all_rows.push(
+                self.extract_row(i)
+                    .ok_or_else(|| Error::Agent(format!("Failed to extract row {}", i)))?,
+            );
         }
 
         // Add new rows
@@ -293,9 +298,9 @@ impl<A: Agent> PopulationHandler<A> {
         let mut metadata_builder = StringBuilder::new();
 
         for row in rows {
-            id_builder.append_value(&row.id).map_err(|e| {
-                Error::Agent(format!("Failed to append id: {}", e))
-            })?;
+            id_builder
+                .append_value(&row.id)
+                .map_err(|e| Error::Agent(format!("Failed to append id: {}", e)))?;
             type_builder.append_value(&row.agent_type);
             status_builder.append_value(&row.status);
 
@@ -340,7 +345,6 @@ impl<A: Agent> PopulationHandler<A> {
         .map_err(|e| Error::Agent(format!("Failed to create RecordBatch: {}", e)))
     }
 
-
     /// Append a row to the RecordBatch
     fn append_row_to_batch(&self, row: ArrowAgentRow) -> RecordBatch {
         let current_len = self.agents.num_rows();
@@ -355,12 +359,42 @@ impl<A: Agent> PopulationHandler<A> {
 
         // Copy existing rows
         if current_len > 0 {
-            let id_array = self.agents.column(0).as_any().downcast_ref::<arrow::array::FixedSizeBinaryArray>().unwrap();
-            let type_array = self.agents.column(1).as_any().downcast_ref::<arrow::array::StringArray>().unwrap();
-            let status_array = self.agents.column(2).as_any().downcast_ref::<arrow::array::StringArray>().unwrap();
-            let pos_x_array = self.agents.column(3).as_any().downcast_ref::<arrow::array::Float64Array>().unwrap();
-            let pos_y_array = self.agents.column(4).as_any().downcast_ref::<arrow::array::Float64Array>().unwrap();
-            let metadata_array = self.agents.column(5).as_any().downcast_ref::<arrow::array::StringArray>().unwrap();
+            let id_array = self
+                .agents
+                .column(0)
+                .as_any()
+                .downcast_ref::<arrow::array::FixedSizeBinaryArray>()
+                .unwrap();
+            let type_array = self
+                .agents
+                .column(1)
+                .as_any()
+                .downcast_ref::<arrow::array::StringArray>()
+                .unwrap();
+            let status_array = self
+                .agents
+                .column(2)
+                .as_any()
+                .downcast_ref::<arrow::array::StringArray>()
+                .unwrap();
+            let pos_x_array = self
+                .agents
+                .column(3)
+                .as_any()
+                .downcast_ref::<arrow::array::Float64Array>()
+                .unwrap();
+            let pos_y_array = self
+                .agents
+                .column(4)
+                .as_any()
+                .downcast_ref::<arrow::array::Float64Array>()
+                .unwrap();
+            let metadata_array = self
+                .agents
+                .column(5)
+                .as_any()
+                .downcast_ref::<arrow::array::StringArray>()
+                .unwrap();
 
             for i in 0..current_len {
                 id_builder.append_value(id_array.value(i)).unwrap();
@@ -485,12 +519,42 @@ impl<A: Agent> PopulationHandler<A> {
         let mut metadata_builder = StringBuilder::new();
 
         // Copy all rows except the one to remove
-        let id_array = self.agents.column(0).as_any().downcast_ref::<arrow::array::FixedSizeBinaryArray>().unwrap();
-        let type_array = self.agents.column(1).as_any().downcast_ref::<arrow::array::StringArray>().unwrap();
-        let status_array = self.agents.column(2).as_any().downcast_ref::<arrow::array::StringArray>().unwrap();
-        let pos_x_array = self.agents.column(3).as_any().downcast_ref::<arrow::array::Float64Array>().unwrap();
-        let pos_y_array = self.agents.column(4).as_any().downcast_ref::<arrow::array::Float64Array>().unwrap();
-        let metadata_array = self.agents.column(5).as_any().downcast_ref::<arrow::array::StringArray>().unwrap();
+        let id_array = self
+            .agents
+            .column(0)
+            .as_any()
+            .downcast_ref::<arrow::array::FixedSizeBinaryArray>()
+            .unwrap();
+        let type_array = self
+            .agents
+            .column(1)
+            .as_any()
+            .downcast_ref::<arrow::array::StringArray>()
+            .unwrap();
+        let status_array = self
+            .agents
+            .column(2)
+            .as_any()
+            .downcast_ref::<arrow::array::StringArray>()
+            .unwrap();
+        let pos_x_array = self
+            .agents
+            .column(3)
+            .as_any()
+            .downcast_ref::<arrow::array::Float64Array>()
+            .unwrap();
+        let pos_y_array = self
+            .agents
+            .column(4)
+            .as_any()
+            .downcast_ref::<arrow::array::Float64Array>()
+            .unwrap();
+        let metadata_array = self
+            .agents
+            .column(5)
+            .as_any()
+            .downcast_ref::<arrow::array::StringArray>()
+            .unwrap();
 
         for i in 0..current_len {
             if i == row_to_remove {
@@ -579,12 +643,42 @@ impl<A: Agent> PopulationHandler<A> {
             return None;
         }
 
-        let id_array = self.agents.column(0).as_any().downcast_ref::<arrow::array::FixedSizeBinaryArray>().unwrap();
-        let type_array = self.agents.column(1).as_any().downcast_ref::<arrow::array::StringArray>().unwrap();
-        let status_array = self.agents.column(2).as_any().downcast_ref::<arrow::array::StringArray>().unwrap();
-        let pos_x_array = self.agents.column(3).as_any().downcast_ref::<arrow::array::Float64Array>().unwrap();
-        let pos_y_array = self.agents.column(4).as_any().downcast_ref::<arrow::array::Float64Array>().unwrap();
-        let metadata_array = self.agents.column(5).as_any().downcast_ref::<arrow::array::StringArray>().unwrap();
+        let id_array = self
+            .agents
+            .column(0)
+            .as_any()
+            .downcast_ref::<arrow::array::FixedSizeBinaryArray>()
+            .unwrap();
+        let type_array = self
+            .agents
+            .column(1)
+            .as_any()
+            .downcast_ref::<arrow::array::StringArray>()
+            .unwrap();
+        let status_array = self
+            .agents
+            .column(2)
+            .as_any()
+            .downcast_ref::<arrow::array::StringArray>()
+            .unwrap();
+        let pos_x_array = self
+            .agents
+            .column(3)
+            .as_any()
+            .downcast_ref::<arrow::array::Float64Array>()
+            .unwrap();
+        let pos_y_array = self
+            .agents
+            .column(4)
+            .as_any()
+            .downcast_ref::<arrow::array::Float64Array>()
+            .unwrap();
+        let metadata_array = self
+            .agents
+            .column(5)
+            .as_any()
+            .downcast_ref::<arrow::array::StringArray>()
+            .unwrap();
 
         Some(ArrowAgentRow {
             id: id_array.value(row_idx).to_vec(),
@@ -662,7 +756,8 @@ impl<A: Agent> PopulationHandler<A> {
         }
 
         // Build map of row index -> updated agent
-        let mut updates: std::collections::HashMap<usize, ArrowAgentRow> = std::collections::HashMap::new();
+        let mut updates: std::collections::HashMap<usize, ArrowAgentRow> =
+            std::collections::HashMap::new();
         for agent in agents.iter() {
             if let Some(&row_idx) = self.id_to_row.get(&agent.id()) {
                 updates.insert(row_idx, agent.to_arrow_row());
@@ -675,16 +770,16 @@ impl<A: Agent> PopulationHandler<A> {
             if let Some(updated_row) = updates.get(&i) {
                 all_rows.push(updated_row.clone());
             } else {
-                all_rows.push(self.extract_row(i).ok_or_else(|| {
-                    Error::Agent(format!("Failed to extract row {}", i))
-                })?);
+                all_rows.push(
+                    self.extract_row(i)
+                        .ok_or_else(|| Error::Agent(format!("Failed to extract row {}", i)))?,
+                );
             }
         }
 
         self.agents = self.build_batch_from_rows(&all_rows)?;
         Ok(())
     }
-
 
     /// Update a row in the RecordBatch
     fn update_row_in_batch(&self, row_to_update: usize, new_row: ArrowAgentRow) -> RecordBatch {
@@ -699,12 +794,42 @@ impl<A: Agent> PopulationHandler<A> {
         let mut metadata_builder = StringBuilder::new();
 
         // Copy all rows, replacing the one to update
-        let id_array = self.agents.column(0).as_any().downcast_ref::<arrow::array::FixedSizeBinaryArray>().unwrap();
-        let type_array = self.agents.column(1).as_any().downcast_ref::<arrow::array::StringArray>().unwrap();
-        let status_array = self.agents.column(2).as_any().downcast_ref::<arrow::array::StringArray>().unwrap();
-        let pos_x_array = self.agents.column(3).as_any().downcast_ref::<arrow::array::Float64Array>().unwrap();
-        let pos_y_array = self.agents.column(4).as_any().downcast_ref::<arrow::array::Float64Array>().unwrap();
-        let metadata_array = self.agents.column(5).as_any().downcast_ref::<arrow::array::StringArray>().unwrap();
+        let id_array = self
+            .agents
+            .column(0)
+            .as_any()
+            .downcast_ref::<arrow::array::FixedSizeBinaryArray>()
+            .unwrap();
+        let type_array = self
+            .agents
+            .column(1)
+            .as_any()
+            .downcast_ref::<arrow::array::StringArray>()
+            .unwrap();
+        let status_array = self
+            .agents
+            .column(2)
+            .as_any()
+            .downcast_ref::<arrow::array::StringArray>()
+            .unwrap();
+        let pos_x_array = self
+            .agents
+            .column(3)
+            .as_any()
+            .downcast_ref::<arrow::array::Float64Array>()
+            .unwrap();
+        let pos_y_array = self
+            .agents
+            .column(4)
+            .as_any()
+            .downcast_ref::<arrow::array::Float64Array>()
+            .unwrap();
+        let metadata_array = self
+            .agents
+            .column(5)
+            .as_any()
+            .downcast_ref::<arrow::array::StringArray>()
+            .unwrap();
 
         for i in 0..current_len {
             if i == row_to_update {
@@ -816,9 +941,8 @@ impl<A: Agent> PopulationHandler<A> {
         // Update all agents in batch
         // Update all agents in batch
         if !updated_agents.is_empty() {
-            let agents_to_update: Vec<A> = updated_agents.into_iter()
-                .map(|(_, agent)| agent)
-                .collect();
+            let agents_to_update: Vec<A> =
+                updated_agents.into_iter().map(|(_, agent)| agent).collect();
             self.update_agents(agents_to_update)?;
         }
 
@@ -832,7 +956,12 @@ impl<A: Agent> PopulationHandler<A> {
     /// - Time: O(n) linear scan through RecordBatch
     /// - Can be optimized with secondary indices if needed
     pub fn get_agents_by_type(&self, agent_type: &str) -> Vec<A> {
-        let type_array = self.agents.column(1).as_any().downcast_ref::<arrow::array::StringArray>().unwrap();
+        let type_array = self
+            .agents
+            .column(1)
+            .as_any()
+            .downcast_ref::<arrow::array::StringArray>()
+            .unwrap();
 
         (0..self.agents.num_rows())
             .filter(|&i| type_array.value(i) == agent_type)
@@ -917,7 +1046,8 @@ impl<A: Agent> PopulationHandler<A> {
         Self::validate_agent_schema(&batch)?;
 
         // Extract ID column to rebuild index
-        let id_array = batch.column(0)
+        let id_array = batch
+            .column(0)
             .as_any()
             .downcast_ref::<arrow::array::FixedSizeBinaryArray>()
             .ok_or_else(|| Error::Agent("Invalid ID column type".to_string()))?;
@@ -1233,9 +1363,11 @@ mod tests {
         use arrow::datatypes::{DataType, Field, Schema};
 
         // Create a batch with wrong schema
-        let schema = Arc::new(Schema::new(vec![
-            Field::new("wrong_field", DataType::Int32, false),
-        ]));
+        let schema = Arc::new(Schema::new(vec![Field::new(
+            "wrong_field",
+            DataType::Int32,
+            false,
+        )]));
 
         let int_array: ArrayRef = Arc::new(arrow::array::Int32Array::from(vec![1, 2, 3]));
         let invalid_batch = RecordBatch::try_new(schema, vec![int_array]).unwrap();
@@ -1244,7 +1376,12 @@ mod tests {
         let result = handler.import_batch(invalid_batch);
 
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Invalid agent schema"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Invalid agent schema")
+        );
     }
 
     #[test]

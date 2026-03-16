@@ -156,12 +156,7 @@ impl KitchenHandler {
             .objects()
             .await?
             // Explicitly select only expected object columns to prevent schema contamination
-            .select([
-                col("id"),
-                col("parent_id"),
-                col("label"),
-                col("properties"),
-            ])?
+            .select([col("id"), col("parent_id"), col("label"), col("properties")])?
             .filter(col("label").in_list(
                 vec![
                     lit(ObjectLabel::Site.as_ref()),
@@ -451,11 +446,11 @@ impl KitchenHandler {
                 col("site_id"),
                 col("submitted_at"),
                 col("destination"),
-            case(col("order_id").in_list(order_ids.clone(), false))
-                .when(lit(true), lit(status.as_ref()))
-                .otherwise(col("status"))?
-                .alias("status"),
-        ])?
+                case(col("order_id").in_list(order_ids.clone(), false))
+                    .when(lit(true), lit(status.as_ref()))
+                    .otherwise(col("status"))?
+                    .alias("status"),
+            ])?
             .collect()
             .await?;
         Ok(())

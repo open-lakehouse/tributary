@@ -144,11 +144,7 @@ impl SimulationHooks for KitchenSimulationHooks {
                     self.dispatcher.emit(event);
 
                     if ctx.config().verbose {
-                        println!(
-                            "📝 [Step {}] Order created: {}",
-                            ctx.step(),
-                            order_id
-                        );
+                        println!("📝 [Step {}] Order created: {}", ctx.step(), order_id);
                     }
                 }
             }
@@ -175,10 +171,7 @@ impl SimulationHooks for KitchenSimulationHooks {
         for _assignment in assignments {
             // Find order info (simplified - would need actual lookup)
             if ctx.config().verbose {
-                println!(
-                    "👨‍🍳 [Step {}] Order assigned to kitchen",
-                    ctx.step()
-                );
+                println!("👨‍🍳 [Step {}] Order assigned to kitchen", ctx.step());
             }
         }
 
@@ -236,10 +229,7 @@ pub fn add_customers(
 
     for i in 0..num_customers {
         // Distribute customers around a point
-        let location = geo::Point::new(
-            -122.4 + (i as f64 * 0.001),
-            37.8 + (i as f64 * 0.001),
-        );
+        let location = geo::Point::new(-122.4 + (i as f64 * 0.001), 37.8 + (i as f64 * 0.001));
 
         let customer = Customer::with_params(
             location,

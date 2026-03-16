@@ -1,6 +1,8 @@
 use arrow::array::AsArray;
 use caspers_universe::Error as UniverseError;
-use caspers_universe::{SimulationContext, SimulationMessage, SimulationRunnerBuilder, resolve_url};
+use caspers_universe::{
+    SimulationContext, SimulationMessage, SimulationRunnerBuilder, resolve_url,
+};
 use crossterm::event::{Event, KeyCode, KeyEventKind};
 use dialoguer::Select;
 use tokio::sync::mpsc;
@@ -155,24 +157,36 @@ pub(super) async fn handle(args: RunArgs) -> Result<()> {
                 if let Some(err) = &app.error {
                     eprintln!("   {}", err);
                 }
-                eprintln!("\nSimulation stopped at step {}/{}", app.current_step, app.total_steps);
+                eprintln!(
+                    "\nSimulation stopped at step {}/{}",
+                    app.current_step, app.total_steps
+                );
                 std::process::exit(1);
             } else if app.completed {
                 if app.current_step < app.total_steps {
                     eprintln!("\n⚠️  Warning: Simulation completed early!");
-                    eprintln!("   Expected {} steps, but only completed {}", app.total_steps, app.current_step);
+                    eprintln!(
+                        "   Expected {} steps, but only completed {}",
+                        app.total_steps, app.current_step
+                    );
                     eprintln!("   This might indicate an issue in the simulation core.");
                 } else {
                     eprintln!("\n✅ Simulation completed successfully!");
                     eprintln!("   Completed {} steps", app.current_step);
                 }
             } else if app.should_quit {
-                eprintln!("\n⚠️  Simulation aborted by user at step {}/{}", app.current_step, app.total_steps);
+                eprintln!(
+                    "\n⚠️  Simulation aborted by user at step {}/{}",
+                    app.current_step, app.total_steps
+                );
             }
         }
         Err(panic_info) => {
             eprintln!("\n💥 FATAL: Simulation thread panicked!");
-            eprintln!("   Panic occurred at step {}/{}", app.current_step, app.total_steps);
+            eprintln!(
+                "   Panic occurred at step {}/{}",
+                app.current_step, app.total_steps
+            );
 
             // Try to extract panic message
             if let Some(msg) = panic_info.downcast_ref::<&str>() {
@@ -202,7 +216,11 @@ fn process_message(app: &mut App, msg: Option<SimulationMessage>) {
             app.push_step(step, sim_time, event_counts);
         }
         Some(SimulationMessage::Completed { steps, final_time }) => {
-            tracing::info!("Simulation completed successfully: {} steps, final time: {}", steps, final_time);
+            tracing::info!(
+                "Simulation completed successfully: {} steps, final time: {}",
+                steps,
+                final_time
+            );
             app.mark_completed();
         }
         Some(SimulationMessage::Error(err)) => {

@@ -5,12 +5,12 @@
 
 #[cfg(test)]
 mod arrow_location_tests {
+    use crate::locations::schema::{fields, location_schema};
     use crate::locations::{Location, LocationHandler};
-    use crate::locations::schema::{location_schema, fields};
+    use arrow::array::Array;
     use geo_types::Point;
     use h3o::Resolution;
     use sim_core::LocationId;
-    use arrow::array::Array;
 
     #[derive(Debug, Clone)]
     struct TestLocation {
@@ -110,12 +110,9 @@ mod arrow_location_tests {
         let mut handler = LocationHandler::new(Resolution::Nine);
 
         // Add locations
-        let sf = TestLocation::new(-122.4194, 37.7749, "warehouse")
-            .with_name("San Francisco");
-        let oakland = TestLocation::new(-122.2711, 37.8044, "warehouse")
-            .with_name("Oakland");
-        let san_jose = TestLocation::new(-121.8863, 37.3382, "warehouse")
-            .with_name("San Jose");
+        let sf = TestLocation::new(-122.4194, 37.7749, "warehouse").with_name("San Francisco");
+        let oakland = TestLocation::new(-122.2711, 37.8044, "warehouse").with_name("Oakland");
+        let san_jose = TestLocation::new(-121.8863, 37.3382, "warehouse").with_name("San Jose");
 
         let sf_id = sf.id();
         let oakland_id = oakland.id();

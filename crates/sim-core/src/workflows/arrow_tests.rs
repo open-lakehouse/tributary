@@ -96,14 +96,22 @@ mod tests {
             assert_eq!(instance.current_step, step);
             assert!(!instance.is_complete);
 
-            let event = engine.advance_instance_step(instance_id, completion_time).unwrap();
+            let event = engine
+                .advance_instance_step(instance_id, completion_time)
+                .unwrap();
 
             if step < 4 {
                 // Not complete yet
-                assert!(matches!(event, Some(crate::workflows::WorkflowStepEvent::StepCompleted { .. })));
+                assert!(matches!(
+                    event,
+                    Some(crate::workflows::WorkflowStepEvent::StepCompleted { .. })
+                ));
             } else {
                 // Final step - workflow complete
-                assert!(matches!(event, Some(crate::workflows::WorkflowStepEvent::WorkflowCompleted { .. })));
+                assert!(matches!(
+                    event,
+                    Some(crate::workflows::WorkflowStepEvent::WorkflowCompleted { .. })
+                ));
             }
         }
 
@@ -257,7 +265,9 @@ mod tests {
         // Advance all instances by one step
         let completion_time = chrono::Utc::now();
         for instance_id in &instance_ids {
-            engine.advance_instance_step(*instance_id, completion_time).unwrap();
+            engine
+                .advance_instance_step(*instance_id, completion_time)
+                .unwrap();
         }
 
         let duration = start.elapsed();
@@ -290,9 +300,14 @@ mod tests {
 
         // Advancing a 0-step workflow should complete it immediately
         let completion_time = chrono::Utc::now();
-        let event = engine.advance_instance_step(instance_id, completion_time).unwrap();
+        let event = engine
+            .advance_instance_step(instance_id, completion_time)
+            .unwrap();
 
-        assert!(matches!(event, Some(crate::workflows::WorkflowStepEvent::WorkflowCompleted { .. })));
+        assert!(matches!(
+            event,
+            Some(crate::workflows::WorkflowStepEvent::WorkflowCompleted { .. })
+        ));
 
         let instance = engine.get_instance(instance_id).unwrap();
         assert!(instance.is_complete);
@@ -311,7 +326,9 @@ mod tests {
 
         // Complete the workflow
         let completion_time = chrono::Utc::now();
-        engine.advance_instance_step(instance_id, completion_time).unwrap();
+        engine
+            .advance_instance_step(instance_id, completion_time)
+            .unwrap();
 
         let instance = engine.get_instance(instance_id).unwrap();
         assert!(instance.is_complete);
@@ -344,16 +361,31 @@ mod tests {
         let completion_time = chrono::Utc::now();
 
         // Simulate task completion for step 0
-        let event = engine.advance_instance_step(instance_id, completion_time).unwrap();
-        assert!(matches!(event, Some(crate::workflows::WorkflowStepEvent::StepCompleted { step_index: 0, .. })));
+        let event = engine
+            .advance_instance_step(instance_id, completion_time)
+            .unwrap();
+        assert!(matches!(
+            event,
+            Some(crate::workflows::WorkflowStepEvent::StepCompleted { step_index: 0, .. })
+        ));
 
         // Step 1
-        let event = engine.advance_instance_step(instance_id, completion_time).unwrap();
-        assert!(matches!(event, Some(crate::workflows::WorkflowStepEvent::StepCompleted { step_index: 1, .. })));
+        let event = engine
+            .advance_instance_step(instance_id, completion_time)
+            .unwrap();
+        assert!(matches!(
+            event,
+            Some(crate::workflows::WorkflowStepEvent::StepCompleted { step_index: 1, .. })
+        ));
 
         // Step 2 (final)
-        let event = engine.advance_instance_step(instance_id, completion_time).unwrap();
-        assert!(matches!(event, Some(crate::workflows::WorkflowStepEvent::WorkflowCompleted { .. })));
+        let event = engine
+            .advance_instance_step(instance_id, completion_time)
+            .unwrap();
+        assert!(matches!(
+            event,
+            Some(crate::workflows::WorkflowStepEvent::WorkflowCompleted { .. })
+        ));
 
         // Verify final state
         let instance = engine.get_instance(instance_id).unwrap();
@@ -389,7 +421,9 @@ mod tests {
 
         // Advance and verify persistence
         let completion_time = chrono::Utc::now();
-        engine.advance_instance_step(instance_id, completion_time).unwrap();
+        engine
+            .advance_instance_step(instance_id, completion_time)
+            .unwrap();
 
         let retrieved = engine.get_instance(instance_id).unwrap();
         assert_eq!(retrieved.current_step, 1);
@@ -517,7 +551,9 @@ mod tests {
         assert!(completed.contains(&completed2.id));
 
         // Paused instances are queried via get_instances_by_status
-        let paused = engine.get_instances_by_status(crate::workflows::InstanceStatus::Paused).unwrap();
+        let paused = engine
+            .get_instances_by_status(crate::workflows::InstanceStatus::Paused)
+            .unwrap();
         assert_eq!(paused.len(), 1);
         assert!(paused.contains(&paused1.id));
     }

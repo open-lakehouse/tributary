@@ -5,6 +5,7 @@
 
 use geo::Point;
 use sim_core::{
+    Error, Result,
     context::SimulationConfig,
     population::{Agent, AgentStatus, AgentTickResult, PopulationHandler},
     resources::{Resource, ResourceAllocator, Task},
@@ -12,7 +13,6 @@ use sim_core::{
     snapshot::{SnapshotBackend, SnapshotData, SnapshotManager},
     utils::idents::{AgentId, ResourceId, TaskId, WorkflowId, WorkflowInstanceId},
     workflows::{Workflow, WorkflowEngine, WorkflowStep},
-    Error, Result,
 };
 
 // =============================================================================
@@ -227,7 +227,11 @@ async fn test_index_rebuild_verification() {
 async fn test_error_invalid_snapshot_id() {
     let mut runner = setup_simulation();
     runner.init_snapshot_manager().await.unwrap();
-    runner.population_mut().unwrap().add_agents(create_test_agents(10)).unwrap();
+    runner
+        .population_mut()
+        .unwrap()
+        .add_agents(create_test_agents(10))
+        .unwrap();
 
     let result = runner.restore_snapshot("nonexistent").await;
     assert!(result.is_err());
@@ -281,7 +285,8 @@ async fn test_data_integrity_after_restore() {
     runner.init_snapshot_manager().await.unwrap();
 
     let agents = create_test_agents(20);
-    let agent_details: Vec<(AgentId, String)> = agents.iter()
+    let agent_details: Vec<(AgentId, String)> = agents
+        .iter()
         .map(|a| (a.id, a.agent_type().to_string()))
         .collect();
 
@@ -305,8 +310,16 @@ async fn test_multiple_snapshots_isolation() {
     runner1.init_snapshot_manager().await.unwrap();
     runner2.init_snapshot_manager().await.unwrap();
 
-    runner1.population_mut().unwrap().add_agents(create_test_agents(10)).unwrap();
-    runner2.population_mut().unwrap().add_agents(create_test_agents(20)).unwrap();
+    runner1
+        .population_mut()
+        .unwrap()
+        .add_agents(create_test_agents(10))
+        .unwrap();
+    runner2
+        .population_mut()
+        .unwrap()
+        .add_agents(create_test_agents(20))
+        .unwrap();
 
     let meta1 = runner1.save_snapshot("snap_10").await.unwrap();
     let meta2 = runner2.save_snapshot("snap_20").await.unwrap();
@@ -342,7 +355,10 @@ async fn test_snapshot_manager_direct_usage() {
         locations: None,
     };
 
-    manager.save_snapshot("direct", snapshot_data).await.unwrap();
+    manager
+        .save_snapshot("direct", snapshot_data)
+        .await
+        .unwrap();
     let restored = manager.restore_snapshot("direct").await.unwrap();
 
     assert_eq!(restored.agents.num_rows(), 15);
@@ -357,7 +373,11 @@ async fn test_large_batch_performance() {
     let mut runner = setup_simulation();
     runner.init_snapshot_manager().await.unwrap();
 
-    runner.population_mut().unwrap().add_agents(create_test_agents(500)).unwrap();
+    runner
+        .population_mut()
+        .unwrap()
+        .add_agents(create_test_agents(500))
+        .unwrap();
 
     let save_start = std::time::Instant::now();
     runner.save_snapshot("large").await.unwrap();
@@ -372,6 +392,9 @@ async fn test_large_batch_performance() {
     assert!(save_duration.as_millis() < 1000);
     assert!(restore_duration.as_millis() < 1000);
 
-    println!("Performance: save={}ms, restore={}ms",
-        save_duration.as_millis(), restore_duration.as_millis());
+    println!(
+        "Performance: save={}ms, restore={}ms",
+        save_duration.as_millis(),
+        restore_duration.as_millis()
+    );
 }

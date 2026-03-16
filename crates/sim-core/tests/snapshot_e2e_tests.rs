@@ -8,7 +8,9 @@
 //! - Snapshot branching (divergent execution paths)
 //! - State consistency validation
 
+use geo_types::Point;
 use sim_core::{
+    SimulationContext,
     context::SimulationConfig,
     population::{Agent, AgentStatus, AgentTickResult, PopulationHandler},
     resources::{AllocationStrategy, LeastLoaded, Resource, ResourceAllocator, Task, TaskFactory},
@@ -16,9 +18,7 @@ use sim_core::{
     snapshot::{SnapshotBackend, SnapshotMetadata},
     utils::idents::{AgentId, ResourceId, TaskId, WorkflowId, WorkflowInstanceId},
     workflows::{Workflow, WorkflowEngine, WorkflowStep},
-    SimulationContext,
 };
-use geo_types::Point;
 use std::collections::HashMap;
 use std::time::Instant;
 use tempfile::TempDir;
@@ -401,7 +401,10 @@ async fn test_e2e_multi_handler_coordination() {
 
     // Verify state changed
     assert_eq!(runner.population().unwrap().count(), expected_agents + 10);
-    assert_eq!(runner.resources().unwrap().resource_count(), expected_resources + 5);
+    assert_eq!(
+        runner.resources().unwrap().resource_count(),
+        expected_resources + 5
+    );
 
     // Restore - ALL handlers should restore atomically
     let restore_metadata = runner.restore_snapshot("multi_handler").await.unwrap();
@@ -412,8 +415,14 @@ async fn test_e2e_multi_handler_coordination() {
 
     // Verify actual state
     assert_eq!(runner.population().unwrap().count(), expected_agents);
-    assert_eq!(runner.resources().unwrap().resource_count(), expected_resources);
-    assert_eq!(runner.workflows().unwrap().instance_count(), expected_workflows);
+    assert_eq!(
+        runner.resources().unwrap().resource_count(),
+        expected_resources
+    );
+    assert_eq!(
+        runner.workflows().unwrap().instance_count(),
+        expected_workflows
+    );
 
     println!("E2E Test 3 PASSED: Multi-handler coordination (all 4 handlers restored atomically)");
 }
@@ -446,7 +455,10 @@ async fn test_e2e_snapshot_branching() {
 
     // Both paths have same entity counts
     assert_eq!(path_a_metadata.agent_count, path_b_metadata.agent_count);
-    assert_eq!(path_a_metadata.resource_count, path_b_metadata.resource_count);
+    assert_eq!(
+        path_a_metadata.resource_count,
+        path_b_metadata.resource_count
+    );
 
     // Verify independence
     runner.restore_snapshot("path_a").await.unwrap();
@@ -515,8 +527,14 @@ async fn test_e2e_state_consistency_validation() {
 
     // Verify actual state
     assert_eq!(runner.population().unwrap().count(), expected_agents);
-    assert_eq!(runner.resources().unwrap().resource_count(), expected_resources);
-    assert_eq!(runner.workflows().unwrap().instance_count(), expected_workflows);
+    assert_eq!(
+        runner.resources().unwrap().resource_count(),
+        expected_resources
+    );
+    assert_eq!(
+        runner.workflows().unwrap().instance_count(),
+        expected_workflows
+    );
 
     // Verify handlers are functional
     runner.tick().unwrap();
@@ -585,13 +603,19 @@ async fn test_e2e_multiple_snapshots_sequence() {
     // Save every 25 steps
     for i in 1..=4 {
         runner.run_for_steps(25).unwrap();
-        let metadata = runner.save_snapshot(&format!("checkpoint_{}", i * 25)).await.unwrap();
+        let metadata = runner
+            .save_snapshot(&format!("checkpoint_{}", i * 25))
+            .await
+            .unwrap();
         assert_eq!(metadata.agent_count, 30);
     }
 
     // Restore to any checkpoint
     for i in 1..=4 {
-        let metadata = runner.restore_snapshot(&format!("checkpoint_{}", i * 25)).await.unwrap();
+        let metadata = runner
+            .restore_snapshot(&format!("checkpoint_{}", i * 25))
+            .await
+            .unwrap();
         assert_eq!(metadata.agent_count, 30);
         assert_eq!(runner.population().unwrap().count(), 30);
     }
@@ -609,7 +633,10 @@ async fn test_e2e_parquet_backend_integration() {
     let snapshot_dir = temp_dir.path().to_str().unwrap().to_string();
 
     let mut runner = create_runner();
-    runner.set_snapshot_backend(SnapshotBackend::Parquet(snapshot_dir.clone())).await.unwrap();
+    runner
+        .set_snapshot_backend(SnapshotBackend::Parquet(snapshot_dir.clone()))
+        .await
+        .unwrap();
 
     populate_runner(&mut runner, 100, 40, 10);
     runner.run_for_steps(30).unwrap();

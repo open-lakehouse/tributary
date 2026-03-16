@@ -77,12 +77,20 @@ impl App {
         self.thread_panicked = true;
     }
 
-    pub fn push_step(&mut self, step: usize, sim_time: DateTime<Utc>, counts: HashMap<String, u64>) {
+    pub fn push_step(
+        &mut self,
+        step: usize,
+        sim_time: DateTime<Utc>,
+        counts: HashMap<String, u64>,
+    ) {
         self.current_step = step;
         self.sim_time = Some(sim_time);
 
         for (event_type, count) in &counts {
-            *self.cumulative_counts.entry(event_type.clone()).or_default() += count;
+            *self
+                .cumulative_counts
+                .entry(event_type.clone())
+                .or_default() += count;
 
             if self.log_entries.len() >= MAX_LOG_ENTRIES {
                 self.log_entries.pop_front();
@@ -145,18 +153,27 @@ impl App {
 
         let (label, color) = if self.error.is_some() || self.thread_panicked {
             (
-                format!("FAILED at step {}/{}  [sim: {}]", self.current_step, self.total_steps, time_label),
-                Color::Red
+                format!(
+                    "FAILED at step {}/{}  [sim: {}]",
+                    self.current_step, self.total_steps, time_label
+                ),
+                Color::Red,
             )
         } else if self.completed {
             (
-                format!("Completed {}/{} steps  [sim: {}]", self.current_step, self.total_steps, time_label),
-                Color::Green
+                format!(
+                    "Completed {}/{} steps  [sim: {}]",
+                    self.current_step, self.total_steps, time_label
+                ),
+                Color::Green,
             )
         } else {
             (
-                format!("Step {}/{}  [sim: {}]", self.current_step, self.total_steps, time_label),
-                Color::Cyan
+                format!(
+                    "Step {}/{}  [sim: {}]",
+                    self.current_step, self.total_steps, time_label
+                ),
+                Color::Cyan,
             )
         };
 
@@ -166,11 +183,7 @@ impl App {
                     .title(" Simulation Progress ")
                     .borders(Borders::ALL),
             )
-            .gauge_style(
-                Style::default()
-                    .fg(color)
-                    .add_modifier(Modifier::BOLD),
-            )
+            .gauge_style(Style::default().fg(color).add_modifier(Modifier::BOLD))
             .ratio(ratio)
             .label(label);
 
@@ -195,10 +208,7 @@ impl App {
                         Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
                     ))
                 } else {
-                    Line::from(Span::styled(
-                        line,
-                        Style::default().fg(Color::White),
-                    ))
+                    Line::from(Span::styled(line, Style::default().fg(Color::White)))
                 }
             })
             .collect();
@@ -234,11 +244,7 @@ impl App {
             .collect();
 
         let paragraph = Paragraph::new(Line::from(spans))
-            .block(
-                Block::default()
-                    .title(" Totals ")
-                    .borders(Borders::ALL),
-            )
+            .block(Block::default().title(" Totals ").borders(Borders::ALL))
             .wrap(Wrap { trim: true });
 
         frame.render_widget(paragraph, area);
@@ -290,11 +296,7 @@ impl App {
         };
 
         let paragraph = Paragraph::new(lines)
-            .block(
-                Block::default()
-                    .title(footer)
-                    .borders(Borders::ALL),
-            )
+            .block(Block::default().title(footer).borders(Borders::ALL))
             .scroll((scroll, 0));
 
         frame.render_widget(paragraph, area);

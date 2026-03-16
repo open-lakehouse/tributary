@@ -7,11 +7,8 @@
 
 use geo_types::Point;
 use sim_core::{
-    Agent,
-    population::PopulationHandler,
-    resources::ResourceAllocator,
-    workflows::WorkflowEngine,
-    SimulationContext, SimulationConfig,
+    Agent, SimulationConfig, SimulationContext, population::PopulationHandler,
+    resources::ResourceAllocator, workflows::WorkflowEngine,
 };
 use sim_kitchen::agents::{Customer, CustomerStatus};
 
@@ -123,7 +120,12 @@ fn test_end_to_end_simulation_with_batch_ops() {
     for step in 0..5 {
         // Tick all agents - this uses batch update internally
         let result = population.tick_agents(&ctx);
-        assert!(result.is_ok(), "Tick failed at step {}: {:?}", step, result.err());
+        assert!(
+            result.is_ok(),
+            "Tick failed at step {}: {:?}",
+            step,
+            result.err()
+        );
 
         // Verify state consistency after each tick
         assert_eq!(
@@ -149,47 +151,43 @@ fn test_synchronous_queries() {
     all_customers.extend(create_test_customers(20));
 
     // 15 ordering
-    all_customers.extend(
-        create_test_customers(15)
-            .into_iter()
-            .map(|mut c| {
-                c.status = CustomerStatus::Ordering;
-                c
-            })
-    );
+    all_customers.extend(create_test_customers(15).into_iter().map(|mut c| {
+        c.status = CustomerStatus::Ordering;
+        c
+    }));
 
     // 10 eating
-    all_customers.extend(
-        create_test_customers(10)
-            .into_iter()
-            .map(|mut c| {
-                c.status = CustomerStatus::Eating {
-                    finish_time: chrono::Utc::now() + chrono::Duration::minutes(10),
-                };
-                c
-            })
-    );
+    all_customers.extend(create_test_customers(10).into_iter().map(|mut c| {
+        c.status = CustomerStatus::Eating {
+            finish_time: chrono::Utc::now() + chrono::Duration::minutes(10),
+        };
+        c
+    }));
 
     handler.add_agents(all_customers).unwrap();
 
     // Verify counts using iterator filters (synchronous queries)
-    let idle_count = handler.iter()
+    let idle_count = handler
+        .iter()
         .filter(|a| a.status().as_str() == "idle")
         .count();
     assert_eq!(idle_count, 20, "Expected 20 idle customers");
 
-    let ordering_count = handler.iter()
+    let ordering_count = handler
+        .iter()
         .filter(|a| a.status().as_str() == "ordering")
         .count();
     assert_eq!(ordering_count, 15, "Expected 15 ordering customers");
 
-    let eating_count = handler.iter()
+    let eating_count = handler
+        .iter()
         .filter(|a| a.status().as_str() == "eating")
         .count();
     assert_eq!(eating_count, 10, "Expected 10 eating customers");
 
     // Query by type
-    let customer_count = handler.iter()
+    let customer_count = handler
+        .iter()
         .filter(|a| a.agent_type() == "customer")
         .count();
     assert_eq!(customer_count, 45, "Expected 45 total customers");
@@ -209,14 +207,20 @@ fn test_error_handling_maintains_consistency() {
     // Try to get non-existent agent
     let fake_id = sim_core::AgentId::new();
     let result = handler.get_agent(fake_id);
-    assert!(result.is_none(), "Should return None for non-existent agent");
+    assert!(
+        result.is_none(),
+        "Should return None for non-existent agent"
+    );
 
     // Verify count unchanged after failed get
     assert_eq!(handler.count(), initial_count);
 
     // Try to remove non-existent agent
     let remove_result = handler.remove_agent(fake_id);
-    assert!(remove_result.is_none(), "Should return None for non-existent agent");
+    assert!(
+        remove_result.is_none(),
+        "Should return None for non-existent agent"
+    );
 
     // Verify count unchanged after failed remove
     assert_eq!(handler.count(), initial_count);
@@ -312,7 +316,11 @@ fn test_large_batch_performance() {
 
     assert_eq!(handler.count(), 1000);
     // Should complete in less than 100ms (generous threshold for CI)
-    assert!(duration.as_millis() < 100, "Batch add took too long: {:?}", duration);
+    assert!(
+        duration.as_millis() < 100,
+        "Batch add took too long: {:?}",
+        duration
+    );
 }
 
 #[test]
@@ -365,16 +373,12 @@ fn test_agents_iter_consistency() {
     let mut handler = PopulationHandler::new();
 
     let customers = create_test_customers(15);
-    let expected_ids: std::collections::HashSet<_> = customers.iter()
-        .map(|c| c.id())
-        .collect();
+    let expected_ids: std::collections::HashSet<_> = customers.iter().map(|c| c.id()).collect();
 
     handler.add_agents(customers).unwrap();
 
     // Verify iterator returns all agents
-    let iter_ids: std::collections::HashSet<_> = handler.iter()
-        .map(|a| a.id())
-        .collect();
+    let iter_ids: std::collections::HashSet<_> = handler.iter().map(|a| a.id()).collect();
 
     assert_eq!(iter_ids, expected_ids);
     assert_eq!(iter_ids.len(), 15);

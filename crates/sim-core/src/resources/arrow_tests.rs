@@ -99,7 +99,11 @@ fn test_1_add_100_resources_verify_structure() {
     assert_eq!(resources_batch.num_columns(), 6);
 
     // Verify resource types are correctly stored
-    let type_array = resources_batch.column(1).as_any().downcast_ref::<StringArray>().unwrap();
+    let type_array = resources_batch
+        .column(1)
+        .as_any()
+        .downcast_ref::<StringArray>()
+        .unwrap();
     assert_eq!(type_array.value(0), "type_0");
     assert_eq!(type_array.value(50), "type_0");
 }
@@ -109,7 +113,8 @@ fn test_2_add_100_tasks_with_workflow_ids() {
     let mut allocator = ResourceAllocator::<TestResource, TestTask>::new();
 
     // Create some workflow instances
-    let workflow_ids: Vec<WorkflowInstanceId> = (0..10).map(|_| WorkflowInstanceId::new()).collect();
+    let workflow_ids: Vec<WorkflowInstanceId> =
+        (0..10).map(|_| WorkflowInstanceId::new()).collect();
 
     // Add 100 tasks, assigning them to workflows
     for i in 0..100 {
@@ -132,13 +137,25 @@ fn test_2_add_100_tasks_with_workflow_ids() {
     assert_eq!(tasks_batch.num_columns(), 8);
 
     // Verify workflow IDs are stored
-    let workflow_array = tasks_batch.column(5).as_any().downcast_ref::<BinaryArray>().unwrap();
+    let workflow_array = tasks_batch
+        .column(5)
+        .as_any()
+        .downcast_ref::<BinaryArray>()
+        .unwrap();
     for i in 0..100 {
-        assert!(!workflow_array.is_null(i), "Workflow ID should not be null for task {}", i);
+        assert!(
+            !workflow_array.is_null(i),
+            "Workflow ID should not be null for task {}",
+            i
+        );
     }
 
     // Verify all tasks are pending
-    let status_array = tasks_batch.column(2).as_any().downcast_ref::<StringArray>().unwrap();
+    let status_array = tasks_batch
+        .column(2)
+        .as_any()
+        .downcast_ref::<StringArray>()
+        .unwrap();
     for i in 0..100 {
         assert_eq!(status_array.value(i), task_status::PENDING);
     }
@@ -232,7 +249,11 @@ fn test_4_update_task_status_transitions() {
     // Verify task status is completed in RecordBatch
     let tasks_batch = &allocator.tasks;
     let task_row = allocator.task_id_to_row.get(&task_id).unwrap();
-    let status_array = tasks_batch.column(2).as_any().downcast_ref::<StringArray>().unwrap();
+    let status_array = tasks_batch
+        .column(2)
+        .as_any()
+        .downcast_ref::<StringArray>()
+        .unwrap();
     assert_eq!(status_array.value(*task_row), task_status::COMPLETED);
 }
 
@@ -252,7 +273,11 @@ fn test_5_release_resources_verify_capacity_updates() {
     // Check initial available capacity
     let resources_batch = &allocator.resources;
     let resource_row = allocator.resource_id_to_row.get(&resource_id).unwrap();
-    let available_array = resources_batch.column(3).as_any().downcast_ref::<arrow::array::Int64Array>().unwrap();
+    let available_array = resources_batch
+        .column(3)
+        .as_any()
+        .downcast_ref::<arrow::array::Int64Array>()
+        .unwrap();
     assert_eq!(available_array.value(*resource_row), 10);
 
     // Add and allocate a task
@@ -272,7 +297,11 @@ fn test_5_release_resources_verify_capacity_updates() {
     // Verify capacity decreased
     let resources_batch = &allocator.resources;
     let resource_row = allocator.resource_id_to_row.get(&resource_id).unwrap();
-    let available_array = resources_batch.column(3).as_any().downcast_ref::<arrow::array::Int64Array>().unwrap();
+    let available_array = resources_batch
+        .column(3)
+        .as_any()
+        .downcast_ref::<arrow::array::Int64Array>()
+        .unwrap();
     assert_eq!(available_array.value(*resource_row), 9);
 
     // Complete task and verify capacity increased
@@ -280,7 +309,11 @@ fn test_5_release_resources_verify_capacity_updates() {
 
     let resources_batch = &allocator.resources;
     let resource_row = allocator.resource_id_to_row.get(&resource_id).unwrap();
-    let available_array = resources_batch.column(3).as_any().downcast_ref::<arrow::array::Int64Array>().unwrap();
+    let available_array = resources_batch
+        .column(3)
+        .as_any()
+        .downcast_ref::<arrow::array::Int64Array>()
+        .unwrap();
     assert_eq!(available_array.value(*resource_row), 10);
 }
 
@@ -336,8 +369,18 @@ fn test_6_query_tasks_by_workflow_instance() {
         .collect();
 
     // Query tasks by workflow (manual implementation since DataFusion not fully integrated)
-    let workflow_array = allocator.tasks.column(5).as_any().downcast_ref::<BinaryArray>().unwrap();
-    let id_array = allocator.tasks.column(0).as_any().downcast_ref::<BinaryArray>().unwrap();
+    let workflow_array = allocator
+        .tasks
+        .column(5)
+        .as_any()
+        .downcast_ref::<BinaryArray>()
+        .unwrap();
+    let id_array = allocator
+        .tasks
+        .column(0)
+        .as_any()
+        .downcast_ref::<BinaryArray>()
+        .unwrap();
 
     let mut workflow_1_found = 0;
     for i in 0..allocator.tasks.num_rows() {
@@ -509,7 +552,10 @@ fn test_10_performance_1000_tasks_100_resources() {
 
     // Verify allocations
     assert!(assignments.len() > 0);
-    assert!(allocate_time.as_millis() < 5000, "Allocation should be fast");
+    assert!(
+        allocate_time.as_millis() < 5000,
+        "Allocation should be fast"
+    );
 }
 
 #[test]

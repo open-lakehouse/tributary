@@ -64,28 +64,28 @@ pub fn location_schema() -> SchemaRef {
     Arc::new(Schema::new(vec![
         // Primary key: LocationId as 16-byte UUID
         Field::new("id", DataType::Binary, false),
-
         // Optional human-readable name
         Field::new("name", DataType::Utf8, true),
-
         // Type identifier for filtering (e.g., "warehouse", "store", "depot")
         Field::new("location_type", DataType::Utf8, false),
-
         // GeoArrow geometry column: WKB (Well-Known Binary) format
         // Supports Point, LineString, Polygon, MultiPoint, MultiLineString, MultiPolygon
-        Field::new("geometry", DataType::Binary, false)
-            .with_metadata([
-                ("ARROW:extension:name".to_string(), "geoarrow.wkb".to_string()),
+        Field::new("geometry", DataType::Binary, false).with_metadata(
+            [
+                (
+                    "ARROW:extension:name".to_string(),
+                    "geoarrow.wkb".to_string(),
+                ),
                 ("ARROW:extension:metadata".to_string(), "{}".to_string()),
-            ].into_iter().collect()),
-
+            ]
+            .into_iter()
+            .collect(),
+        ),
         // Denormalized coordinates for fast access without WKB decoding
         Field::new("latitude", DataType::Float64, false),
         Field::new("longitude", DataType::Float64, false),
-
         // H3 spatial index: cell index as u64
         Field::new("h3_index", DataType::UInt64, false),
-
         // Domain-specific metadata as JSON string
         // Examples: {"capacity": 100, "hours": "9-5", "zone": "A"}
         Field::new("metadata", DataType::Utf8, true),
@@ -143,7 +143,9 @@ mod tests {
         let schema = location_schema();
 
         // Check field names and types
-        let fields: Vec<_> = schema.fields().iter()
+        let fields: Vec<_> = schema
+            .fields()
+            .iter()
             .map(|f| (f.name().as_str(), f.data_type()))
             .collect();
 
@@ -163,13 +165,13 @@ mod tests {
 
         // Check nullable fields
         assert!(!schema.field(0).is_nullable()); // id
-        assert!(schema.field(1).is_nullable());  // name
+        assert!(schema.field(1).is_nullable()); // name
         assert!(!schema.field(2).is_nullable()); // location_type
         assert!(!schema.field(3).is_nullable()); // geometry
         assert!(!schema.field(4).is_nullable()); // latitude
         assert!(!schema.field(5).is_nullable()); // longitude
         assert!(!schema.field(6).is_nullable()); // h3_index
-        assert!(schema.field(7).is_nullable());  // metadata
+        assert!(schema.field(7).is_nullable()); // metadata
     }
 
     #[test]

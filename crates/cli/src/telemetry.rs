@@ -93,7 +93,11 @@ pub(crate) fn init_tracing_subscriber(tui_mode: bool) -> OtelGuard {
 
     let metrics_layer = MetricsLayer::new(meter_provider.clone());
 
-    let fmt_layer = if tui_mode { None } else { Some(tracing_subscriber::fmt::layer()) };
+    let fmt_layer = if tui_mode {
+        None
+    } else {
+        Some(tracing_subscriber::fmt::layer())
+    };
 
     tracing_subscriber::registry()
         .with(env_filter)

@@ -5,6 +5,7 @@
 //! - Save snapshots at different points during simulation
 //! - Restore from a snapshot to replay or branch the simulation
 
+use geo::Point;
 use sim_core::{
     context::SimulationConfig,
     population::{Agent, AgentStatus, AgentTickResult, PopulationHandler},
@@ -14,7 +15,6 @@ use sim_core::{
     utils::idents::{AgentId, ResourceId, TaskId},
     workflows::{Workflow, WorkflowEngine},
 };
-use geo::Point;
 
 // Example agent implementation
 #[derive(Debug, Clone)]
@@ -51,7 +51,10 @@ impl Agent for DemoAgent {
         None
     }
 
-    fn tick(&mut self, _ctx: &sim_core::context::SimulationContext) -> sim_core::Result<AgentTickResult> {
+    fn tick(
+        &mut self,
+        _ctx: &sim_core::context::SimulationContext,
+    ) -> sim_core::Result<AgentTickResult> {
         self.tick_count += 1;
         self.status = DemoStatus(format!("Active (ticked {} times)", self.tick_count));
         Ok(AgentTickResult::default())
@@ -189,7 +192,8 @@ async fn main() -> sim_core::Result<()> {
     // Run initial simulation
     println!("\nRunning simulation for 10 steps...");
     runner.run_for_steps(10)?;
-    println!("Stats: {} total steps, {} agent ticks",
+    println!(
+        "Stats: {} total steps, {} agent ticks",
         runner.stats().total_steps,
         runner.stats().total_agent_ticks
     );
@@ -206,7 +210,8 @@ async fn main() -> sim_core::Result<()> {
     // Continue simulation
     println!("\nContinuing simulation for another 20 steps...");
     runner.run_for_steps(20)?;
-    println!("Stats: {} total steps, {} agent ticks",
+    println!(
+        "Stats: {} total steps, {} agent ticks",
         runner.stats().total_steps,
         runner.stats().total_agent_ticks
     );
@@ -229,8 +234,14 @@ async fn main() -> sim_core::Result<()> {
 
     // Verify state was restored
     println!("\nVerifying restored state...");
-    println!("  - Population count: {}", runner.population().unwrap().count());
-    println!("  - Resource count: {}", runner.resources().unwrap().resource_count());
+    println!(
+        "  - Population count: {}",
+        runner.population().unwrap().count()
+    );
+    println!(
+        "  - Resource count: {}",
+        runner.resources().unwrap().resource_count()
+    );
 
     // Demonstrate Parquet backend
     println!("\n\n=== Parquet Backend Demo ===\n");
@@ -238,7 +249,9 @@ async fn main() -> sim_core::Result<()> {
     let snapshot_dir = temp_dir.path().to_str().unwrap();
 
     println!("Switching to Parquet backend at: {}", snapshot_dir);
-    runner.set_snapshot_backend(SnapshotBackend::Parquet(snapshot_dir.to_string())).await?;
+    runner
+        .set_snapshot_backend(SnapshotBackend::Parquet(snapshot_dir.to_string()))
+        .await?;
 
     // Save to Parquet
     println!("\n--- Saving snapshot 'parquet_demo' to disk ---");
@@ -247,7 +260,10 @@ async fn main() -> sim_core::Result<()> {
     println!("  - {}/parquet_demo/agents.parquet", snapshot_dir);
     println!("  - {}/parquet_demo/resources.parquet", snapshot_dir);
     println!("  - {}/parquet_demo/tasks.parquet", snapshot_dir);
-    println!("  - {}/parquet_demo/workflow_instances.parquet", snapshot_dir);
+    println!(
+        "  - {}/parquet_demo/workflow_instances.parquet",
+        snapshot_dir
+    );
     println!("\nSnapshot metadata:");
     println!("  - Version: {}", metadata.version);
     println!("  - Agent count: {}", metadata.agent_count);
@@ -256,11 +272,22 @@ async fn main() -> sim_core::Result<()> {
     // Verify files exist
     let snapshot_path = std::path::PathBuf::from(snapshot_dir).join("parquet_demo");
     println!("\nVerifying Parquet files...");
-    println!("  - agents.parquet exists: {}", snapshot_path.join("agents.parquet").exists());
-    println!("  - resources.parquet exists: {}", snapshot_path.join("resources.parquet").exists());
-    println!("  - tasks.parquet exists: {}", snapshot_path.join("tasks.parquet").exists());
-    println!("  - workflow_instances.parquet exists: {}",
-        snapshot_path.join("workflow_instances.parquet").exists());
+    println!(
+        "  - agents.parquet exists: {}",
+        snapshot_path.join("agents.parquet").exists()
+    );
+    println!(
+        "  - resources.parquet exists: {}",
+        snapshot_path.join("resources.parquet").exists()
+    );
+    println!(
+        "  - tasks.parquet exists: {}",
+        snapshot_path.join("tasks.parquet").exists()
+    );
+    println!(
+        "  - workflow_instances.parquet exists: {}",
+        snapshot_path.join("workflow_instances.parquet").exists()
+    );
 
     println!("\n=== Demo Complete ===");
     println!("\nKey Takeaways:");

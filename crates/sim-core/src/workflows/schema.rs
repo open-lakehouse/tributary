@@ -173,10 +173,22 @@ mod tests {
 
     #[test]
     fn test_instance_status_parsing() {
-        assert_eq!(InstanceStatus::from_str("Running"), Some(InstanceStatus::Running));
-        assert_eq!(InstanceStatus::from_str("Paused"), Some(InstanceStatus::Paused));
-        assert_eq!(InstanceStatus::from_str("Complete"), Some(InstanceStatus::Complete));
-        assert_eq!(InstanceStatus::from_str("Failed"), Some(InstanceStatus::Failed));
+        assert_eq!(
+            InstanceStatus::from_str("Running"),
+            Some(InstanceStatus::Running)
+        );
+        assert_eq!(
+            InstanceStatus::from_str("Paused"),
+            Some(InstanceStatus::Paused)
+        );
+        assert_eq!(
+            InstanceStatus::from_str("Complete"),
+            Some(InstanceStatus::Complete)
+        );
+        assert_eq!(
+            InstanceStatus::from_str("Failed"),
+            Some(InstanceStatus::Failed)
+        );
         assert_eq!(InstanceStatus::from_str("Invalid"), None);
     }
 }

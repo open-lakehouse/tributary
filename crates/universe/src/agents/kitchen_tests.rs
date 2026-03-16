@@ -299,7 +299,10 @@ async fn test_update_order_status_event_generation(
 
     // Verify event schema
     let batches = events.collect().await?;
-    assert!(!batches.is_empty(), "Expected order_ready events to be generated");
+    assert!(
+        !batches.is_empty(),
+        "Expected order_ready events to be generated"
+    );
 
     for batch in batches {
         // Check that we only have expected columns

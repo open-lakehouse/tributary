@@ -10,12 +10,12 @@
 
 #[cfg(test)]
 mod tests {
+    use crate::Result;
     use crate::context::{SimulationConfig, SimulationContext};
+    use crate::population::PopulationHandler;
     use crate::population::schema::agent_schema;
     use crate::population::traits::{Agent, AgentStatus, AgentTickResult, ArrowAgentRow};
-    use crate::population::PopulationHandler;
     use crate::utils::idents::AgentId;
-    use crate::Result;
     use geo_types::Point;
     use serde_json::Value;
     use uuid::Uuid;
@@ -108,7 +108,7 @@ mod tests {
                     return Err(crate::Error::Agent(format!(
                         "Unknown status: {}",
                         row.status
-                    )))
+                    )));
                 }
             };
 
@@ -428,9 +428,18 @@ mod tests {
         // All operations should complete reasonably fast
         // Note: RecordBatch rebuilding is O(n) for adds, so we expect slower performance
         // These are generous bounds to avoid flakiness
-        assert!(add_duration.as_secs() < 30, "Adding took too long (expected < 30s)");
-        assert!(lookup_duration.as_millis() < 100, "Lookups took too long (expected < 100ms)");
-        assert!(tick_duration.as_secs() < 60, "Ticking took too long (expected < 60s)");
+        assert!(
+            add_duration.as_secs() < 30,
+            "Adding took too long (expected < 30s)"
+        );
+        assert!(
+            lookup_duration.as_millis() < 100,
+            "Lookups took too long (expected < 100ms)"
+        );
+        assert!(
+            tick_duration.as_secs() < 60,
+            "Ticking took too long (expected < 60s)"
+        );
     }
 
     // Test 10: Get agents by type

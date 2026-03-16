@@ -38,13 +38,13 @@ pub mod utils;
 pub mod workflows;
 
 // Re-export commonly used types
-pub use context::{SimulationContext, SimulationConfig};
+pub use context::{SimulationConfig, SimulationContext};
 pub use population::{Agent, AgentStatus, PopulationHandler};
-pub use resources::{Resource, Task, AllocationStrategy, ResourceAllocator};
-pub use workflows::{Workflow, WorkflowStep, WorkflowEngine};
-pub use runner::{SimulationRunner, SimulationHooks, SimulationStats, NoOpHooks};
+pub use resources::{AllocationStrategy, Resource, ResourceAllocator, Task};
+pub use runner::{NoOpHooks, SimulationHooks, SimulationRunner, SimulationStats};
 pub use snapshot::{SnapshotBackend, SnapshotData, SnapshotManager, SnapshotMetadata};
-pub use utils::idents::{AgentId, ResourceId, TaskId, WorkflowId, LocationId};
+pub use utils::idents::{AgentId, LocationId, ResourceId, TaskId, WorkflowId};
+pub use workflows::{Workflow, WorkflowEngine, WorkflowStep};
 
 /// Result type used throughout the crate
 pub type Result<T> = std::result::Result<T, Error>;

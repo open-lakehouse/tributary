@@ -21,8 +21,8 @@ use crate::context::memory::in_memory_catalog;
 use crate::context::schemas::SystemSchema;
 use crate::{Error, ObjectData, Result, resolve_url};
 
-use self::schemas::{SIMULATION_META_REF, SimulationMetaBuilder};
 use self::schemas::snapshots::create_snapshot_from_batches;
+use self::schemas::{SIMULATION_META_REF, SimulationMetaBuilder};
 
 mod memory;
 pub(crate) mod schemas;

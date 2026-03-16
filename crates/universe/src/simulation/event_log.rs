@@ -109,10 +109,7 @@ impl EventLog {
             .sort(vec![col("time").sort(true, false)])?)
     }
 
-    pub async fn count_by_type(
-        &self,
-        ctx: &SessionContext,
-    ) -> Result<HashMap<String, u64>> {
+    pub async fn count_by_type(&self, ctx: &SessionContext) -> Result<HashMap<String, u64>> {
         let df = self
             .to_dataframe(ctx)?
             .aggregate(vec![col("type")], vec![count(col("type")).alias("cnt")])?;

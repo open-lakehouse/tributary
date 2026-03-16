@@ -166,10 +166,9 @@ impl Agent for Customer {
                     self.status = CustomerStatus::Done;
 
                     // Add state change
-                    result.state_changes.insert(
-                        "finished_eating".to_string(),
-                        Value::Bool(true),
-                    );
+                    result
+                        .state_changes
+                        .insert("finished_eating".to_string(), Value::Bool(true));
                 }
             }
 
@@ -307,7 +306,10 @@ mod tests {
 
         assert!(matches!(customer.status, CustomerStatus::Done));
         assert!(customer.is_done());
-        assert_eq!(result.state_changes.get("finished_eating"), Some(&Value::Bool(true)));
+        assert_eq!(
+            result.state_changes.get("finished_eating"),
+            Some(&Value::Bool(true))
+        );
     }
 
     #[test]

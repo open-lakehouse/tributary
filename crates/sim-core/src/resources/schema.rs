@@ -38,12 +38,12 @@ use std::sync::Arc;
 /// ```
 pub fn resource_schema() -> SchemaRef {
     Arc::new(Schema::new(vec![
-        Field::new("id", DataType::Binary, false),           // ResourceId UUID
-        Field::new("resource_type", DataType::Utf8, false),  // Type identifier
-        Field::new("capacity", DataType::Int64, false),      // Total capacity
-        Field::new("available", DataType::Int64, false),     // Available units
-        Field::new("location_id", DataType::Binary, true),   // Optional LocationId
-        Field::new("metadata", DataType::Utf8, true),        // JSON for domain fields
+        Field::new("id", DataType::Binary, false), // ResourceId UUID
+        Field::new("resource_type", DataType::Utf8, false), // Type identifier
+        Field::new("capacity", DataType::Int64, false), // Total capacity
+        Field::new("available", DataType::Int64, false), // Available units
+        Field::new("location_id", DataType::Binary, true), // Optional LocationId
+        Field::new("metadata", DataType::Utf8, true), // JSON for domain fields
     ]))
 }
 
@@ -83,10 +83,10 @@ pub fn resource_schema() -> SchemaRef {
 /// ```
 pub fn task_schema() -> SchemaRef {
     Arc::new(Schema::new(vec![
-        Field::new("id", DataType::Binary, false),                  // TaskId UUID
-        Field::new("task_type", DataType::Utf8, false),             // Type identifier
-        Field::new("status", DataType::Utf8, false),                // Pending/Allocated/Complete
-        Field::new("required_capacity", DataType::Int64, false),    // Capacity needed
+        Field::new("id", DataType::Binary, false), // TaskId UUID
+        Field::new("task_type", DataType::Utf8, false), // Type identifier
+        Field::new("status", DataType::Utf8, false), // Pending/Allocated/Complete
+        Field::new("required_capacity", DataType::Int64, false), // Capacity needed
         Field::new("assigned_resource_id", DataType::Binary, true), // Optional ResourceId
         Field::new("workflow_instance_id", DataType::Binary, true), // Optional WorkflowInstanceId (Phase 5)
         Field::new("priority", DataType::Int32, false),             // Task priority

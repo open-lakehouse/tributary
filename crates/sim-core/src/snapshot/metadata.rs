@@ -188,14 +188,7 @@ mod tests {
 
     #[test]
     fn test_new_metadata() {
-        let metadata = SnapshotMetadata::new(
-            "1.0".to_string(),
-            100,
-            50,
-            200,
-            25,
-            10,
-        );
+        let metadata = SnapshotMetadata::new("1.0".to_string(), 100, 50, 200, 25, 10);
 
         assert_eq!(metadata.version, "1.0");
         assert_eq!(metadata.agent_count, 100);
@@ -207,14 +200,7 @@ mod tests {
 
     #[test]
     fn test_json_roundtrip() {
-        let original = SnapshotMetadata::new(
-            "1.0".to_string(),
-            100,
-            50,
-            200,
-            25,
-            10,
-        );
+        let original = SnapshotMetadata::new("1.0".to_string(), 100, 50, 200, 25, 10);
 
         let json = original.to_json().expect("Failed to serialize");
         let restored = SnapshotMetadata::from_json(&json).expect("Failed to deserialize");
@@ -223,16 +209,16 @@ mod tests {
         assert_eq!(original.agent_count, restored.agent_count);
         assert_eq!(original.resource_count, restored.resource_count);
         assert_eq!(original.task_count, restored.task_count);
-        assert_eq!(original.workflow_instance_count, restored.workflow_instance_count);
+        assert_eq!(
+            original.workflow_instance_count,
+            restored.workflow_instance_count
+        );
         assert_eq!(original.location_count, restored.location_count);
     }
 
     #[test]
     fn test_timestamp_is_set() {
-        let metadata = SnapshotMetadata::new(
-            "1.0".to_string(),
-            0, 0, 0, 0, 0,
-        );
+        let metadata = SnapshotMetadata::new("1.0".to_string(), 0, 0, 0, 0, 0);
 
         // Timestamp should be recent (within last second)
         let now = Utc::now();
@@ -249,10 +235,7 @@ mod tests {
 
     #[test]
     fn test_json_format() {
-        let metadata = SnapshotMetadata::new(
-            "1.0".to_string(),
-            100, 50, 200, 25, 10,
-        );
+        let metadata = SnapshotMetadata::new("1.0".to_string(), 100, 50, 200, 25, 10);
 
         let json = metadata.to_json().expect("Failed to serialize");
 

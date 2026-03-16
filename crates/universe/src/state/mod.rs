@@ -7,8 +7,8 @@
 use arrow::array::cast::AsArray as _;
 use uuid::Uuid;
 
-use crate::{Error, Result};
 use crate::idents::*;
+use crate::{Error, Result};
 
 pub(crate) use self::movement::{RoutingData, Transport, next::MovementHandler};
 pub use self::objects::{ObjectData, ObjectLabel};

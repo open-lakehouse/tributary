@@ -16,11 +16,11 @@
 
 use chrono::{DateTime, Duration, Utc};
 use sim_core::{
+    SimulationConfig, SimulationContext, SimulationHooks, SimulationRunner,
     population::{Agent, AgentStatus, AgentTickResult},
     resources::{LeastLoaded, Resource, ResourceAllocator, Task, TaskFactory},
     utils::idents::{AgentId, ResourceId, TaskId, WorkflowId, WorkflowInstanceId},
     workflows::{Workflow, WorkflowEngine, WorkflowStep, WorkflowStepEvent},
-    SimulationConfig, SimulationContext, SimulationHooks, SimulationRunner,
 };
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -64,9 +64,7 @@ impl Agent for TestAgent {
         Ok(AgentTickResult::default())
     }
 
-    fn from_arrow_row(
-        row: &sim_core::population::ArrowAgentRow,
-    ) -> sim_core::Result<Self> {
+    fn from_arrow_row(row: &sim_core::population::ArrowAgentRow) -> sim_core::Result<Self> {
         use uuid::Uuid;
 
         let id = AgentId::from_uuid(

@@ -22,12 +22,14 @@
 //! runner.run_for_steps(100)?;
 //! ```
 
+use crate::Result;
 use crate::context::{SimulationConfig, SimulationContext};
 use crate::population::{Agent, AgentTickResult, PopulationHandler};
-use crate::resources::{AllocationStrategy, Assignment, Resource, ResourceAllocator, Task, TaskFactory};
+use crate::resources::{
+    AllocationStrategy, Assignment, Resource, ResourceAllocator, Task, TaskFactory,
+};
 use crate::snapshot::{SnapshotBackend, SnapshotData, SnapshotManager, SnapshotMetadata};
 use crate::workflows::{Workflow, WorkflowEngine, WorkflowStepEvent};
-use crate::Result;
 use arrow::array::RecordBatch;
 use std::marker::PhantomData;
 
@@ -56,17 +58,29 @@ pub trait SimulationHooks: Send + Sync {
     }
 
     /// Called when agents complete their ticks
-    fn on_agents_ticked(&mut self, _ctx: &SimulationContext, _results: &[AgentTickResult]) -> Result<()> {
+    fn on_agents_ticked(
+        &mut self,
+        _ctx: &SimulationContext,
+        _results: &[AgentTickResult],
+    ) -> Result<()> {
         Ok(())
     }
 
     /// Called when resources are allocated
-    fn on_resources_allocated(&mut self, _ctx: &SimulationContext, _assignments: &[Assignment]) -> Result<()> {
+    fn on_resources_allocated(
+        &mut self,
+        _ctx: &SimulationContext,
+        _assignments: &[Assignment],
+    ) -> Result<()> {
         Ok(())
     }
 
     /// Called when a workflow step completes
-    fn on_workflow_step_completed(&mut self, _ctx: &SimulationContext, _event: &WorkflowStepEvent) -> Result<()> {
+    fn on_workflow_step_completed(
+        &mut self,
+        _ctx: &SimulationContext,
+        _event: &WorkflowStepEvent,
+    ) -> Result<()> {
         Ok(())
     }
 }
@@ -164,7 +178,10 @@ where
     }
 
     /// Create a runner with a specific start time
-    pub fn with_start_time(start_time: chrono::DateTime<chrono::Utc>, config: SimulationConfig) -> Self {
+    pub fn with_start_time(
+        start_time: chrono::DateTime<chrono::Utc>,
+        config: SimulationConfig,
+    ) -> Self {
         Self {
             context: SimulationContext::new(start_time, config),
             population: None,
@@ -277,7 +294,9 @@ where
 
                 // Step 3: Advance workflow instances for completed tasks
                 for (_task_id, instance_id) in completed_tasks {
-                    if let Some(event) = workflows.advance_instance_step(instance_id, current_time)? {
+                    if let Some(event) =
+                        workflows.advance_instance_step(instance_id, current_time)?
+                    {
                         workflow_events.push(event);
                         self.stats.total_workflow_steps += 1;
                     }
@@ -308,7 +327,8 @@ where
 
             // Step 5: Emit workflow events through hooks
             for event in workflow_events {
-                self.hooks.on_workflow_step_completed(&self.context, &event)?;
+                self.hooks
+                    .on_workflow_step_completed(&self.context, &event)?;
             }
         }
 
@@ -362,7 +382,8 @@ where
                 }
             }
 
-            self.hooks.on_resources_allocated(&self.context, &assignments)?;
+            self.hooks
+                .on_resources_allocated(&self.context, &assignments)?;
             Ok(count)
         } else {
             Ok(0)
@@ -516,10 +537,9 @@ where
     /// println!("Saved snapshot with {} agents", metadata.agent_count);
     /// ```
     pub async fn save_snapshot(&self, snapshot_id: &str) -> crate::Result<SnapshotMetadata> {
-        let manager = self.snapshot_manager.as_ref()
-            .ok_or_else(|| crate::Error::InvalidState(
-                "Snapshot manager not initialized".to_string()
-            ))?;
+        let manager = self.snapshot_manager.as_ref().ok_or_else(|| {
+            crate::Error::InvalidState("Snapshot manager not initialized".to_string())
+        })?;
 
         // Collect RecordBatches from all handlers
         let agents = if let Some(pop) = &self.population {
@@ -605,10 +625,9 @@ where
     /// runner.run_for_steps(50)?;
     /// ```
     pub async fn restore_snapshot(&mut self, snapshot_id: &str) -> crate::Result<SnapshotMetadata> {
-        let manager = self.snapshot_manager.as_ref()
-            .ok_or_else(|| crate::Error::InvalidState(
-                "Snapshot manager not initialized".to_string()
-            ))?;
+        let manager = self.snapshot_manager.as_ref().ok_or_else(|| {
+            crate::Error::InvalidState("Snapshot manager not initialized".to_string())
+        })?;
 
         // Restore data from snapshot manager
         let snapshot_data = manager.restore_snapshot(snapshot_id).await?;
@@ -643,17 +662,19 @@ where
 
         // Step 3: Verify state consistency
         // Count entities to ensure data was imported correctly
-        let agent_count = self.population.as_ref()
-            .map(|p| p.count())
-            .unwrap_or(0);
+        let agent_count = self.population.as_ref().map(|p| p.count()).unwrap_or(0);
 
-        let resource_count = self.resources.as_ref()
+        let resource_count = self
+            .resources
+            .as_ref()
             .map(|r| r.resource_count())
             .unwrap_or(0);
 
         let task_count = snapshot_data.tasks.num_rows();
 
-        let workflow_instance_count = self.workflows.as_ref()
+        let workflow_instance_count = self
+            .workflows
+            .as_ref()
             .map(|w| w.instance_count())
             .unwrap_or(0);
 
@@ -707,10 +728,10 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Error;
     use crate::population::AgentStatus;
     use crate::utils::idents::{AgentId, ResourceId, TaskId, WorkflowId};
     use crate::workflows::WorkflowStep;
-    use crate::Error;
     use geo::Point;
     use std::sync::{Arc, Mutex};
 
@@ -758,10 +779,7 @@ mod tests {
                     .map_err(|e| crate::Error::Agent(format!("Invalid UUID: {}", e)))?,
             );
 
-            Ok(TestAgent {
-                id,
-                tick_count: 0,
-            })
+            Ok(TestAgent { id, tick_count: 0 })
         }
     }
 
@@ -951,7 +969,9 @@ mod tests {
             SimulationRunner::new(config);
 
         // Run until 5 steps
-        runner.run_until(|_ctx, stats| stats.total_steps >= 5).unwrap();
+        runner
+            .run_until(|_ctx, stats| stats.total_steps >= 5)
+            .unwrap();
 
         assert_eq!(runner.stats().total_steps, 5);
     }
@@ -967,7 +987,9 @@ mod tests {
         let start_time = runner.context().current_time();
 
         // Run for 5 minutes
-        runner.run_for_duration(chrono::Duration::minutes(5)).unwrap();
+        runner
+            .run_for_duration(chrono::Duration::minutes(5))
+            .unwrap();
 
         let elapsed = runner.context().current_time() - start_time;
         assert_eq!(elapsed, chrono::Duration::minutes(5));
@@ -992,7 +1014,7 @@ mod tests {
 
     #[test]
     fn test_runner_advances_workflows_on_task_completion() {
-        use crate::resources::{ResourceAllocator, LeastLoaded};
+        use crate::resources::{LeastLoaded, ResourceAllocator};
         use crate::workflows::WorkflowEngine;
         use std::collections::HashMap;
 
@@ -1050,7 +1072,16 @@ mod tests {
         runner.allocate_resources(&LeastLoaded).unwrap();
 
         // Verify workflow is at step 0
-        assert_eq!(runner.workflows.as_ref().unwrap().get_instance(instance_id).unwrap().current_step, 0);
+        assert_eq!(
+            runner
+                .workflows
+                .as_ref()
+                .unwrap()
+                .get_instance(instance_id)
+                .unwrap()
+                .current_step,
+            0
+        );
 
         // Advance time past task completion
         for _ in 0..12 {
@@ -1058,7 +1089,12 @@ mod tests {
         }
 
         // Verify workflow advanced to step 1
-        let instance = runner.workflows.as_ref().unwrap().get_instance(instance_id).unwrap();
+        let instance = runner
+            .workflows
+            .as_ref()
+            .unwrap()
+            .get_instance(instance_id)
+            .unwrap();
         assert_eq!(instance.current_step, 1);
         assert!(!instance.is_complete);
 
@@ -1069,8 +1105,8 @@ mod tests {
     #[test]
     fn test_runner_creates_tasks_for_ready_instances() {
         use crate::resources::{ResourceAllocator, TaskFactory};
-        use crate::workflows::{WorkflowEngine, WorkflowStep};
         use crate::utils::idents::WorkflowInstanceId;
+        use crate::workflows::{WorkflowEngine, WorkflowStep};
         use std::collections::HashMap;
 
         // Define a simple task factory
@@ -1098,14 +1134,12 @@ mod tests {
         let mut workflow_engine = WorkflowEngine::new();
         let workflow = TestWorkflow {
             id: WorkflowId::new(),
-            steps: vec![
-                WorkflowStep {
-                    step_index: 0,
-                    required_resource_type: "test".to_string(),
-                    expected_duration: chrono::Duration::seconds(10),
-                    metadata: HashMap::new(),
-                },
-            ],
+            steps: vec![WorkflowStep {
+                step_index: 0,
+                required_resource_type: "test".to_string(),
+                expected_duration: chrono::Duration::seconds(10),
+                metadata: HashMap::new(),
+            }],
         };
         let workflow_id = workflow.id();
         workflow_engine.register_workflow(workflow);
@@ -1126,7 +1160,7 @@ mod tests {
 
     #[test]
     fn test_runner_emits_workflow_events() {
-        use crate::resources::{ResourceAllocator, LeastLoaded};
+        use crate::resources::{LeastLoaded, ResourceAllocator};
         use crate::workflows::{WorkflowEngine, WorkflowStepEvent};
         use std::collections::HashMap;
 
@@ -1159,14 +1193,12 @@ mod tests {
         let mut workflow_engine = WorkflowEngine::new();
         let workflow = TestWorkflow {
             id: WorkflowId::new(),
-            steps: vec![
-                WorkflowStep {
-                    step_index: 0,
-                    required_resource_type: "test".to_string(),
-                    expected_duration: chrono::Duration::seconds(10),
-                    metadata: HashMap::new(),
-                },
-            ],
+            steps: vec![WorkflowStep {
+                step_index: 0,
+                required_resource_type: "test".to_string(),
+                expected_duration: chrono::Duration::seconds(10),
+                metadata: HashMap::new(),
+            }],
         };
         let workflow_id = workflow.id();
         workflow_engine.register_workflow(workflow);
@@ -1205,10 +1237,14 @@ mod tests {
         assert_eq!(events.len(), 1);
 
         match &events[0] {
-            WorkflowStepEvent::WorkflowCompleted { instance_id: id, workflow_id: wf_id, .. } => {
+            WorkflowStepEvent::WorkflowCompleted {
+                instance_id: id,
+                workflow_id: wf_id,
+                ..
+            } => {
                 assert_eq!(*id, instance_id);
                 assert_eq!(*wf_id, workflow_id);
-            },
+            }
             _ => panic!("Expected WorkflowCompleted event"),
         }
     }
@@ -1440,14 +1476,12 @@ mod tests {
         let mut workflow_engine = WorkflowEngine::new();
         let workflow = TestWorkflow {
             id: WorkflowId::new(),
-            steps: vec![
-                WorkflowStep {
-                    step_index: 0,
-                    required_resource_type: "test".to_string(),
-                    expected_duration: chrono::Duration::seconds(10),
-                    metadata: HashMap::new(),
-                },
-            ],
+            steps: vec![WorkflowStep {
+                step_index: 0,
+                required_resource_type: "test".to_string(),
+                expected_duration: chrono::Duration::seconds(10),
+                metadata: HashMap::new(),
+            }],
         };
         let workflow_id = workflow.id();
         workflow_engine.register_workflow(workflow);

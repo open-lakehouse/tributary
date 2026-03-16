@@ -83,7 +83,10 @@ define_id!(LocationId, "Unique identifier for a location");
 define_id!(ResourceId, "Unique identifier for a resource");
 define_id!(TaskId, "Unique identifier for a task");
 define_id!(WorkflowId, "Unique identifier for a workflow definition");
-define_id!(WorkflowInstanceId, "Unique identifier for a workflow instance");
+define_id!(
+    WorkflowInstanceId,
+    "Unique identifier for a workflow instance"
+);
 define_id!(JourneyId, "Unique identifier for a journey");
 define_id!(EventId, "Unique identifier for an event");
 

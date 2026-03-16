@@ -29,5 +29,5 @@ pub use agents::{Customer, CustomerStatus};
 pub use events::*;
 pub use resources::{Kitchen, Order};
 pub use simulation::{
-    add_customers, build_simulation, process_demands, KitchenSimulationHooks, NoWorkflow,
+    KitchenSimulationHooks, NoWorkflow, add_customers, build_simulation, process_demands,
 };

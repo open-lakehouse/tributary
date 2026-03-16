@@ -2,11 +2,11 @@
 
 #[cfg(test)]
 mod tests {
-    use crate::population::{Agent, AgentStatus, PopulationHandler, ArrowAgentRow};
-    use crate::utils::idents::AgentId;
+    use crate::Result;
     use crate::context::SimulationContext;
     use crate::population::AgentTickResult;
-    use crate::Result;
+    use crate::population::{Agent, AgentStatus, ArrowAgentRow, PopulationHandler};
+    use crate::utils::idents::AgentId;
     use geo_types::Point;
     use std::time::Instant;
 
@@ -104,7 +104,10 @@ mod tests {
         println!("\n=== Batch Add Performance (N={}) ===", N);
         println!("Sequential add: {:?}", sequential_time);
         println!("Batch add: {:?}", batch_time);
-        println!("Speedup: {:.2}x", sequential_time.as_secs_f64() / batch_time.as_secs_f64());
+        println!(
+            "Speedup: {:.2}x",
+            sequential_time.as_secs_f64() / batch_time.as_secs_f64()
+        );
 
         assert_eq!(handler_sequential.count(), N);
         assert_eq!(handler_batch.count(), N);
@@ -158,17 +161,26 @@ mod tests {
         }
 
         let start = Instant::now();
-        handler_batch.update_agents(updated_agents_batch.clone()).unwrap();
+        handler_batch
+            .update_agents(updated_agents_batch.clone())
+            .unwrap();
         let batch_time = start.elapsed();
 
         println!("\n=== Batch Update Performance (N={}) ===", N);
         println!("Sequential update: {:?}", sequential_time);
         println!("Batch update: {:?}", batch_time);
-        println!("Speedup: {:.2}x", sequential_time.as_secs_f64() / batch_time.as_secs_f64());
+        println!(
+            "Speedup: {:.2}x",
+            sequential_time.as_secs_f64() / batch_time.as_secs_f64()
+        );
 
         // Verify correctness
-        let agent_seq = handler_sequential.get_agent(updated_agents_seq[0].id()).unwrap();
-        let agent_batch = handler_batch.get_agent(updated_agents_batch[0].id()).unwrap();
+        let agent_seq = handler_sequential
+            .get_agent(updated_agents_seq[0].id())
+            .unwrap();
+        let agent_batch = handler_batch
+            .get_agent(updated_agents_batch[0].id())
+            .unwrap();
 
         assert_eq!(agent_seq.value, agent_batch.value);
         assert_eq!(agent_seq.status.as_str(), agent_batch.status.as_str());
@@ -198,7 +210,7 @@ mod tests {
         assert_eq!(handler.count(), N);
 
         // Update half of them in batch
-        let ids_to_update: Vec<AgentId> = agents.iter().take(N/2).map(|a| a.id()).collect();
+        let ids_to_update: Vec<AgentId> = agents.iter().take(N / 2).map(|a| a.id()).collect();
         let mut agents_to_update = Vec::new();
         for id in &ids_to_update {
             if let Some(mut agent) = handler.get_agent(*id) {
@@ -211,7 +223,7 @@ mod tests {
         handler.update_agents(agents_to_update).unwrap();
         let update_time = start.elapsed();
 
-        println!("Batch update time (N/2={}): {:?}", N/2, update_time);
+        println!("Batch update time (N/2={}): {:?}", N / 2, update_time);
         println!("Successfully demonstrated batch operations on {} agents", N);
 
         // Just verify counts - status update requires full Arrow serialization

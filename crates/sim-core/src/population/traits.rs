@@ -1,8 +1,8 @@
 //! Core traits for agents
 
+use crate::Result;
 use crate::context::SimulationContext;
 use crate::utils::idents::{AgentId, JourneyId};
-use crate::Result;
 use geo_types::Point;
 use serde_json::Value;
 use std::collections::HashMap;

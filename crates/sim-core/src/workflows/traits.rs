@@ -235,14 +235,8 @@ mod tests {
 
         assert_eq!(workflow.workflow_type(), "test");
         assert_eq!(workflow.step_count(), 2);
-        assert_eq!(
-            workflow.get_step(0).unwrap().required_resource_type,
-            "prep"
-        );
-        assert_eq!(
-            workflow.get_step(1).unwrap().required_resource_type,
-            "cook"
-        );
+        assert_eq!(workflow.get_step(0).unwrap().required_resource_type, "prep");
+        assert_eq!(workflow.get_step(1).unwrap().required_resource_type, "cook");
         assert!(workflow.get_step(2).is_none());
     }
 }

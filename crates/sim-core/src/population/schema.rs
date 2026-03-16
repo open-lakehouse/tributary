@@ -96,7 +96,14 @@ mod tests {
         let field_names: Vec<&str> = schema.fields().iter().map(|f| f.name().as_str()).collect();
         assert_eq!(
             field_names,
-            vec!["id", "agent_type", "status", "position_x", "position_y", "metadata"]
+            vec![
+                "id",
+                "agent_type",
+                "status",
+                "position_x",
+                "position_y",
+                "metadata"
+            ]
         );
     }
 
@@ -105,10 +112,7 @@ mod tests {
         let schema = agent_schema();
 
         // Verify field types
-        assert_eq!(
-            schema.field(0).data_type(),
-            &DataType::FixedSizeBinary(16)
-        );
+        assert_eq!(schema.field(0).data_type(), &DataType::FixedSizeBinary(16));
         assert_eq!(schema.field(1).data_type(), &DataType::Utf8);
         assert_eq!(schema.field(2).data_type(), &DataType::Utf8);
         assert_eq!(schema.field(3).data_type(), &DataType::Float64);

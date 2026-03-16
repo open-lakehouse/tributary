@@ -187,9 +187,7 @@ mod tests {
 
         let chosen_id = strategy.assign(&task, &refs);
         assert!(chosen_id.is_some());
-        assert!(
-            chosen_id == Some(resources[0].id()) || chosen_id == Some(resources[1].id())
-        );
+        assert!(chosen_id == Some(resources[0].id()) || chosen_id == Some(resources[1].id()));
     }
 
     #[test]

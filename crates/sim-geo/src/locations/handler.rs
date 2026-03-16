@@ -3,11 +3,11 @@
 //! This module provides efficient location management using Apache Arrow's columnar
 //! storage combined with H3 spatial indexing for fast geospatial queries.
 
-use super::schema::{location_schema, fields};
+use super::schema::{fields, location_schema};
 use super::traits::Location;
 use arrow::array::{
-    Array, ArrayRef, BinaryArray, BinaryBuilder, Float64Array, Float64Builder,
-    RecordBatch, StringArray, StringBuilder, UInt64Array, UInt64Builder,
+    Array, ArrayRef, BinaryArray, BinaryBuilder, Float64Array, Float64Builder, RecordBatch,
+    StringArray, StringBuilder, UInt64Array, UInt64Builder,
 };
 use geo::Distance;
 use geo::Haversine;
@@ -212,7 +212,8 @@ impl<L: Location> LocationHandler<L> {
     /// Get location type by ID
     pub fn get_type(&self, id: LocationId) -> Option<String> {
         let row_idx = self.location_id_to_row.get(&id)?;
-        self.get_string_from_batch(*row_idx, fields::LOCATION_TYPE).ok()?
+        self.get_string_from_batch(*row_idx, fields::LOCATION_TYPE)
+            .ok()?
     }
 
     /// Get location count
@@ -310,7 +311,11 @@ impl<L: Location> LocationHandler<L> {
     /// # Returns
     ///
     /// Vector of location IDs within the radius
-    pub fn within_radius(&self, point: Point<f64>, radius_meters: f64) -> crate::Result<Vec<LocationId>> {
+    pub fn within_radius(
+        &self,
+        point: Point<f64>,
+        radius_meters: f64,
+    ) -> crate::Result<Vec<LocationId>> {
         // Calculate H3 ring size needed for radius
         let ring_size = calculate_h3_ring_for_radius(radius_meters, self.resolution);
 
@@ -437,7 +442,7 @@ impl<L: Location> LocationHandler<L> {
         // Validate schema compatibility
         if batch.schema() != self.schema {
             return Err(crate::Error::Location(
-                "Imported batch schema does not match location schema".to_string()
+                "Imported batch schema does not match location schema".to_string(),
             ));
         }
 
@@ -453,7 +458,8 @@ impl<L: Location> LocationHandler<L> {
     // ===== Helper methods for RecordBatch access =====
 
     fn get_location_id_from_batch(&self, row_idx: usize) -> crate::Result<LocationId> {
-        let id_array = self.locations
+        let id_array = self
+            .locations
             .column_by_name(fields::ID)
             .ok_or_else(|| crate::Error::Location("ID column not found".to_string()))?
             .as_any()
@@ -473,22 +479,27 @@ impl<L: Location> LocationHandler<L> {
     }
 
     fn get_point_from_batch(&self, row_idx: usize) -> crate::Result<Point<f64>> {
-        let lat = self.get_f64_from_batch(row_idx, fields::LATITUDE)?
+        let lat = self
+            .get_f64_from_batch(row_idx, fields::LATITUDE)?
             .ok_or_else(|| crate::Error::Location("Latitude is null".to_string()))?;
 
-        let lon = self.get_f64_from_batch(row_idx, fields::LONGITUDE)?
+        let lon = self
+            .get_f64_from_batch(row_idx, fields::LONGITUDE)?
             .ok_or_else(|| crate::Error::Location("Longitude is null".to_string()))?;
 
         Ok(Point::new(lon, lat))
     }
 
     fn get_f64_from_batch(&self, row_idx: usize, field_name: &str) -> crate::Result<Option<f64>> {
-        let array = self.locations
+        let array = self
+            .locations
             .column_by_name(field_name)
             .ok_or_else(|| crate::Error::Location(format!("{} column not found", field_name)))?
             .as_any()
             .downcast_ref::<Float64Array>()
-            .ok_or_else(|| crate::Error::Location(format!("{} column has wrong type", field_name)))?;
+            .ok_or_else(|| {
+                crate::Error::Location(format!("{} column has wrong type", field_name))
+            })?;
 
         if array.is_null(row_idx) {
             Ok(None)
@@ -498,12 +509,15 @@ impl<L: Location> LocationHandler<L> {
     }
 
     fn get_u64_from_batch(&self, row_idx: usize, field_name: &str) -> crate::Result<Option<u64>> {
-        let array = self.locations
+        let array = self
+            .locations
             .column_by_name(field_name)
             .ok_or_else(|| crate::Error::Location(format!("{} column not found", field_name)))?
             .as_any()
             .downcast_ref::<UInt64Array>()
-            .ok_or_else(|| crate::Error::Location(format!("{} column has wrong type", field_name)))?;
+            .ok_or_else(|| {
+                crate::Error::Location(format!("{} column has wrong type", field_name))
+            })?;
 
         if array.is_null(row_idx) {
             Ok(None)
@@ -512,13 +526,20 @@ impl<L: Location> LocationHandler<L> {
         }
     }
 
-    fn get_string_from_batch(&self, row_idx: usize, field_name: &str) -> crate::Result<Option<String>> {
-        let array = self.locations
+    fn get_string_from_batch(
+        &self,
+        row_idx: usize,
+        field_name: &str,
+    ) -> crate::Result<Option<String>> {
+        let array = self
+            .locations
             .column_by_name(field_name)
             .ok_or_else(|| crate::Error::Location(format!("{} column not found", field_name)))?
             .as_any()
             .downcast_ref::<StringArray>()
-            .ok_or_else(|| crate::Error::Location(format!("{} column has wrong type", field_name)))?;
+            .ok_or_else(|| {
+                crate::Error::Location(format!("{} column has wrong type", field_name))
+            })?;
 
         if array.is_null(row_idx) {
             Ok(None)
@@ -531,7 +552,8 @@ impl<L: Location> LocationHandler<L> {
         Ok(LocationData {
             id: self.get_location_id_from_batch(row_idx)?,
             position: self.get_point_from_batch(row_idx)?,
-            location_type: self.get_string_from_batch(row_idx, fields::LOCATION_TYPE)?
+            location_type: self
+                .get_string_from_batch(row_idx, fields::LOCATION_TYPE)?
                 .unwrap_or_default(),
             name: self.get_string_from_batch(row_idx, fields::NAME)?,
         })
@@ -563,14 +585,54 @@ impl<L: Location> LocationHandler<L> {
 
         // Copy existing data
         if current_count > 0 {
-            let id_array = self.locations.column(0).as_any().downcast_ref::<BinaryArray>().unwrap();
-            let name_array = self.locations.column(1).as_any().downcast_ref::<StringArray>().unwrap();
-            let type_array = self.locations.column(2).as_any().downcast_ref::<StringArray>().unwrap();
-            let geom_array = self.locations.column(3).as_any().downcast_ref::<BinaryArray>().unwrap();
-            let lat_array = self.locations.column(4).as_any().downcast_ref::<Float64Array>().unwrap();
-            let lon_array = self.locations.column(5).as_any().downcast_ref::<Float64Array>().unwrap();
-            let h3_array = self.locations.column(6).as_any().downcast_ref::<UInt64Array>().unwrap();
-            let meta_array = self.locations.column(7).as_any().downcast_ref::<StringArray>().unwrap();
+            let id_array = self
+                .locations
+                .column(0)
+                .as_any()
+                .downcast_ref::<BinaryArray>()
+                .unwrap();
+            let name_array = self
+                .locations
+                .column(1)
+                .as_any()
+                .downcast_ref::<StringArray>()
+                .unwrap();
+            let type_array = self
+                .locations
+                .column(2)
+                .as_any()
+                .downcast_ref::<StringArray>()
+                .unwrap();
+            let geom_array = self
+                .locations
+                .column(3)
+                .as_any()
+                .downcast_ref::<BinaryArray>()
+                .unwrap();
+            let lat_array = self
+                .locations
+                .column(4)
+                .as_any()
+                .downcast_ref::<Float64Array>()
+                .unwrap();
+            let lon_array = self
+                .locations
+                .column(5)
+                .as_any()
+                .downcast_ref::<Float64Array>()
+                .unwrap();
+            let h3_array = self
+                .locations
+                .column(6)
+                .as_any()
+                .downcast_ref::<UInt64Array>()
+                .unwrap();
+            let meta_array = self
+                .locations
+                .column(7)
+                .as_any()
+                .downcast_ref::<StringArray>()
+                .unwrap();
 
             for i in 0..current_count {
                 id_builder.append_value(id_array.value(i));
@@ -619,13 +681,7 @@ impl<L: Location> LocationHandler<L> {
         let batch = RecordBatch::try_new(
             self.schema.clone(),
             vec![
-                id_array,
-                name_array,
-                type_array,
-                geom_array,
-                lat_array,
-                lon_array,
-                h3_array,
+                id_array, name_array, type_array, geom_array, lat_array, lon_array, h3_array,
                 meta_array,
             ],
         )?;
@@ -650,14 +706,54 @@ impl<L: Location> LocationHandler<L> {
         let mut h3_builder = UInt64Builder::new();
         let mut meta_builder = StringBuilder::new();
 
-        let id_array = self.locations.column(0).as_any().downcast_ref::<BinaryArray>().unwrap();
-        let name_array = self.locations.column(1).as_any().downcast_ref::<StringArray>().unwrap();
-        let type_array = self.locations.column(2).as_any().downcast_ref::<StringArray>().unwrap();
-        let geom_array = self.locations.column(3).as_any().downcast_ref::<BinaryArray>().unwrap();
-        let lat_array = self.locations.column(4).as_any().downcast_ref::<Float64Array>().unwrap();
-        let lon_array = self.locations.column(5).as_any().downcast_ref::<Float64Array>().unwrap();
-        let h3_array = self.locations.column(6).as_any().downcast_ref::<UInt64Array>().unwrap();
-        let meta_array = self.locations.column(7).as_any().downcast_ref::<StringArray>().unwrap();
+        let id_array = self
+            .locations
+            .column(0)
+            .as_any()
+            .downcast_ref::<BinaryArray>()
+            .unwrap();
+        let name_array = self
+            .locations
+            .column(1)
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
+        let type_array = self
+            .locations
+            .column(2)
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
+        let geom_array = self
+            .locations
+            .column(3)
+            .as_any()
+            .downcast_ref::<BinaryArray>()
+            .unwrap();
+        let lat_array = self
+            .locations
+            .column(4)
+            .as_any()
+            .downcast_ref::<Float64Array>()
+            .unwrap();
+        let lon_array = self
+            .locations
+            .column(5)
+            .as_any()
+            .downcast_ref::<Float64Array>()
+            .unwrap();
+        let h3_array = self
+            .locations
+            .column(6)
+            .as_any()
+            .downcast_ref::<UInt64Array>()
+            .unwrap();
+        let meta_array = self
+            .locations
+            .column(7)
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
 
         for i in 0..current_count {
             if i == skip_row {
@@ -695,13 +791,7 @@ impl<L: Location> LocationHandler<L> {
         self.locations = RecordBatch::try_new(
             self.schema.clone(),
             vec![
-                id_array,
-                name_array,
-                type_array,
-                geom_array,
-                lat_array,
-                lon_array,
-                h3_array,
+                id_array, name_array, type_array, geom_array, lat_array, lon_array, h3_array,
                 meta_array,
             ],
         )?;

@@ -1,7 +1,7 @@
 //! Event payloads for ghost kitchen domain
 
 use chrono::{DateTime, Utc};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use sim_events::EventPayload;
 
 /// Event emitted when a customer places an order

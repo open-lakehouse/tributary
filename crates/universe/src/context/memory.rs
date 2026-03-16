@@ -8,8 +8,7 @@ use datafusion::catalog::{
 };
 
 use crate::builders::{
-    EVENTS_SCHEMA, METRICS_SCHEMA, OBJECTS_SCHEMA, ORDER_LINE_STATE, ORDER_STATE,
-    POPULATION_SCHEMA,
+    EVENTS_SCHEMA, METRICS_SCHEMA, OBJECTS_SCHEMA, ORDER_LINE_STATE, ORDER_STATE, POPULATION_SCHEMA,
 };
 use crate::context::wrap_schema;
 use crate::{Result, RoutingData};

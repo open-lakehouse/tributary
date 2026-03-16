@@ -6,7 +6,7 @@
 //! - Emitting CloudEvents
 //! - Writing events to Parquet
 
-use sim_kitchen::{add_customers, build_simulation, KitchenSimulationHooks};
+use sim_kitchen::{KitchenSimulationHooks, add_customers, build_simulation};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("🍔 Ghost Kitchen Simulation Example\n");
