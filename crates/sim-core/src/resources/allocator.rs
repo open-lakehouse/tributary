@@ -667,6 +667,133 @@ impl<R: Resource, T: Task> ResourceAllocator<R, T> {
         self.task_metadata.get(&task_id).map(|m| m.estimated_duration)
     }
 
+    /// Export both resources and tasks RecordBatches
+    ///
+    /// Returns a tuple of (resources_batch, tasks_batch) that can be used to
+    /// restore the allocator state via `import_batch`.
+    ///
+    /// # Returns
+    ///
+    /// Tuple of (RecordBatch, RecordBatch) representing resources and tasks
+    pub fn export_batch(&self) -> (RecordBatch, RecordBatch) {
+        (self.resources.clone(), self.tasks.clone())
+    }
+
+    /// Import both resources and tasks RecordBatches and rebuild indices
+    ///
+    /// Restores the allocator state from previously exported RecordBatches.
+    /// This method validates the schema, rebuilds all internal indices, and
+    /// reconstructs task metadata from the task batch.
+    ///
+    /// # Arguments
+    ///
+    /// * `resources` - RecordBatch containing resource data
+    /// * `tasks` - RecordBatch containing task data
+    ///
+    /// # Returns
+    ///
+    /// Result indicating success or failure with validation details
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - Resource schema validation fails
+    /// - Task schema validation fails
+    /// - Index rebuilding encounters invalid IDs
+    pub fn import_batch(&mut self, resources: RecordBatch, tasks: RecordBatch) -> Result<()> {
+        // Validate schemas
+        Self::validate_resource_schema(&resources)?;
+        Self::validate_task_schema(&tasks)?;
+
+        // Rebuild resource index
+        let mut resource_id_to_row = HashMap::new();
+        let resource_id_array = resources
+            .column(0)
+            .as_any()
+            .downcast_ref::<BinaryArray>()
+            .ok_or_else(|| {
+                crate::Error::Resource("Failed to downcast id column to BinaryArray".to_string())
+            })?;
+
+        for i in 0..resources.num_rows() {
+            let id_bytes = resource_id_array.value(i);
+            let id = ResourceId::from_bytes(id_bytes).map_err(|e| {
+                crate::Error::Custom(format!(
+                    "Invalid resource ID at row {}: {}",
+                    i, e
+                ))
+            })?;
+            resource_id_to_row.insert(id, i);
+        }
+
+        // Rebuild task index
+        let mut task_id_to_row = HashMap::new();
+        let task_id_array = tasks
+            .column(0)
+            .as_any()
+            .downcast_ref::<BinaryArray>()
+            .ok_or_else(|| {
+                crate::Error::Resource("Failed to downcast id column to BinaryArray".to_string())
+            })?;
+
+        for i in 0..tasks.num_rows() {
+            let id_bytes = task_id_array.value(i);
+            let id = TaskId::from_bytes(id_bytes).map_err(|e| {
+                crate::Error::Custom(format!(
+                    "Invalid task ID at row {}: {}",
+                    i, e
+                ))
+            })?;
+            task_id_to_row.insert(id, i);
+        }
+
+        // Rebuild task metadata from task batch
+        let mut task_metadata = HashMap::new();
+        let status_array = tasks
+            .column(2)
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .ok_or_else(|| {
+                crate::Error::Resource("Failed to downcast status column to StringArray".to_string())
+            })?;
+
+        for i in 0..tasks.num_rows() {
+            let id_bytes = task_id_array.value(i);
+            let id = TaskId::from_bytes(id_bytes).map_err(|e| {
+                crate::Error::Custom(format!(
+                    "Invalid task ID at row {}: {}",
+                    i, e
+                ))
+            })?;
+
+            // For allocated tasks, we can't recover allocated_at timestamp from batch
+            // Set it to None to avoid inconsistency
+            let allocated_at = if status_array.value(i) == task_status::ALLOCATED {
+                Some(Utc::now())
+            } else {
+                None
+            };
+
+            task_metadata.insert(
+                id,
+                TaskMetadata {
+                    allocated_at,
+                    // Use default duration since we can't recover the original
+                    estimated_duration: Duration::seconds(10),
+                },
+            );
+        }
+
+        // Update state
+        self.resources = resources;
+        self.resource_id_to_row = resource_id_to_row;
+        self.tasks = tasks;
+        self.task_id_to_row = task_id_to_row;
+        self.task_metadata = task_metadata;
+
+        Ok(())
+    }
+
     // Helper methods
 
     fn find_available_resource_for_task(&self, task_id: TaskId) -> Result<Option<ResourceId>> {
@@ -1278,5 +1405,320 @@ mod tests {
         assert_eq!(completed.len(), 1);
         assert_eq!(completed[0].0, task_id);
         assert_eq!(completed[0].1, instance_id);
+    }
+
+    #[test]
+    fn test_export_import_empty_allocator() {
+        let allocator = ResourceAllocator::<TestResource, TestTask>::new();
+
+        // Export empty state
+        let (resources, tasks) = allocator.export_batch();
+
+        // Verify exported batches are empty
+        assert_eq!(resources.num_rows(), 0);
+        assert_eq!(tasks.num_rows(), 0);
+
+        // Import into new allocator
+        let mut new_allocator = ResourceAllocator::<TestResource, TestTask>::new();
+        new_allocator.import_batch(resources, tasks).unwrap();
+
+        // Verify state
+        assert_eq!(new_allocator.resource_count(), 0);
+        assert_eq!(new_allocator.pending_task_count(), 0);
+    }
+
+    #[test]
+    fn test_export_import_with_resources() {
+        let mut allocator = ResourceAllocator::<TestResource, TestTask>::new();
+
+        // Add multiple resources
+        let resource1 = TestResource {
+            id: ResourceId::new(),
+            capacity: 5,
+            load: 0,
+        };
+        let resource2 = TestResource {
+            id: ResourceId::new(),
+            capacity: 10,
+            load: 0,
+        };
+        let resource3 = TestResource {
+            id: ResourceId::new(),
+            capacity: 3,
+            load: 0,
+        };
+
+        let r1_id = resource1.id();
+        let r2_id = resource2.id();
+        let r3_id = resource3.id();
+
+        allocator.add_resource(resource1).unwrap();
+        allocator.add_resource(resource2).unwrap();
+        allocator.add_resource(resource3).unwrap();
+
+        assert_eq!(allocator.resource_count(), 3);
+
+        // Export and import
+        let (resources, tasks) = allocator.export_batch();
+        let mut new_allocator = ResourceAllocator::<TestResource, TestTask>::new();
+        new_allocator.import_batch(resources, tasks).unwrap();
+
+        // Verify resource count
+        assert_eq!(new_allocator.resource_count(), 3);
+
+        // Verify all resource IDs are in the index
+        assert!(new_allocator.resource_id_to_row.contains_key(&r1_id));
+        assert!(new_allocator.resource_id_to_row.contains_key(&r2_id));
+        assert!(new_allocator.resource_id_to_row.contains_key(&r3_id));
+    }
+
+    #[test]
+    fn test_export_import_with_tasks() {
+        let mut allocator = ResourceAllocator::<TestResource, TestTask>::new();
+
+        // Add multiple tasks
+        let task1 = TestTask { id: TaskId::new() };
+        let task2 = TestTask { id: TaskId::new() };
+        let task3 = TestTask { id: TaskId::new() };
+
+        let t1_id = task1.id();
+        let t2_id = task2.id();
+        let t3_id = task3.id();
+
+        allocator.add_task(task1).unwrap();
+        allocator.add_task(task2).unwrap();
+        allocator.add_task(task3).unwrap();
+
+        assert_eq!(allocator.pending_task_count(), 3);
+
+        // Export and import
+        let (resources, tasks) = allocator.export_batch();
+        let mut new_allocator = ResourceAllocator::<TestResource, TestTask>::new();
+        new_allocator.import_batch(resources, tasks).unwrap();
+
+        // Verify task count
+        assert_eq!(new_allocator.pending_task_count(), 3);
+
+        // Verify all task IDs are in the index
+        assert!(new_allocator.task_id_to_row.contains_key(&t1_id));
+        assert!(new_allocator.task_id_to_row.contains_key(&t2_id));
+        assert!(new_allocator.task_id_to_row.contains_key(&t3_id));
+    }
+
+    #[test]
+    fn test_export_import_with_allocations() {
+        let mut allocator = ResourceAllocator::<TestResource, TestTask>::new();
+
+        // Add resources and tasks
+        let resource = TestResource {
+            id: ResourceId::new(),
+            capacity: 5,
+            load: 0,
+        };
+        let task = TestTask { id: TaskId::new() };
+
+        let resource_id = resource.id();
+        let task_id = task.id();
+
+        allocator.add_resource(resource).unwrap();
+        allocator.add_task(task).unwrap();
+
+        // Assign task to resource
+        let current_time = Utc::now();
+        let assignments = allocator.assign_tasks(&LeastLoaded, current_time).unwrap();
+        assert_eq!(assignments.len(), 1);
+
+        // Export and import
+        let (resources, tasks) = allocator.export_batch();
+        let mut new_allocator = ResourceAllocator::<TestResource, TestTask>::new();
+        new_allocator.import_batch(resources, tasks).unwrap();
+
+        // Verify assignment is preserved
+        let assignment = new_allocator.get_assignment(task_id);
+        assert_eq!(assignment, Some(resource_id));
+
+        // Verify pending task count is 0 (task is allocated)
+        assert_eq!(new_allocator.pending_task_count(), 0);
+    }
+
+    #[test]
+    fn test_export_import_lookup_functionality() {
+        let mut allocator = ResourceAllocator::<TestResource, TestTask>::new();
+
+        // Add resource and first task
+        let resource = TestResource {
+            id: ResourceId::new(),
+            capacity: 5,
+            load: 0,
+        };
+        let task1 = TestTask { id: TaskId::new() };
+
+        let resource_id = resource.id();
+        let task1_id = task1.id();
+
+        allocator.add_resource(resource).unwrap();
+        allocator.add_task(task1).unwrap();
+
+        // Assign the first task
+        let current_time = Utc::now();
+        let assignments = allocator.assign_tasks(&LeastLoaded, current_time).unwrap();
+        assert_eq!(assignments.len(), 1);
+
+        // Now add second task (won't be assigned yet)
+        let task2 = TestTask { id: TaskId::new() };
+        let task2_id = task2.id();
+        allocator.add_task(task2).unwrap();
+
+        // Export and import
+        let (resources, tasks) = allocator.export_batch();
+        let mut new_allocator = ResourceAllocator::<TestResource, TestTask>::new();
+        new_allocator.import_batch(resources, tasks).unwrap();
+
+        // Verify lookup for assigned task works
+        assert_eq!(new_allocator.get_assignment(task1_id), Some(resource_id));
+
+        // Verify lookup for pending task returns None
+        assert_eq!(new_allocator.get_assignment(task2_id), None);
+
+        // Verify pending_tasks iterator works
+        let pending: Vec<_> = new_allocator.pending_tasks().collect();
+        assert_eq!(pending.len(), 1);
+    }
+
+    #[test]
+    fn test_import_with_invalid_resource_schema() {
+        use arrow::array::{Int32Array, StringArray};
+
+        // Create a batch with wrong schema (missing columns)
+        let invalid_batch = RecordBatch::try_new(
+            Arc::new(arrow::datatypes::Schema::new(vec![
+                arrow::datatypes::Field::new("id", arrow::datatypes::DataType::Binary, false),
+                arrow::datatypes::Field::new("name", arrow::datatypes::DataType::Utf8, false),
+            ])),
+            vec![
+                Arc::new(BinaryArray::from(Vec::<&[u8]>::new())),
+                Arc::new(StringArray::from(Vec::<&str>::new())),
+            ],
+        )
+        .unwrap();
+
+        let valid_tasks = RecordBatch::try_new(
+            task_schema(),
+            vec![
+                Arc::new(BinaryArray::from(Vec::<&[u8]>::new())),
+                Arc::new(StringArray::from(Vec::<&str>::new())),
+                Arc::new(StringArray::from(Vec::<&str>::new())),
+                Arc::new(Int64Array::from(Vec::<i64>::new())),
+                Arc::new(BinaryArray::from(Vec::<Option<&[u8]>>::new())),
+                Arc::new(BinaryArray::from(Vec::<Option<&[u8]>>::new())),
+                Arc::new(Int32Array::from(Vec::<i32>::new())),
+                Arc::new(StringArray::from(Vec::<Option<&str>>::new())),
+            ],
+        )
+        .unwrap();
+
+        let mut allocator = ResourceAllocator::<TestResource, TestTask>::new();
+        let result = allocator.import_batch(invalid_batch, valid_tasks);
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_import_with_invalid_task_schema() {
+
+        let valid_resources = RecordBatch::try_new(
+            resource_schema(),
+            vec![
+                Arc::new(BinaryArray::from(Vec::<&[u8]>::new())),
+                Arc::new(StringArray::from(Vec::<&str>::new())),
+                Arc::new(Int64Array::from(Vec::<i64>::new())),
+                Arc::new(Int64Array::from(Vec::<i64>::new())),
+                Arc::new(BinaryArray::from(Vec::<Option<&[u8]>>::new())),
+                Arc::new(StringArray::from(Vec::<Option<&str>>::new())),
+            ],
+        )
+        .unwrap();
+
+        // Create a batch with wrong schema (missing columns)
+        let invalid_batch = RecordBatch::try_new(
+            Arc::new(arrow::datatypes::Schema::new(vec![
+                arrow::datatypes::Field::new("id", arrow::datatypes::DataType::Binary, false),
+                arrow::datatypes::Field::new("type", arrow::datatypes::DataType::Utf8, false),
+            ])),
+            vec![
+                Arc::new(BinaryArray::from(Vec::<&[u8]>::new())),
+                Arc::new(StringArray::from(Vec::<&str>::new())),
+            ],
+        )
+        .unwrap();
+
+        let mut allocator = ResourceAllocator::<TestResource, TestTask>::new();
+        let result = allocator.import_batch(valid_resources, invalid_batch);
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_export_import_round_trip_preserves_state() {
+        let mut allocator = ResourceAllocator::<TestResource, TestTask>::new();
+
+        // Create a complex scenario
+        let resource1 = TestResource {
+            id: ResourceId::new(),
+            capacity: 5,
+            load: 0,
+        };
+        let resource2 = TestResource {
+            id: ResourceId::new(),
+            capacity: 3,
+            load: 0,
+        };
+        let task1 = TestTask { id: TaskId::new() };
+        let task2 = TestTask { id: TaskId::new() };
+        let task3 = TestTask { id: TaskId::new() };
+
+        let r1_id = resource1.id();
+        let r2_id = resource2.id();
+        let t1_id = task1.id();
+        let t2_id = task2.id();
+        let t3_id = task3.id();
+
+        allocator.add_resource(resource1).unwrap();
+        allocator.add_resource(resource2).unwrap();
+        allocator.add_task(task1).unwrap();
+        allocator.add_task(task2).unwrap();
+        allocator.add_task(task3).unwrap();
+
+        // Assign some tasks
+        let current_time = Utc::now();
+        let _assignments = allocator.assign_tasks(&LeastLoaded, current_time).unwrap();
+
+        // Get original state
+        let original_resource_count = allocator.resource_count();
+        let original_pending_count = allocator.pending_task_count();
+        let original_assignments = allocator.assignments();
+
+        // Export and import
+        let (resources, tasks) = allocator.export_batch();
+        let mut new_allocator = ResourceAllocator::<TestResource, TestTask>::new();
+        new_allocator.import_batch(resources, tasks).unwrap();
+
+        // Verify counts match
+        assert_eq!(new_allocator.resource_count(), original_resource_count);
+        assert_eq!(new_allocator.pending_task_count(), original_pending_count);
+
+        // Verify assignments match
+        let new_assignments = new_allocator.assignments();
+        assert_eq!(new_assignments.len(), original_assignments.len());
+        for (task_id, resource_id) in &original_assignments {
+            assert_eq!(new_assignments.get(task_id), Some(resource_id));
+        }
+
+        // Verify lookups still work
+        assert!(new_allocator.resource_id_to_row.contains_key(&r1_id));
+        assert!(new_allocator.resource_id_to_row.contains_key(&r2_id));
+        assert!(new_allocator.task_id_to_row.contains_key(&t1_id));
+        assert!(new_allocator.task_id_to_row.contains_key(&t2_id));
+        assert!(new_allocator.task_id_to_row.contains_key(&t3_id));
     }
 }

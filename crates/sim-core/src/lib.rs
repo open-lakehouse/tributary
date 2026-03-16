@@ -33,6 +33,7 @@ pub mod demand;
 pub mod population;
 pub mod resources;
 pub mod runner;
+pub mod snapshot;
 pub mod utils;
 pub mod workflows;
 
@@ -42,6 +43,7 @@ pub use population::{Agent, AgentStatus, PopulationHandler};
 pub use resources::{Resource, Task, AllocationStrategy, ResourceAllocator};
 pub use workflows::{Workflow, WorkflowStep, WorkflowEngine};
 pub use runner::{SimulationRunner, SimulationHooks, SimulationStats, NoOpHooks};
+pub use snapshot::{SnapshotBackend, SnapshotData, SnapshotManager, SnapshotMetadata};
 pub use utils::idents::{AgentId, ResourceId, TaskId, WorkflowId, LocationId};
 
 /// Result type used throughout the crate

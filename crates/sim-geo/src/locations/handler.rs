@@ -388,6 +388,68 @@ impl<L: Location> LocationHandler<L> {
         &self.locations
     }
 
+    /// Export the locations RecordBatch
+    ///
+    /// Returns a clone of the internal RecordBatch for serialization or persistence.
+    /// This includes all location data with GeoArrow WKB geometry encoding.
+    ///
+    /// # Returns
+    ///
+    /// A RecordBatch containing all location data
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let batch = handler.export_batch();
+    /// // Serialize batch using Arrow IPC or Parquet
+    /// ```
+    pub fn export_batch(&self) -> RecordBatch {
+        self.locations.clone()
+    }
+
+    /// Import a RecordBatch and rebuild indices
+    ///
+    /// Restores the LocationHandler state from a previously exported RecordBatch.
+    /// This method:
+    /// 1. Validates the schema matches the expected location schema
+    /// 2. Replaces the internal RecordBatch
+    /// 3. Rebuilds the LocationId index (HashMap<LocationId, row_idx>)
+    /// 4. Rebuilds the H3 spatial index (HashMap<H3Cell, Vec<row_idx>>)
+    ///
+    /// # Arguments
+    ///
+    /// * `batch` - RecordBatch to import (must match location schema)
+    ///
+    /// # Returns
+    ///
+    /// Ok(()) on success, or an error if:
+    /// - Schema validation fails
+    /// - Index rebuilding encounters invalid data
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let batch = load_batch_from_disk()?;
+    /// handler.import_batch(batch)?;
+    /// // All indices are rebuilt, spatial queries work immediately
+    /// ```
+    pub fn import_batch(&mut self, batch: RecordBatch) -> crate::Result<()> {
+        // Validate schema compatibility
+        if batch.schema() != self.schema {
+            return Err(crate::Error::Location(
+                "Imported batch schema does not match location schema".to_string()
+            ));
+        }
+
+        // Replace the RecordBatch
+        self.locations = batch;
+
+        // Rebuild both indices from the new batch
+        self.rebuild_indices();
+
+        Ok(())
+    }
+
     // ===== Helper methods for RecordBatch access =====
 
     fn get_location_id_from_batch(&self, row_idx: usize) -> crate::Result<LocationId> {
@@ -863,5 +925,289 @@ mod tests {
 
         let stores = handler.get_by_type("store").unwrap();
         assert_eq!(stores.len(), 1);
+    }
+
+    #[test]
+    fn test_export_batch() {
+        let mut handler = LocationHandler::new(Resolution::Nine);
+
+        // Add multiple locations
+        let loc1 = TestLocation {
+            id: LocationId::new(),
+            position: Point::new(-122.4194, 37.7749),
+            location_type: "warehouse".to_string(),
+        };
+        let loc2 = TestLocation {
+            id: LocationId::new(),
+            position: Point::new(-122.0842, 37.4224),
+            location_type: "store".to_string(),
+        };
+
+        handler.add_location(loc1).unwrap();
+        handler.add_location(loc2).unwrap();
+
+        // Export batch
+        let batch = handler.export_batch();
+
+        // Verify batch has correct number of rows
+        assert_eq!(batch.num_rows(), 2);
+
+        // Verify schema matches
+        assert_eq!(batch.schema(), handler.schema);
+
+        // Verify batch has all expected columns
+        assert_eq!(batch.num_columns(), 8);
+        assert!(batch.column_by_name(fields::ID).is_some());
+        assert!(batch.column_by_name(fields::GEOMETRY).is_some());
+        assert!(batch.column_by_name(fields::H3_INDEX).is_some());
+    }
+
+    #[test]
+    fn test_import_batch_basic() {
+        let mut handler1 = LocationHandler::new(Resolution::Nine);
+
+        // Add locations to first handler
+        let loc1 = TestLocation {
+            id: LocationId::new(),
+            position: Point::new(-122.4194, 37.7749),
+            location_type: "warehouse".to_string(),
+        };
+        let loc2 = TestLocation {
+            id: LocationId::new(),
+            position: Point::new(-122.0842, 37.4224),
+            location_type: "store".to_string(),
+        };
+        let id1 = loc1.id();
+        let id2 = loc2.id();
+
+        handler1.add_location(loc1).unwrap();
+        handler1.add_location(loc2).unwrap();
+
+        // Export from first handler
+        let batch = handler1.export_batch();
+
+        // Import into second handler
+        let mut handler2 = LocationHandler::<TestLocation>::new(Resolution::Nine);
+        handler2.import_batch(batch).unwrap();
+
+        // Verify location count
+        assert_eq!(handler2.count(), 2);
+
+        // Verify locations are accessible by ID
+        assert!(handler2.get(id1).is_some());
+        assert!(handler2.get(id2).is_some());
+
+        // Verify location data
+        let data1 = handler2.get(id1).unwrap();
+        assert_eq!(data1.location_type, "warehouse");
+        assert!((data1.position.x() - (-122.4194)).abs() < 0.0001);
+        assert!((data1.position.y() - 37.7749).abs() < 0.0001);
+
+        let data2 = handler2.get(id2).unwrap();
+        assert_eq!(data2.location_type, "store");
+    }
+
+    #[test]
+    fn test_import_batch_rebuilds_h3_index() {
+        let mut handler1 = LocationHandler::new(Resolution::Nine);
+
+        // Add locations in San Francisco area
+        let loc1 = TestLocation {
+            id: LocationId::new(),
+            position: Point::new(-122.4194, 37.7749), // San Francisco
+            location_type: "warehouse".to_string(),
+        };
+        let loc2 = TestLocation {
+            id: LocationId::new(),
+            position: Point::new(-122.4, 37.78), // Near San Francisco
+            location_type: "store".to_string(),
+        };
+        let loc3 = TestLocation {
+            id: LocationId::new(),
+            position: Point::new(-118.2437, 34.0522), // Los Angeles (far away)
+            location_type: "warehouse".to_string(),
+        };
+
+        let id1 = loc1.id();
+        let id2 = loc2.id();
+        let id3 = loc3.id();
+
+        handler1.add_location(loc1).unwrap();
+        handler1.add_location(loc2).unwrap();
+        handler1.add_location(loc3).unwrap();
+
+        // Export and import
+        let batch = handler1.export_batch();
+        let mut handler2 = LocationHandler::<TestLocation>::new(Resolution::Nine);
+        handler2.import_batch(batch).unwrap();
+
+        // Test nearest location query (uses H3 index)
+        let sf_point = Point::new(-122.42, 37.77);
+        let nearest = handler2.nearest(sf_point).unwrap().unwrap();
+
+        // Should find one of the SF locations, not LA
+        assert!(nearest == id1 || nearest == id2);
+        assert_ne!(nearest, id3);
+    }
+
+    #[test]
+    fn test_import_batch_spatial_queries_work() {
+        let mut handler1 = LocationHandler::new(Resolution::Nine);
+
+        // Add multiple locations
+        let loc1 = TestLocation {
+            id: LocationId::new(),
+            position: Point::new(-122.4194, 37.7749),
+            location_type: "warehouse".to_string(),
+        };
+        let loc2 = TestLocation {
+            id: LocationId::new(),
+            position: Point::new(-122.4, 37.78), // ~2km from loc1
+            location_type: "warehouse".to_string(),
+        };
+        let loc3 = TestLocation {
+            id: LocationId::new(),
+            position: Point::new(-122.0, 37.5), // ~50km from loc1
+            location_type: "warehouse".to_string(),
+        };
+
+        handler1.add_location(loc1).unwrap();
+        handler1.add_location(loc2).unwrap();
+        handler1.add_location(loc3).unwrap();
+
+        // Export and import
+        let batch = handler1.export_batch();
+        let mut handler2 = LocationHandler::<TestLocation>::new(Resolution::Nine);
+        handler2.import_batch(batch).unwrap();
+
+        // Test within_radius query (uses H3 index)
+        let center = Point::new(-122.4194, 37.7749);
+        let within = handler2.within_radius(center, 5000.0).unwrap(); // 5km radius
+
+        // Should find loc1 and loc2, but not loc3
+        assert_eq!(within.len(), 2);
+    }
+
+    #[test]
+    fn test_import_batch_preserves_geometry_wkb() {
+        let mut handler1 = LocationHandler::new(Resolution::Nine);
+
+        // Add location with specific coordinates
+        let precise_lon = -122.41941234567890;
+        let precise_lat = 37.77491234567890;
+
+        let loc = TestLocation {
+            id: LocationId::new(),
+            position: Point::new(precise_lon, precise_lat),
+            location_type: "warehouse".to_string(),
+        };
+        let id = loc.id();
+
+        handler1.add_location(loc).unwrap();
+
+        // Export and import
+        let batch = handler1.export_batch();
+        let mut handler2 = LocationHandler::<TestLocation>::new(Resolution::Nine);
+        handler2.import_batch(batch).unwrap();
+
+        // Verify geometry precision is preserved
+        let position = handler2.get_position(id).unwrap();
+        assert!((position.x() - precise_lon).abs() < 1e-10);
+        assert!((position.y() - precise_lat).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_import_batch_empty() {
+        // Test importing empty batch
+        let handler1 = LocationHandler::<TestLocation>::new(Resolution::Nine);
+        let batch = handler1.export_batch();
+
+        let mut handler2 = LocationHandler::<TestLocation>::new(Resolution::Nine);
+        handler2.import_batch(batch).unwrap();
+
+        assert_eq!(handler2.count(), 0);
+    }
+
+    #[test]
+    fn test_import_batch_schema_validation() {
+        // Create a batch with wrong schema
+        use arrow::datatypes::{DataType, Field, Schema};
+
+        let wrong_schema = Arc::new(Schema::new(vec![
+            Field::new("id", DataType::Binary, false),
+            Field::new("name", DataType::Utf8, true),
+        ]));
+
+        let wrong_batch = RecordBatch::new_empty(wrong_schema);
+
+        let mut handler = LocationHandler::<TestLocation>::new(Resolution::Nine);
+        let result = handler.import_batch(wrong_batch);
+
+        // Should fail with schema mismatch error
+        assert!(result.is_err());
+        if let Err(crate::Error::Location(msg)) = result {
+            assert!(msg.contains("schema does not match"));
+        } else {
+            panic!("Expected Location error with schema mismatch message");
+        }
+    }
+
+    #[test]
+    fn test_export_import_roundtrip() {
+        let mut handler1 = LocationHandler::new(Resolution::Nine);
+
+        // Add diverse set of locations
+        let locations = vec![
+            TestLocation {
+                id: LocationId::new(),
+                position: Point::new(-122.4194, 37.7749),
+                location_type: "warehouse".to_string(),
+            },
+            TestLocation {
+                id: LocationId::new(),
+                position: Point::new(-118.2437, 34.0522),
+                location_type: "store".to_string(),
+            },
+            TestLocation {
+                id: LocationId::new(),
+                position: Point::new(-87.6298, 41.8781),
+                location_type: "depot".to_string(),
+            },
+            TestLocation {
+                id: LocationId::new(),
+                position: Point::new(-74.0060, 40.7128),
+                location_type: "warehouse".to_string(),
+            },
+        ];
+
+        let ids: Vec<_> = locations.iter().map(|l| l.id()).collect();
+
+        for loc in locations {
+            handler1.add_location(loc).unwrap();
+        }
+
+        // Export
+        let batch = handler1.export_batch();
+
+        // Import into new handler
+        let mut handler2 = LocationHandler::<TestLocation>::new(Resolution::Nine);
+        handler2.import_batch(batch).unwrap();
+
+        // Verify all locations are present
+        assert_eq!(handler2.count(), 4);
+
+        for id in &ids {
+            assert!(handler2.get(*id).is_some());
+        }
+
+        // Verify type filtering still works
+        let warehouses = handler2.get_by_type("warehouse").unwrap();
+        assert_eq!(warehouses.len(), 2);
+
+        let stores = handler2.get_by_type("store").unwrap();
+        assert_eq!(stores.len(), 1);
+
+        let depots = handler2.get_by_type("depot").unwrap();
+        assert_eq!(depots.len(), 1);
     }
 }

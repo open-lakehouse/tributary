@@ -19,6 +19,7 @@ use arrow::datatypes::SchemaRef;
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::sync::Arc;
+use uuid::Uuid;
 
 /// Manages the population of agents in the simulation using Arrow RecordBatch
 ///
@@ -859,6 +860,79 @@ impl<A: Agent> PopulationHandler<A> {
     pub fn record_batch(&self) -> &RecordBatch {
         &self.agents
     }
+
+    /// Export the current population state as a RecordBatch
+    ///
+    /// Creates a clone of the internal RecordBatch for persistence.
+    /// This can be used to save the population state to disk or transfer
+    /// it between simulation instances.
+    ///
+    /// # Returns
+    ///
+    /// A cloned RecordBatch containing all current agent data
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let batch = handler.export_batch();
+    /// // Save batch to file or send over network
+    /// ```
+    pub fn export_batch(&self) -> RecordBatch {
+        self.agents.clone()
+    }
+
+    /// Import a population state from a RecordBatch
+    ///
+    /// Restores the population from a previously exported RecordBatch.
+    /// Rebuilds the id_to_row HashMap index by iterating through all rows.
+    ///
+    /// # Arguments
+    ///
+    /// * `batch` - The RecordBatch to import
+    ///
+    /// # Returns
+    ///
+    /// Ok(()) if successful, Error if the batch has invalid schema or data
+    ///
+    /// # Errors
+    ///
+    /// - Returns Error::Agent if the batch schema doesn't match expected format
+    /// - Returns Error::Agent if agent IDs cannot be parsed from the batch
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let batch = handler.export_batch();
+    /// let mut new_handler = PopulationHandler::<MyAgent>::new();
+    /// new_handler.import_batch(batch)?;
+    /// ```
+    pub fn import_batch(&mut self, batch: RecordBatch) -> Result<()> {
+        // Validate schema
+        Self::validate_agent_schema(&batch)?;
+
+        // Extract ID column to rebuild index
+        let id_array = batch.column(0)
+            .as_any()
+            .downcast_ref::<arrow::array::FixedSizeBinaryArray>()
+            .ok_or_else(|| Error::Agent("Invalid ID column type".to_string()))?;
+
+        // Rebuild id_to_row HashMap
+        let mut new_id_to_row = HashMap::new();
+        for row_idx in 0..batch.num_rows() {
+            let id_bytes = id_array.value(row_idx);
+            let uuid = Uuid::from_slice(id_bytes)
+                .map_err(|e| Error::Agent(format!("Invalid agent ID at row {}: {}", row_idx, e)))?;
+            let agent_id = AgentId::from_uuid(uuid);
+            new_id_to_row.insert(agent_id, row_idx);
+        }
+
+        // Update handler state
+        self.agents = batch;
+        self.id_to_row = new_id_to_row;
+        self.next_row = self.agents.num_rows();
+
+        Ok(())
+    }
 }
 
 impl<A: Agent> Default for PopulationHandler<A> {
@@ -1008,5 +1082,210 @@ mod tests {
         let removed = handler.remove_agent(id);
         assert!(removed.is_some());
         assert_eq!(handler.count(), 0);
+    }
+
+    #[test]
+    fn test_export_batch() {
+        let mut handler = PopulationHandler::new();
+
+        let agent1 = TestAgent {
+            id: AgentId::new(),
+            status: TestStatus::Idle,
+            tick_count: 5,
+        };
+        let agent2 = TestAgent {
+            id: AgentId::new(),
+            status: TestStatus::Idle,
+            tick_count: 10,
+        };
+
+        handler.add_agent(agent1);
+        handler.add_agent(agent2);
+
+        let batch = handler.export_batch();
+
+        assert_eq!(batch.num_rows(), 2);
+        assert_eq!(batch.num_columns(), 6);
+        assert_eq!(batch.schema(), handler.agents.schema());
+    }
+
+    #[test]
+    fn test_import_batch_empty() {
+        let handler = PopulationHandler::<TestAgent>::new();
+        let empty_batch = handler.export_batch();
+
+        let mut new_handler = PopulationHandler::<TestAgent>::new();
+        let result = new_handler.import_batch(empty_batch);
+
+        assert!(result.is_ok());
+        assert_eq!(new_handler.count(), 0);
+    }
+
+    #[test]
+    fn test_import_batch_round_trip() {
+        let mut handler = PopulationHandler::new();
+
+        let agent1 = TestAgent {
+            id: AgentId::new(),
+            status: TestStatus::Idle,
+            tick_count: 5,
+        };
+        let agent2 = TestAgent {
+            id: AgentId::new(),
+            status: TestStatus::Idle,
+            tick_count: 10,
+        };
+        let agent3 = TestAgent {
+            id: AgentId::new(),
+            status: TestStatus::Idle,
+            tick_count: 15,
+        };
+
+        let id1 = agent1.id();
+        let id2 = agent2.id();
+        let id3 = agent3.id();
+
+        handler.add_agent(agent1);
+        handler.add_agent(agent2);
+        handler.add_agent(agent3);
+
+        // Export the batch
+        let batch = handler.export_batch();
+
+        // Import into a new handler
+        let mut new_handler = PopulationHandler::<TestAgent>::new();
+        let result = new_handler.import_batch(batch);
+
+        assert!(result.is_ok());
+
+        // Verify agent count
+        assert_eq!(new_handler.count(), 3);
+
+        // Verify all agents can be retrieved by ID
+        assert!(new_handler.get_agent(id1).is_some());
+        assert!(new_handler.get_agent(id2).is_some());
+        assert!(new_handler.get_agent(id3).is_some());
+
+        // Verify agent data is correct
+        let restored1 = new_handler.get_agent(id1).unwrap();
+        assert_eq!(restored1.id(), id1);
+        assert_eq!(restored1.tick_count, 5);
+
+        let restored2 = new_handler.get_agent(id2).unwrap();
+        assert_eq!(restored2.id(), id2);
+        assert_eq!(restored2.tick_count, 10);
+
+        let restored3 = new_handler.get_agent(id3).unwrap();
+        assert_eq!(restored3.id(), id3);
+        assert_eq!(restored3.tick_count, 15);
+    }
+
+    #[test]
+    fn test_import_batch_rebuilds_index() {
+        let mut handler = PopulationHandler::new();
+
+        let agent1 = TestAgent {
+            id: AgentId::new(),
+            status: TestStatus::Idle,
+            tick_count: 1,
+        };
+        let agent2 = TestAgent {
+            id: AgentId::new(),
+            status: TestStatus::Idle,
+            tick_count: 2,
+        };
+
+        let id1 = agent1.id();
+        let id2 = agent2.id();
+
+        handler.add_agent(agent1);
+        handler.add_agent(agent2);
+
+        let batch = handler.export_batch();
+
+        // Create new handler and import
+        let mut new_handler = PopulationHandler::<TestAgent>::new();
+        new_handler.import_batch(batch).unwrap();
+
+        // Verify the index was rebuilt correctly
+        assert_eq!(new_handler.id_to_row.len(), 2);
+        assert_eq!(*new_handler.id_to_row.get(&id1).unwrap(), 0);
+        assert_eq!(*new_handler.id_to_row.get(&id2).unwrap(), 1);
+
+        // Verify get_agent works with rebuilt index
+        let retrieved1 = new_handler.get_agent(id1);
+        assert!(retrieved1.is_some());
+        assert_eq!(retrieved1.unwrap().tick_count, 1);
+
+        let retrieved2 = new_handler.get_agent(id2);
+        assert!(retrieved2.is_some());
+        assert_eq!(retrieved2.unwrap().tick_count, 2);
+    }
+
+    #[test]
+    fn test_import_batch_invalid_schema() {
+        use arrow::datatypes::{DataType, Field, Schema};
+
+        // Create a batch with wrong schema
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("wrong_field", DataType::Int32, false),
+        ]));
+
+        let int_array: ArrayRef = Arc::new(arrow::array::Int32Array::from(vec![1, 2, 3]));
+        let invalid_batch = RecordBatch::try_new(schema, vec![int_array]).unwrap();
+
+        let mut handler = PopulationHandler::<TestAgent>::new();
+        let result = handler.import_batch(invalid_batch);
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Invalid agent schema"));
+    }
+
+    #[test]
+    fn test_import_batch_operations_after_import() {
+        let mut handler = PopulationHandler::new();
+
+        let agent1 = TestAgent {
+            id: AgentId::new(),
+            status: TestStatus::Idle,
+            tick_count: 0,
+        };
+        let id1 = agent1.id();
+
+        handler.add_agent(agent1);
+        let batch = handler.export_batch();
+
+        // Import into new handler
+        let mut new_handler = PopulationHandler::<TestAgent>::new();
+        new_handler.import_batch(batch).unwrap();
+
+        // Verify we can perform operations after import
+
+        // 1. Add new agent
+        let agent2 = TestAgent {
+            id: AgentId::new(),
+            status: TestStatus::Idle,
+            tick_count: 0,
+        };
+        let id2 = agent2.id();
+        new_handler.add_agent(agent2);
+        assert_eq!(new_handler.count(), 2);
+
+        // 2. Retrieve agents
+        assert!(new_handler.get_agent(id1).is_some());
+        assert!(new_handler.get_agent(id2).is_some());
+
+        // 3. Tick agents
+        let config = crate::context::SimulationConfig::default();
+        let ctx = SimulationContext::from_now(config);
+        new_handler.tick_agents(&ctx).unwrap();
+
+        assert_eq!(new_handler.get_agent(id1).unwrap().tick_count, 1);
+        assert_eq!(new_handler.get_agent(id2).unwrap().tick_count, 1);
+
+        // 4. Remove agent
+        let removed = new_handler.remove_agent(id1);
+        assert!(removed.is_some());
+        assert_eq!(new_handler.count(), 1);
     }
 }

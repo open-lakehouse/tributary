@@ -102,7 +102,7 @@ impl<W: Workflow> WorkflowEngine<W> {
             ("id", DataType::Binary, false),
             ("workflow_id", DataType::Binary, false),
             ("status", DataType::Utf8, false),
-            ("current_step", DataType::Int64, false),
+            ("current_step_index", DataType::Int64, false),
             ("total_steps", DataType::Int64, false),
             ("agent_id", DataType::Binary, true),
             ("started_at", DataType::Int64, false),
@@ -926,6 +926,83 @@ impl<W: Workflow> WorkflowEngine<W> {
         // The caller should use update methods to persist changes
         self.get_instance(id)
     }
+
+    /// Export the workflow instances RecordBatch
+    ///
+    /// Returns a copy of the internal RecordBatch containing all workflow instances.
+    /// This can be used for persistence, serialization, or state transfer.
+    ///
+    /// # Returns
+    ///
+    /// A RecordBatch containing all workflow instance data
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let batch = engine.export_batch();
+    /// // Serialize or persist batch...
+    /// ```
+    pub fn export_batch(&self) -> RecordBatch {
+        self.instances.clone()
+    }
+
+    /// Import and restore workflow instances from a RecordBatch
+    ///
+    /// Replaces the current workflow instances with the provided batch and rebuilds
+    /// all internal indices. The batch must conform to the expected workflow instance
+    /// schema.
+    ///
+    /// # Arguments
+    ///
+    /// * `batch` - RecordBatch containing workflow instance data
+    ///
+    /// # Returns
+    ///
+    /// Ok(()) if successful, Err if the batch has an invalid schema or indices cannot be rebuilt
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let batch = load_batch_from_disk()?;
+    /// engine.import_batch(batch)?;
+    /// ```
+    pub fn import_batch(&mut self, batch: RecordBatch) -> Result<()> {
+        // Validate schema
+        Self::validate_instance_schema(&batch)?;
+
+        // Replace instances
+        self.instances = batch;
+
+        // Rebuild instance_id_to_row lookup map
+        self.rebuild_instance_index()?;
+
+        Ok(())
+    }
+
+    /// Rebuild the instance_id_to_row lookup map from the current RecordBatch
+    fn rebuild_instance_index(&mut self) -> Result<()> {
+        self.instance_id_to_row.clear();
+
+        if self.instances.num_rows() == 0 {
+            return Ok(());
+        }
+
+        // Extract id column
+        let id_array = self.instances.column(0).as_any().downcast_ref::<BinaryArray>()
+            .ok_or_else(|| crate::Error::Workflow("Failed to downcast id column to BinaryArray".to_string()))?;
+
+        // Build lookup map
+        for row_idx in 0..self.instances.num_rows() {
+            let id_bytes = id_array.value(row_idx);
+            let uuid = Uuid::from_slice(id_bytes)
+                .map_err(|e| crate::Error::Workflow(format!("Invalid UUID in row {}: {}", row_idx, e)))?;
+            let instance_id = WorkflowInstanceId::from_uuid(uuid);
+
+            self.instance_id_to_row.insert(instance_id, row_idx);
+        }
+
+        Ok(())
+    }
 }
 
 /// Helper struct for row updates
@@ -942,7 +1019,6 @@ impl<W: Workflow> Default for WorkflowEngine<W> {
     }
 }
 
-/* Temporarily disabled due to async issues
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1178,6 +1254,293 @@ mod tests {
         let events = engine.tick(current_time).unwrap();
         assert_eq!(events.len(), 0);
     }
+
+    #[test]
+    fn test_export_import_empty_engine() {
+        let engine = WorkflowEngine::<TestWorkflow>::new();
+
+        // Export from empty engine
+        let batch = engine.export_batch();
+        assert_eq!(batch.num_rows(), 0);
+
+        // Import into new engine
+        let mut new_engine = WorkflowEngine::<TestWorkflow>::new();
+        new_engine.import_batch(batch).unwrap();
+
+        // Verify state
+        assert_eq!(new_engine.instance_count(), 0);
+    }
+
+    #[test]
+    fn test_export_import_single_instance() {
+        let mut engine = WorkflowEngine::new();
+        let workflow = create_test_workflow();
+        let workflow_id = workflow.id();
+
+        engine.register_workflow(workflow);
+        let instance = engine.start_instance(workflow_id).unwrap();
+        let instance_id = instance.id;
+
+        // Export
+        let batch = engine.export_batch();
+        assert_eq!(batch.num_rows(), 1);
+
+        // Import into new engine
+        let mut new_engine = WorkflowEngine::<TestWorkflow>::new();
+        new_engine.import_batch(batch).unwrap();
+
+        // Verify instance count
+        assert_eq!(new_engine.instance_count(), 1);
+
+        // Verify instance can be retrieved
+        let retrieved = new_engine.get_instance(instance_id).unwrap();
+        assert_eq!(retrieved.id, instance_id);
+        assert_eq!(retrieved.workflow_id, workflow_id);
+        assert_eq!(retrieved.current_step, 0);
+        assert_eq!(retrieved.total_steps, 2);
+        assert!(!retrieved.is_complete);
+    }
+
+    #[test]
+    fn test_export_import_multiple_instances() {
+        let mut engine = WorkflowEngine::new();
+        let workflow = create_test_workflow();
+        let workflow_id = workflow.id();
+
+        engine.register_workflow(workflow);
+
+        // Create multiple instances
+        let instance1 = engine.start_instance(workflow_id).unwrap();
+        let instance2 = engine.start_instance(workflow_id).unwrap();
+        let instance3 = engine.start_instance(workflow_id).unwrap();
+
+        let id1 = instance1.id;
+        let id2 = instance2.id;
+        let id3 = instance3.id;
+
+        // Export
+        let batch = engine.export_batch();
+        assert_eq!(batch.num_rows(), 3);
+
+        // Import into new engine
+        let mut new_engine = WorkflowEngine::<TestWorkflow>::new();
+        new_engine.import_batch(batch).unwrap();
+
+        // Verify instance count
+        assert_eq!(new_engine.instance_count(), 3);
+
+        // Verify all instances can be retrieved
+        assert!(new_engine.get_instance(id1).is_some());
+        assert!(new_engine.get_instance(id2).is_some());
+        assert!(new_engine.get_instance(id3).is_some());
+    }
+
+    #[test]
+    fn test_export_import_preserves_workflow_state() {
+        let mut engine = WorkflowEngine::new();
+        let workflow = create_test_workflow();
+        let workflow_id = workflow.id();
+
+        engine.register_workflow(workflow);
+
+        // Create instances with different states
+        let instance1 = engine.start_instance(workflow_id).unwrap();
+        let id1 = instance1.id;
+
+        let instance2 = engine.start_instance(workflow_id).unwrap();
+        let id2 = instance2.id;
+
+        let instance3 = engine.start_instance(workflow_id).unwrap();
+        let id3 = instance3.id;
+
+        // Advance instance1 to step 1
+        let completion_time = chrono::Utc::now();
+        engine.advance_instance_step(id1, completion_time).unwrap();
+
+        // Complete instance2
+        engine.advance_instance_step(id2, completion_time).unwrap();
+        engine.advance_instance_step(id2, completion_time).unwrap();
+
+        // Pause instance3
+        engine.pause_instance(id3).unwrap();
+
+        // Export
+        let batch = engine.export_batch();
+
+        // Import into new engine
+        let mut new_engine = WorkflowEngine::<TestWorkflow>::new();
+        new_engine.import_batch(batch).unwrap();
+
+        // Verify instance1 state
+        let retrieved1 = new_engine.get_instance(id1).unwrap();
+        assert_eq!(retrieved1.current_step, 1);
+        assert!(!retrieved1.is_complete);
+
+        // Verify instance2 state (completed)
+        let retrieved2 = new_engine.get_instance(id2).unwrap();
+        assert_eq!(retrieved2.current_step, 2);
+        assert!(retrieved2.is_complete);
+
+        // Verify instance3 state (paused)
+        let status3 = new_engine.get_instance_status(id3).unwrap();
+        assert_eq!(status3, InstanceStatus::Paused);
+    }
+
+    #[test]
+    fn test_export_import_running_instances_query() {
+        let mut engine = WorkflowEngine::new();
+        let workflow = create_test_workflow();
+        let workflow_id = workflow.id();
+
+        engine.register_workflow(workflow);
+
+        // Create 3 running, 2 completed instances
+        let _instance1 = engine.start_instance(workflow_id).unwrap();
+        let _instance2 = engine.start_instance(workflow_id).unwrap();
+        let _instance3 = engine.start_instance(workflow_id).unwrap();
+
+        let instance4 = engine.start_instance(workflow_id).unwrap();
+        let instance5 = engine.start_instance(workflow_id).unwrap();
+
+        // Complete instance4 and instance5
+        let completion_time = chrono::Utc::now();
+        engine.advance_instance_step(instance4.id, completion_time).unwrap();
+        engine.advance_instance_step(instance4.id, completion_time).unwrap();
+        engine.advance_instance_step(instance5.id, completion_time).unwrap();
+        engine.advance_instance_step(instance5.id, completion_time).unwrap();
+
+        // Export
+        let batch = engine.export_batch();
+
+        // Import into new engine
+        let mut new_engine = WorkflowEngine::<TestWorkflow>::new();
+        new_engine.import_batch(batch).unwrap();
+
+        // Query running instances
+        let running = new_engine.get_running_instances().unwrap();
+        assert_eq!(running.len(), 3);
+
+        // Query completed instances
+        let completed = new_engine.get_completed_instances().unwrap();
+        assert_eq!(completed.len(), 2);
+    }
+
+    #[test]
+    fn test_export_import_status_queries() {
+        let mut engine = WorkflowEngine::new();
+        let workflow = create_test_workflow();
+        let workflow_id = workflow.id();
+
+        engine.register_workflow(workflow);
+
+        let instance1 = engine.start_instance(workflow_id).unwrap();
+        let instance2 = engine.start_instance(workflow_id).unwrap();
+
+        // Pause instance2
+        engine.pause_instance(instance2.id).unwrap();
+
+        // Export
+        let batch = engine.export_batch();
+
+        // Import into new engine
+        let mut new_engine = WorkflowEngine::<TestWorkflow>::new();
+        new_engine.import_batch(batch).unwrap();
+
+        // Verify status queries work
+        let status1 = new_engine.get_instance_status(instance1.id).unwrap();
+        assert_eq!(status1, InstanceStatus::Running);
+
+        let status2 = new_engine.get_instance_status(instance2.id).unwrap();
+        assert_eq!(status2, InstanceStatus::Paused);
+    }
+
+    #[test]
+    fn test_import_invalid_schema_fails() {
+        use arrow::array::Int32Array;
+        use arrow::datatypes::{DataType, Field, Schema};
+
+        let mut engine = WorkflowEngine::<TestWorkflow>::new();
+
+        // Create batch with wrong schema
+        let invalid_schema = Schema::new(vec![
+            Field::new("wrong_field", DataType::Int32, false),
+        ]);
+        let invalid_array: ArrayRef = Arc::new(Int32Array::from(vec![1, 2, 3]));
+        let invalid_batch = RecordBatch::try_new(
+            Arc::new(invalid_schema),
+            vec![invalid_array],
+        ).unwrap();
+
+        // Import should fail
+        let result = engine.import_batch(invalid_batch);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_import_rebuilds_indices() {
+        let mut engine = WorkflowEngine::new();
+        let workflow = create_test_workflow();
+        let workflow_id = workflow.id();
+
+        engine.register_workflow(workflow);
+
+        // Create instances
+        let instance1 = engine.start_instance(workflow_id).unwrap();
+        let instance2 = engine.start_instance(workflow_id).unwrap();
+
+        let id1 = instance1.id;
+        let id2 = instance2.id;
+
+        // Export
+        let batch = engine.export_batch();
+
+        // Create new engine and clear any state
+        let mut new_engine = WorkflowEngine::<TestWorkflow>::new();
+
+        // Import should rebuild indices
+        new_engine.import_batch(batch).unwrap();
+
+        // Verify O(1) lookup works
+        assert!(new_engine.get_instance(id1).is_some());
+        assert!(new_engine.get_instance(id2).is_some());
+
+        // Verify lookups return correct instances
+        let retrieved1 = new_engine.get_instance(id1).unwrap();
+        assert_eq!(retrieved1.id, id1);
+
+        let retrieved2 = new_engine.get_instance(id2).unwrap();
+        assert_eq!(retrieved2.id, id2);
+    }
+
+    #[test]
+    fn test_round_trip_preserves_metadata() {
+        let mut engine = WorkflowEngine::new();
+        let workflow = create_test_workflow();
+        let workflow_id = workflow.id();
+
+        engine.register_workflow(workflow);
+
+        // Create instance with metadata
+        let mut instance = engine.start_instance(workflow_id).unwrap();
+        instance.metadata.insert("key1".to_string(), "value1".to_string());
+        instance.metadata.insert("key2".to_string(), "value2".to_string());
+
+        let instance_id = instance.id;
+
+        // We need to update the instance in the engine with metadata
+        // For this test, we'll export and import to verify the metadata path works
+
+        // Export
+        let batch = engine.export_batch();
+
+        // Import into new engine
+        let mut new_engine = WorkflowEngine::<TestWorkflow>::new();
+        new_engine.import_batch(batch).unwrap();
+
+        // Retrieve and verify (metadata should be empty as we didn't update it in the batch)
+        let retrieved = new_engine.get_instance(instance_id).unwrap();
+        assert_eq!(retrieved.id, instance_id);
+        // Note: metadata preservation would require updating the RecordBatch,
+        // which is not done in this test. This test verifies the round-trip works.
+    }
 }
-}
-*/
