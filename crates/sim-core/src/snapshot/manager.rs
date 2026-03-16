@@ -321,10 +321,7 @@ impl SnapshotManager {
             .await?;
 
         // Read locations if present
-        let locations = if self
-            .ctx
-            .table_exist(format!("{}_locations", snapshot_id))?
-        {
+        let locations = if self.ctx.table_exist(format!("{}_locations", snapshot_id))? {
             Some(
                 self.read_table(&format!("{}_locations", snapshot_id))
                     .await?,

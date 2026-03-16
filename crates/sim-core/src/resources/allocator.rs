@@ -738,13 +738,15 @@ impl<R: Resource, T: Task> ResourceAllocator<R, T> {
         };
 
         for i in 0..self.tasks.num_rows() {
-            if status_array.value(i) == task_status::ALLOCATED && !resource_array.is_null(i)
+            if status_array.value(i) == task_status::ALLOCATED
+                && !resource_array.is_null(i)
                 && let (Ok(task_id), Ok(resource_id)) = (
                     TaskId::from_bytes(id_array.value(i)),
                     ResourceId::from_bytes(resource_array.value(i)),
-                ) {
-                    result.insert(task_id, resource_id);
-                }
+                )
+            {
+                result.insert(task_id, resource_id);
+            }
         }
 
         result
@@ -799,16 +801,17 @@ impl<R: Resource, T: Task> ResourceAllocator<R, T> {
                     .map_err(|e| crate::Error::Custom(format!("Invalid task ID: {}", e)))?;
 
                 if let Some(metadata) = self.task_metadata.get(&task_id)
-                    && let Some(allocated_at) = metadata.allocated_at {
-                        let completion_time = allocated_at + metadata.estimated_duration;
-                        if completion_time <= current_time && !workflow_array.is_null(i) {
-                            let workflow_id =
-                                WorkflowInstanceId::from_bytes(workflow_array.value(i)).map_err(
-                                    |e| crate::Error::Custom(format!("Invalid workflow ID: {}", e)),
-                                )?;
-                            completed.push((task_id, workflow_id));
-                        }
+                    && let Some(allocated_at) = metadata.allocated_at
+                {
+                    let completion_time = allocated_at + metadata.estimated_duration;
+                    if completion_time <= current_time && !workflow_array.is_null(i) {
+                        let workflow_id = WorkflowInstanceId::from_bytes(workflow_array.value(i))
+                            .map_err(|e| {
+                            crate::Error::Custom(format!("Invalid workflow ID: {}", e))
+                        })?;
+                        completed.push((task_id, workflow_id));
                     }
+                }
             }
         }
 

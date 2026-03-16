@@ -149,10 +149,7 @@ impl<L: Location> LocationHandler<L> {
         self.location_id_to_row.insert(id, new_row_idx);
 
         // Update H3 spatial index
-        self.h3_index
-            .entry(cell)
-            .or_default()
-            .push(new_row_idx);
+        self.h3_index.entry(cell).or_default().push(new_row_idx);
 
         Ok(())
     }
@@ -339,9 +336,10 @@ impl<L: Location> LocationHandler<L> {
                 let distance = Haversine.distance(point, loc_point);
 
                 if distance <= radius_meters
-                    && let Ok(id) = self.get_location_id_from_batch(row_idx) {
-                        results.push(id);
-                    }
+                    && let Ok(id) = self.get_location_id_from_batch(row_idx)
+                {
+                    results.push(id);
+                }
             }
         }
 
@@ -355,9 +353,10 @@ impl<L: Location> LocationHandler<L> {
         for row_idx in 0..self.locations.num_rows() {
             if let Ok(Some(row_type)) = self.get_string_from_batch(row_idx, fields::LOCATION_TYPE)
                 && row_type == location_type
-                    && let Ok(id) = self.get_location_id_from_batch(row_idx) {
-                        results.push(id);
-                    }
+                && let Ok(id) = self.get_location_id_from_batch(row_idx)
+            {
+                results.push(id);
+            }
         }
 
         Ok(results)
@@ -808,12 +807,10 @@ impl<L: Location> LocationHandler<L> {
 
             // Rebuild H3 index
             if let Ok(Some(h3_value)) = self.get_u64_from_batch(row_idx, fields::H3_INDEX)
-                && let Ok(cell) = CellIndex::try_from(h3_value) {
-                    self.h3_index
-                        .entry(cell)
-                        .or_default()
-                        .push(row_idx);
-                }
+                && let Ok(cell) = CellIndex::try_from(h3_value)
+            {
+                self.h3_index.entry(cell).or_default().push(row_idx);
+            }
         }
     }
 }

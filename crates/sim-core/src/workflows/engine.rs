@@ -1231,9 +1231,10 @@ impl<W: Workflow> WorkflowEngine<W> {
         // Iterate through all rows in RecordBatch
         for row_idx in 0..self.instances.num_rows() {
             if let Some(instance) = self.get_instance_at_row(row_idx)
-                && instance.is_ready_for_assignment() {
-                    instances.push(instance);
-                }
+                && instance.is_ready_for_assignment()
+            {
+                instances.push(instance);
+            }
         }
 
         instances

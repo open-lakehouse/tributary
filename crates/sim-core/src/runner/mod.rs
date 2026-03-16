@@ -359,9 +359,10 @@ where
             let mut workflow_tasks = Vec::new();
             for (task_id, _) in resources.pending_tasks() {
                 if let Some(instance_id) = resources.get_task_workflow_instance_id(task_id)
-                    && let Some(duration) = resources.get_task_estimated_duration(task_id) {
-                        workflow_tasks.push((task_id, instance_id, duration));
-                    }
+                    && let Some(duration) = resources.get_task_estimated_duration(task_id)
+                {
+                    workflow_tasks.push((task_id, instance_id, duration));
+                }
             }
 
             let assignments = resources.assign_tasks(strategy, current_time)?;

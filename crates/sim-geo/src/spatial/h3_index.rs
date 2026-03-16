@@ -25,10 +25,7 @@ impl<T: Clone + Eq + Hash> H3Index<T> {
 
     /// Insert an item at a cell
     pub fn insert(&mut self, cell: CellIndex, item: T) {
-        self.cells
-            .entry(cell)
-            .or_default()
-            .insert(item);
+        self.cells.entry(cell).or_default().insert(item);
     }
 
     /// Remove an item from a cell
