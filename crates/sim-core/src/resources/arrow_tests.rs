@@ -134,7 +134,7 @@ fn test_2_add_100_tasks_with_workflow_ids() {
     // Verify RecordBatch structure
     let tasks_batch = &allocator.tasks;
     assert_eq!(tasks_batch.num_rows(), 100);
-    assert_eq!(tasks_batch.num_columns(), 8);
+    assert_eq!(tasks_batch.num_columns(), 10);
 
     // Verify workflow IDs are stored
     let workflow_array = tasks_batch

@@ -609,6 +609,8 @@ mod tests {
         let workflow_array = BinaryArray::from(vec![None::<&[u8]>]);
         let priority_array = Int32Array::from(vec![0]);
         let metadata_array = StringArray::from(vec![Some("{}")]);
+        let allocated_at_array = Int64Array::from(vec![None::<i64>]);
+        let duration_array = Int64Array::from(vec![10]);
 
         RecordBatch::try_new(
             schema,
@@ -621,6 +623,8 @@ mod tests {
                 Arc::new(workflow_array),
                 Arc::new(priority_array),
                 Arc::new(metadata_array),
+                Arc::new(allocated_at_array),
+                Arc::new(duration_array),
             ],
         )
         .unwrap()

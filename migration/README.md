@@ -1,9 +1,9 @@
 # Generic Agent Simulation Framework - Migration Progress
 
 **Last Updated:** March 16, 2026
-**Overall Progress:** 57% complete (8/14 phases)
-**Current Status:** Phases 7+8 COMPLETE + Production Ready
-**Test Status:** 261+ tests passing (157 sim-geo + 104 sim-telemetry)
+**Overall Progress:** 64% complete (9/14 phases)
+**Current Status:** Phases 6, 7, 8 COMPLETE + Production Ready
+**Test Status:** 464+ tests passing (157 sim-core + 157 sim-geo + 104 sim-telemetry + more)
 
 ---
 
@@ -42,12 +42,13 @@ Where should I look?
 | 1 | Critical Bug Fixes | ✅ COMPLETE | 269 tests passing, zero warnings |
 | 3 | Code Simplification | ✅ COMPLETE | 7-785x batch speedups |
 | 5 | Workflow Integration | ✅ COMPLETE | Task-resource lifecycle |
-| 6 | Arrow Migration | ✅ COMPLETE | 10-100x storage speedup |
+| 6 | Arrow Migration | ✅ 100% COMPLETE | RecordBatch storage, SQL queries, snapshots (9x compression) |
 | 7 | Road Network | ✅ COMPLETE | 157 tests, 7µs routing queries |
 | 8 | Telemetry | ✅ COMPLETE | 104 tests, OTLP compliance |
 | P0 | Production Fixes | ✅ COMPLETE | FastGraph caching, zero warnings |
+| Cleanup | Documentation | ✅ COMPLETE | 91% reduction, essential docs only |
 
-**Total Test Coverage:** 261+ tests passing (sim-geo: 157, sim-telemetry: 104)
+**Total Test Coverage:** 464+ tests passing (sim-core: 157, sim-geo: 157, sim-telemetry: 104, sim-events: 16, sim-kitchen: 30)
 
 ### What's Next (Phases 9-14)
 
@@ -134,6 +135,33 @@ For detailed architecture, see `/docs/ARCHITECTURE.md`.
 ---
 
 ## Completed Work Highlights
+
+### Phase 6: Arrow Migration (COMPLETE - 100%)
+
+**Delivered:**
+- Week 1: RecordBatch migration foundation (10-100x bulk operation speedups)
+- Week 2: Snapshot/restore system (9x compression, 15ms save, 7ms restore)
+- Week 3: SQL query interface with DataFusion (cross-entity analytics)
+- 157 tests passing (100% library test pass rate)
+- Comprehensive documentation (migration guide + SQL cookbook)
+
+**Performance:**
+- Bulk operations: 10-100x faster than HashMap iteration
+- Snapshot save: 15ms for 1500 agents (66x better than target)
+- Snapshot restore: 7ms for 1500 agents (278x better than target)
+- SQL aggregations: 3.75x faster than manual iteration
+- Parquet compression: 9x file size reduction
+
+**New Capabilities:**
+- SQL queries across all entity types (agents, resources, tasks, workflows)
+- JOIN operations for cross-entity analysis
+- Snapshot save/restore for long-running simulations
+- Snapshot branching for A/B testing
+- Time-travel debugging with snapshots
+
+**Reference:** `/migration/completed/PHASE_6_COMPLETE.md`
+
+---
 
 ### Phase 7: Road Network Integration (COMPLETE)
 

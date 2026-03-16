@@ -5,9 +5,13 @@ use super::schema::InstanceStatus;
 use super::traits::{Workflow, WorkflowInstance};
 use crate::Result;
 use crate::utils::idents::{WorkflowId, WorkflowInstanceId};
+use arrow::record_batch::RecordBatch;
 use chrono::{DateTime, Utc};
+use datafusion::catalog::MemTable;
+use datafusion::execution::context::SessionContext;
 use std::collections::HashMap;
 use std::marker::PhantomData;
+use std::sync::Arc;
 
 /// Events emitted by workflow progression
 #[derive(Debug, Clone)]
@@ -302,6 +306,95 @@ impl<W: Workflow> WorkflowEngine<W> {
     /// Get workflow count
     pub fn workflow_count(&self) -> usize {
         self.workflows.len()
+    }
+
+    /// Execute SQL query on workflow instances
+    ///
+    /// This method registers the workflow instances RecordBatch as a DataFusion table
+    /// named "instances" and executes the provided SQL query against it.
+    ///
+    /// # Arguments
+    ///
+    /// * `sql` - SQL query string to execute
+    ///
+    /// # Returns
+    ///
+    /// A RecordBatch containing the query results
+    ///
+    /// # Schema
+    ///
+    /// The "instances" table has the following columns:
+    /// - `id`: Binary (16 bytes) - WorkflowInstanceId UUID
+    /// - `workflow_id`: Binary (16 bytes) - WorkflowId UUID
+    /// - `status`: Utf8 - Instance status (Running/TaskAssigned/Paused/Complete/Failed)
+    /// - `current_step_index`: Int64 - Current step in workflow (0-based)
+    /// - `total_steps`: Int64 - Total number of steps in workflow
+    /// - `agent_id`: Binary (16 bytes, nullable) - Optional AgentId assigned to instance
+    /// - `started_at`: Int64 - Simulation tick when instance started
+    /// - `completed_at`: Int64 (nullable) - Simulation tick when instance completed
+    /// - `context`: Utf8 (nullable) - JSON-encoded workflow context data
+    /// - `metadata`: Utf8 (nullable) - JSON-encoded domain-specific metadata
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// // Query all running instances
+    /// let running = engine.query("SELECT * FROM instances WHERE status = 'Running'").await?;
+    ///
+    /// // Query instances for a specific workflow
+    /// let workflow_instances = engine.query(
+    ///     "SELECT id, status FROM instances WHERE workflow_id = X'...'
+    /// ).await?;
+    ///
+    /// // Count instances by status
+    /// let counts = engine.query(
+    ///     "SELECT status, COUNT(*) as count FROM instances GROUP BY status"
+    /// ).await?;
+    /// ```
+    pub async fn query(&self, sql: &str) -> Result<RecordBatch> {
+        // Create DataFusion SessionContext
+        let ctx = SessionContext::new();
+
+        // Get the instances RecordBatch
+        let batch = self.instance_table.export_batch();
+        let schema = batch.schema();
+
+        // Create MemTable and register as "instances"
+        let table = MemTable::try_new(schema, vec![vec![batch]])
+            .map_err(|e| crate::Error::Workflow(format!("Failed to create MemTable: {}", e)))?;
+
+        ctx.register_table("instances", Arc::new(table))
+            .map_err(|e| {
+                crate::Error::Workflow(format!("Failed to register table: {}", e))
+            })?;
+
+        // Execute query
+        let df = ctx
+            .sql(sql)
+            .await
+            .map_err(|e| crate::Error::Workflow(format!("SQL query failed: {}", e)))?;
+
+        // Get schema before collecting (df.collect() consumes df)
+        let schema = df.schema().inner().clone();
+
+        // Collect results
+        let batches = df
+            .collect()
+            .await
+            .map_err(|e| crate::Error::Workflow(format!("Failed to collect results: {}", e)))?;
+
+        // Return single batch or concatenate multiple batches
+        if batches.is_empty() {
+            // Return empty batch with schema
+            Ok(RecordBatch::new_empty(schema))
+        } else if batches.len() == 1 {
+            Ok(batches[0].clone())
+        } else {
+            // Concatenate multiple batches
+            let schema = batches[0].schema();
+            arrow::compute::concat_batches(&schema, &batches)
+                .map_err(|e| crate::Error::Workflow(format!("Failed to concatenate batches: {}", e)))
+        }
     }
 
     /// Process workflow instances for current tick
@@ -869,5 +962,180 @@ mod tests {
         assert_eq!(retrieved.id, instance_id);
         // Note: metadata preservation would require updating the RecordBatch,
         // which is not done in this test. This test verifies the round-trip works.
+    }
+
+    #[tokio::test]
+    async fn test_query_all_instances() {
+        let mut engine = WorkflowEngine::new();
+        let workflow = create_test_workflow();
+        let workflow_id = workflow.id();
+
+        engine.register_workflow(workflow);
+
+        // Create 5 instances
+        engine.start_instance(workflow_id).unwrap();
+        engine.start_instance(workflow_id).unwrap();
+        engine.start_instance(workflow_id).unwrap();
+        engine.start_instance(workflow_id).unwrap();
+        engine.start_instance(workflow_id).unwrap();
+
+        // Query all instances
+        let result = engine.query("SELECT * FROM instances").await.unwrap();
+
+        assert_eq!(result.num_rows(), 5);
+        assert_eq!(result.num_columns(), 10); // All schema columns
+    }
+
+    #[tokio::test]
+    async fn test_query_by_status() {
+        let mut engine = WorkflowEngine::new();
+        let workflow = create_test_workflow();
+        let workflow_id = workflow.id();
+
+        engine.register_workflow(workflow);
+
+        // Create 3 running instances
+        engine.start_instance(workflow_id).unwrap();
+        engine.start_instance(workflow_id).unwrap();
+        let instance3 = engine.start_instance(workflow_id).unwrap();
+
+        // Complete one instance
+        let completion_time = chrono::Utc::now();
+        engine
+            .advance_instance_step(instance3.id, completion_time)
+            .unwrap();
+        engine
+            .advance_instance_step(instance3.id, completion_time)
+            .unwrap();
+
+        // Query running instances
+        let result = engine
+            .query("SELECT * FROM instances WHERE status = 'Running'")
+            .await
+            .unwrap();
+
+        assert_eq!(result.num_rows(), 2);
+
+        // Query completed instances
+        let result = engine
+            .query("SELECT * FROM instances WHERE status = 'Complete'")
+            .await
+            .unwrap();
+
+        assert_eq!(result.num_rows(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_query_by_agent() {
+        let mut engine = WorkflowEngine::new();
+        let workflow = create_test_workflow();
+        let workflow_id = workflow.id();
+
+        engine.register_workflow(workflow);
+
+        // Create instances
+        let _instance1 = engine.start_instance(workflow_id).unwrap();
+        let _instance2 = engine.start_instance(workflow_id).unwrap();
+        let _instance3 = engine.start_instance(workflow_id).unwrap();
+
+        // Note: WorkflowEngine doesn't currently expose assign_agent method
+        // This test demonstrates the query capability even though we can't
+        // assign agents directly through the public API.
+        // When agent assignment is added, this test will validate filtering by agent_id.
+
+        // Test NULL agent_id filter (all instances should have no agent assigned)
+        let result = engine
+            .query("SELECT * FROM instances WHERE agent_id IS NULL")
+            .await
+            .unwrap();
+
+        assert_eq!(result.num_rows(), 3); // All instances have no agent assigned
+
+        // Test NOT NULL filter (should be empty as no agents are assigned)
+        let result = engine
+            .query("SELECT * FROM instances WHERE agent_id IS NOT NULL")
+            .await
+            .unwrap();
+
+        assert_eq!(result.num_rows(), 0); // No agents assigned yet
+    }
+
+    #[tokio::test]
+    async fn test_query_count_by_status() {
+        let mut engine = WorkflowEngine::new();
+        let workflow = create_test_workflow();
+        let workflow_id = workflow.id();
+
+        engine.register_workflow(workflow);
+
+        // Create 5 running instances
+        for _ in 0..5 {
+            engine.start_instance(workflow_id).unwrap();
+        }
+
+        // Complete 2 instances
+        let running = engine.get_running_instances().unwrap();
+        let completion_time = chrono::Utc::now();
+        for i in 0..2 {
+            engine
+                .advance_instance_step(running[i], completion_time)
+                .unwrap();
+            engine
+                .advance_instance_step(running[i], completion_time)
+                .unwrap();
+        }
+
+        // Pause 1 instance
+        engine.pause_instance(running[2]).unwrap();
+
+        // Query count by status
+        let result = engine
+            .query("SELECT status, COUNT(*) as count FROM instances GROUP BY status ORDER BY status")
+            .await
+            .unwrap();
+
+        assert_eq!(result.num_rows(), 3); // Three different statuses
+
+        // Verify counts
+        let status_array = result
+            .column(0)
+            .as_any()
+            .downcast_ref::<arrow::array::StringArray>()
+            .unwrap();
+        let count_array = result
+            .column(1)
+            .as_any()
+            .downcast_ref::<arrow::array::Int64Array>()
+            .unwrap();
+
+        // Complete: 2, Paused: 1, Running: 2
+        for i in 0..result.num_rows() {
+            let status = status_array.value(i);
+            let count = count_array.value(i);
+
+            match status {
+                "Complete" => assert_eq!(count, 2),
+                "Paused" => assert_eq!(count, 1),
+                "Running" => assert_eq!(count, 2),
+                _ => panic!("Unexpected status: {}", status),
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_query_invalid_sql() {
+        let engine = WorkflowEngine::<TestWorkflow>::new();
+
+        // Test invalid SQL syntax
+        let result = engine.query("SELECT * FROM invalid_table").await;
+        assert!(result.is_err());
+
+        // Test syntax error
+        let result = engine.query("INVALID SQL QUERY").await;
+        assert!(result.is_err());
+
+        // Test invalid column
+        let result = engine.query("SELECT nonexistent_column FROM instances").await;
+        assert!(result.is_err());
     }
 }

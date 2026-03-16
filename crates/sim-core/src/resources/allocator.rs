@@ -178,10 +178,10 @@ impl<R: Resource, T: Task> ResourceAllocator<R, T> {
 
         let schema = batch.schema();
 
-        // Expected: 8 columns
-        if schema.fields().len() != 8 {
+        // Expected: 10 columns
+        if schema.fields().len() != 10 {
             return Err(crate::Error::Resource(format!(
-                "Invalid task schema: expected 8 columns, got {}",
+                "Invalid task schema: expected 10 columns, got {}",
                 schema.fields().len()
             )));
         }
@@ -196,6 +196,8 @@ impl<R: Resource, T: Task> ResourceAllocator<R, T> {
             ("workflow_instance_id", DataType::Binary, true),
             ("priority", DataType::Int32, false),
             ("metadata", DataType::Utf8, true),
+            ("allocated_at_millis", DataType::Int64, true),
+            ("estimated_duration_secs", DataType::Int64, false),
         ];
 
         for (i, (exp_name, exp_type, exp_nullable)) in expected.iter().enumerate() {
@@ -267,6 +269,8 @@ impl<R: Resource, T: Task> ResourceAllocator<R, T> {
                 Arc::new(BinaryArray::from(Vec::<Option<&[u8]>>::new())),
                 Arc::new(Int32Array::from(Vec::<i32>::new())),
                 Arc::new(StringArray::from(Vec::<Option<&str>>::new())),
+                Arc::new(Int64Array::from(Vec::<Option<i64>>::new())), // allocated_at_millis
+                Arc::new(Int64Array::from(Vec::<i64>::new())),         // estimated_duration_secs
             ],
         )
         .expect("Failed to create empty task batch");
@@ -444,6 +448,8 @@ impl<R: Resource, T: Task> ResourceAllocator<R, T> {
         let mut workflow_builder = BinaryBuilder::new();
         let mut priority_builder = Int32Builder::new();
         let mut metadata_builder = StringBuilder::new();
+        let mut allocated_at_builder = Int64Builder::new();
+        let mut duration_builder = Int64Builder::new();
 
         // Copy existing rows
         let id_array = self
@@ -522,6 +528,26 @@ impl<R: Resource, T: Task> ResourceAllocator<R, T> {
                     "Failed to downcast metadata column to StringArray".to_string(),
                 )
             })?;
+        let allocated_at_array = self
+            .tasks
+            .column(8)
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .ok_or_else(|| {
+                crate::Error::Resource(
+                    "Failed to downcast allocated_at column to Int64Array".to_string(),
+                )
+            })?;
+        let duration_array = self
+            .tasks
+            .column(9)
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .ok_or_else(|| {
+                crate::Error::Resource(
+                    "Failed to downcast duration column to Int64Array".to_string(),
+                )
+            })?;
 
         for i in 0..self.tasks.num_rows() {
             id_builder.append_value(id_array.value(i));
@@ -544,6 +570,12 @@ impl<R: Resource, T: Task> ResourceAllocator<R, T> {
             } else {
                 metadata_builder.append_value(metadata_array.value(i));
             }
+            if allocated_at_array.is_null(i) {
+                allocated_at_builder.append_null();
+            } else {
+                allocated_at_builder.append_value(allocated_at_array.value(i));
+            }
+            duration_builder.append_value(duration_array.value(i));
         }
 
         // Add new task
@@ -559,6 +591,8 @@ impl<R: Resource, T: Task> ResourceAllocator<R, T> {
         }
         priority_builder.append_value(task.priority());
         metadata_builder.append_value("{}");
+        allocated_at_builder.append_null(); // Not allocated yet
+        duration_builder.append_value(task.estimated_duration().num_seconds());
 
         // Create new batch
         let new_batch = RecordBatch::try_new(
@@ -572,6 +606,8 @@ impl<R: Resource, T: Task> ResourceAllocator<R, T> {
                 Arc::new(workflow_builder.finish()),
                 Arc::new(priority_builder.finish()),
                 Arc::new(metadata_builder.finish()),
+                Arc::new(allocated_at_builder.finish()),
+                Arc::new(duration_builder.finish()),
             ],
         )
         .map_err(|e| crate::Error::Custom(format!("Failed to create task batch: {}", e)))?;
@@ -1222,6 +1258,8 @@ impl<R: Resource, T: Task> ResourceAllocator<R, T> {
         let mut workflow_builder = BinaryBuilder::new();
         let mut priority_builder = Int32Builder::new();
         let mut metadata_builder = StringBuilder::new();
+        let mut allocated_at_builder = Int64Builder::new();
+        let mut duration_builder = Int64Builder::new();
 
         let id_array = self
             .tasks
@@ -1297,6 +1335,26 @@ impl<R: Resource, T: Task> ResourceAllocator<R, T> {
             .ok_or_else(|| {
                 crate::Error::Resource(
                     "Failed to downcast metadata column to StringArray".to_string(),
+                )
+            })?;
+        let allocated_at_array = self
+            .tasks
+            .column(8)
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .ok_or_else(|| {
+                crate::Error::Resource(
+                    "Failed to downcast allocated_at column to Int64Array".to_string(),
+                )
+            })?;
+        let duration_array = self
+            .tasks
+            .column(9)
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .ok_or_else(|| {
+                crate::Error::Resource(
+                    "Failed to downcast duration column to Int64Array".to_string(),
                 )
             })?;
 
@@ -1328,6 +1386,14 @@ impl<R: Resource, T: Task> ResourceAllocator<R, T> {
             } else {
                 metadata_builder.append_value(metadata_array.value(i));
             }
+            if i == *task_row {
+                allocated_at_builder.append_value(current_time.timestamp_millis());
+            } else if allocated_at_array.is_null(i) {
+                allocated_at_builder.append_null();
+            } else {
+                allocated_at_builder.append_value(allocated_at_array.value(i));
+            }
+            duration_builder.append_value(duration_array.value(i));
         }
 
         let new_batch = RecordBatch::try_new(
@@ -1341,6 +1407,8 @@ impl<R: Resource, T: Task> ResourceAllocator<R, T> {
                 Arc::new(workflow_builder.finish()),
                 Arc::new(priority_builder.finish()),
                 Arc::new(metadata_builder.finish()),
+                Arc::new(allocated_at_builder.finish()),
+                Arc::new(duration_builder.finish()),
             ],
         )
         .map_err(|e| crate::Error::Custom(format!("Failed to create task batch: {}", e)))?;
@@ -1363,6 +1431,8 @@ impl<R: Resource, T: Task> ResourceAllocator<R, T> {
         let mut workflow_builder = BinaryBuilder::new();
         let mut priority_builder = Int32Builder::new();
         let mut metadata_builder = StringBuilder::new();
+        let mut allocated_at_builder = Int64Builder::new();
+        let mut duration_builder = Int64Builder::new();
 
         let id_array = self
             .tasks
@@ -1440,6 +1510,26 @@ impl<R: Resource, T: Task> ResourceAllocator<R, T> {
                     "Failed to downcast metadata column to StringArray".to_string(),
                 )
             })?;
+        let allocated_at_array = self
+            .tasks
+            .column(8)
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .ok_or_else(|| {
+                crate::Error::Resource(
+                    "Failed to downcast allocated_at column to Int64Array".to_string(),
+                )
+            })?;
+        let duration_array = self
+            .tasks
+            .column(9)
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .ok_or_else(|| {
+                crate::Error::Resource(
+                    "Failed to downcast duration column to Int64Array".to_string(),
+                )
+            })?;
 
         for i in 0..self.tasks.num_rows() {
             id_builder.append_value(id_array.value(i));
@@ -1468,6 +1558,12 @@ impl<R: Resource, T: Task> ResourceAllocator<R, T> {
             } else {
                 metadata_builder.append_value(metadata_array.value(i));
             }
+            if allocated_at_array.is_null(i) {
+                allocated_at_builder.append_null();
+            } else {
+                allocated_at_builder.append_value(allocated_at_array.value(i));
+            }
+            duration_builder.append_value(duration_array.value(i));
         }
 
         let new_batch = RecordBatch::try_new(
@@ -1481,6 +1577,8 @@ impl<R: Resource, T: Task> ResourceAllocator<R, T> {
                 Arc::new(workflow_builder.finish()),
                 Arc::new(priority_builder.finish()),
                 Arc::new(metadata_builder.finish()),
+                Arc::new(allocated_at_builder.finish()),
+                Arc::new(duration_builder.finish()),
             ],
         )
         .map_err(|e| crate::Error::Custom(format!("Failed to create task batch: {}", e)))?;
@@ -1732,6 +1830,8 @@ impl<R: Resource, T: Task> ResourceAllocator<R, T> {
         let mut workflow_builder = BinaryBuilder::new();
         let mut priority_builder = Int32Builder::new();
         let mut metadata_builder = StringBuilder::new();
+        let mut allocated_at_builder = Int64Builder::new();
+        let mut duration_builder = Int64Builder::new();
 
         let id_array = self
             .tasks
@@ -1809,6 +1909,26 @@ impl<R: Resource, T: Task> ResourceAllocator<R, T> {
                     "Failed to downcast metadata column to StringArray".to_string(),
                 )
             })?;
+        let allocated_at_array = self
+            .tasks
+            .column(8)
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .ok_or_else(|| {
+                crate::Error::Resource(
+                    "Failed to downcast allocated_at column to Int64Array".to_string(),
+                )
+            })?;
+        let duration_array = self
+            .tasks
+            .column(9)
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .ok_or_else(|| {
+                crate::Error::Resource(
+                    "Failed to downcast duration column to Int64Array".to_string(),
+                )
+            })?;
 
         for i in 0..self.tasks.num_rows() {
             if i != exclude_row {
@@ -1832,6 +1952,12 @@ impl<R: Resource, T: Task> ResourceAllocator<R, T> {
                 } else {
                     metadata_builder.append_value(metadata_array.value(i));
                 }
+                if allocated_at_array.is_null(i) {
+                    allocated_at_builder.append_null();
+                } else {
+                    allocated_at_builder.append_value(allocated_at_array.value(i));
+                }
+                duration_builder.append_value(duration_array.value(i));
             }
         }
 
@@ -1846,6 +1972,8 @@ impl<R: Resource, T: Task> ResourceAllocator<R, T> {
                 Arc::new(workflow_builder.finish()),
                 Arc::new(priority_builder.finish()),
                 Arc::new(metadata_builder.finish()),
+                Arc::new(allocated_at_builder.finish()),
+                Arc::new(duration_builder.finish()),
             ],
         )
         .map_err(|e| crate::Error::Custom(format!("Failed to create task batch: {}", e)))?;
@@ -2262,6 +2390,8 @@ mod tests {
                 Arc::new(BinaryArray::from(Vec::<Option<&[u8]>>::new())),
                 Arc::new(Int32Array::from(Vec::<i32>::new())),
                 Arc::new(StringArray::from(Vec::<Option<&str>>::new())),
+                Arc::new(Int64Array::from(Vec::<Option<i64>>::new())),
+                Arc::new(Int64Array::from(Vec::<i64>::new())),
             ],
         )
         .unwrap();

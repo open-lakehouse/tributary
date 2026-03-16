@@ -76,6 +76,9 @@ pub enum Error {
     #[error("Invalid state: {0}")]
     InvalidState(String),
 
+    #[error("Query error: {0}")]
+    Query(String),
+
     #[error("{0}")]
     Custom(String),
 }

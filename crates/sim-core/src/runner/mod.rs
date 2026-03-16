@@ -24,6 +24,9 @@
 //! ```
 
 pub mod telemetry;
+mod queries;
+
+pub use queries::query_simulation;
 
 use crate::Result;
 use crate::context::{SimulationConfig, SimulationContext};
@@ -728,6 +731,59 @@ where
         );
 
         Ok(metadata)
+    }
+
+    /// Execute SQL query across simulation entities
+    ///
+    /// Provides a SQL interface to query across multiple entity types (agents, resources,
+    /// tasks, workflow instances) using DataFusion. This enables complex analytical queries
+    /// with JOINs, aggregations, and filtering.
+    ///
+    /// # Available Tables
+    ///
+    /// - `agents` - Agent population (if PopulationHandler exists)
+    /// - `resources` - Available resources (if ResourceAllocator exists)
+    /// - `tasks` - Task queue (if ResourceAllocator exists)
+    /// - `workflow_instances` - Workflow execution state (if WorkflowEngine exists)
+    ///
+    /// # Arguments
+    ///
+    /// * `sql` - SQL query string (supports full DataFusion SQL syntax)
+    ///
+    /// # Returns
+    ///
+    /// Vector of RecordBatch results from the query
+    ///
+    /// # Errors
+    ///
+    /// Returns error if:
+    /// - SQL is invalid or malformed
+    /// - Query references non-existent tables
+    /// - DataFusion execution fails
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// // Find agents with assigned tasks
+    /// let result = runner.query("
+    ///     SELECT a.agent_type, COUNT(*) as count
+    ///     FROM agents a
+    ///     JOIN tasks t ON a.id = t.assigned_agent_id
+    ///     WHERE t.status = 'active'
+    ///     GROUP BY a.agent_type
+    /// ").await?;
+    ///
+    /// // Analyze resource utilization
+    /// let result = runner.query("
+    ///     SELECT
+    ///         r.resource_type,
+    ///         ROUND(100.0 * (r.capacity - r.available) / r.capacity, 2) as utilization_pct
+    ///     FROM resources r
+    ///     ORDER BY utilization_pct DESC
+    /// ").await?;
+    /// ```
+    pub async fn query(&self, sql: &str) -> Result<Vec<arrow::record_batch::RecordBatch>> {
+        queries::query_simulation(self, sql).await
     }
 }
 
