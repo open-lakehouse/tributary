@@ -13,7 +13,7 @@ sim-events = { path = "../sim-events" }
 
 chrono = { workspace = true }
 geo = { version = "0.31", features = ["serde"] }
-h3o = { version = "0.9" }
+h3o = { version = "0.9", features = ["geo"] }
 rand = { version = "0.9" }
 serde = { workspace = true }
 serde_json = { workspace = true }

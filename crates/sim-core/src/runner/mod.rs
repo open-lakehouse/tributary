@@ -30,7 +30,8 @@ pub use queries::query_simulation;
 
 use crate::Result;
 use crate::context::{SimulationConfig, SimulationContext};
-use crate::population::{Agent, AgentTickResult, PopulationHandler};
+use crate::demand::DemandGenerator;
+use crate::population::{Agent, AgentTickResult, Demand, PopulationHandler};
 use crate::resources::{
     AllocationStrategy, Assignment, Resource, ResourceAllocator, Task, TaskFactory,
 };
@@ -89,6 +90,15 @@ pub trait SimulationHooks: Send + Sync {
     ) -> Result<()> {
         Ok(())
     }
+
+    /// Called when demands are generated
+    fn on_demands_generated(
+        &mut self,
+        _ctx: &SimulationContext,
+        _demands: &[Demand],
+    ) -> Result<()> {
+        Ok(())
+    }
 }
 
 /// Default implementation that does nothing
@@ -140,6 +150,8 @@ where
     workflow_registry: Option<WorkflowRegistry<W>>,
     /// Task factory for creating tasks from workflow steps (optional)
     task_factory: Option<Box<dyn TaskFactory<T>>>,
+    /// Demand generator (optional)
+    demand_generator: Option<Box<dyn DemandGenerator>>,
     /// Lifecycle hooks
     hooks: Box<dyn SimulationHooks>,
     /// Statistics
@@ -179,6 +191,7 @@ where
             workflows: None,
             workflow_registry: None,
             task_factory: None,
+            demand_generator: None,
             hooks: Box::new(NoOpHooks),
             stats: SimulationStats::default(),
             snapshot_manager: None, // Lazy initialization
@@ -198,6 +211,7 @@ where
             workflows: None,
             workflow_registry: None,
             task_factory: None,
+            demand_generator: None,
             hooks: Box::new(NoOpHooks),
             stats: SimulationStats::default(),
             snapshot_manager: None, // Lazy initialization
@@ -223,6 +237,11 @@ where
     /// Set the task factory for creating tasks from workflow steps
     pub fn set_task_factory(&mut self, factory: Box<dyn TaskFactory<T>>) {
         self.task_factory = Some(factory);
+    }
+
+    /// Set the demand generator
+    pub fn set_demand_generator(&mut self, generator: Box<dyn DemandGenerator>) {
+        self.demand_generator = Some(generator);
     }
 
     /// Set lifecycle hooks
@@ -307,6 +326,12 @@ where
     pub fn tick(&mut self) -> Result<()> {
         // Call before-tick hook
         self.hooks.on_before_tick(&self.context)?;
+
+        // Generate demands
+        if let Some(generator) = &self.demand_generator {
+            let demands = generator.generate(&self.context);
+            self.hooks.on_demands_generated(&self.context, &demands)?;
+        }
 
         // Tick agents if population exists
         if let Some(population) = &mut self.population {
