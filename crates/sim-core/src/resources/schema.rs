@@ -62,6 +62,8 @@ pub fn resource_schema() -> SchemaRef {
 /// * `workflow_instance_id` - Optional WorkflowInstanceId UUID (Phase 5)
 /// * `priority` - Task priority (higher = more urgent)
 /// * `metadata` - JSON string for domain-specific fields (e.g., duration, deadline)
+/// * `allocated_at_millis` - Optional timestamp (milliseconds since epoch) when task was allocated
+/// * `estimated_duration_secs` - Estimated task duration in seconds
 ///
 /// # Example
 ///
@@ -78,6 +80,8 @@ pub fn resource_schema() -> SchemaRef {
 ///         Arc::new(BinaryArray::from(vec![Some(workflow_id.as_bytes())])),
 ///         Arc::new(Int32Array::from(vec![10])),
 ///         Arc::new(StringArray::from(vec![Some(r#"{"duration_secs":30}"#)])),
+///         Arc::new(Int64Array::from(vec![None])),
+///         Arc::new(Int64Array::from(vec![30])),
 ///     ],
 /// )?;
 /// ```
@@ -91,6 +95,8 @@ pub fn task_schema() -> SchemaRef {
         Field::new("workflow_instance_id", DataType::Binary, true), // Optional WorkflowInstanceId (Phase 5)
         Field::new("priority", DataType::Int32, false),             // Task priority
         Field::new("metadata", DataType::Utf8, true),               // JSON for domain fields
+        Field::new("allocated_at_millis", DataType::Int64, true), // Allocated timestamp (millis)
+        Field::new("estimated_duration_secs", DataType::Int64, false), // Duration (seconds)
     ]))
 }
 
@@ -140,7 +146,7 @@ mod tests {
     #[test]
     fn test_task_schema_has_correct_fields() {
         let schema = task_schema();
-        assert_eq!(schema.fields().len(), 8);
+        assert_eq!(schema.fields().len(), 10);
 
         assert_eq!(schema.field(0).name(), "id");
         assert_eq!(schema.field(0).data_type(), &DataType::Binary);
@@ -169,6 +175,14 @@ mod tests {
         assert_eq!(schema.field(7).name(), "metadata");
         assert_eq!(schema.field(7).data_type(), &DataType::Utf8);
         assert!(schema.field(7).is_nullable());
+
+        assert_eq!(schema.field(8).name(), "allocated_at_millis");
+        assert_eq!(schema.field(8).data_type(), &DataType::Int64);
+        assert!(schema.field(8).is_nullable());
+
+        assert_eq!(schema.field(9).name(), "estimated_duration_secs");
+        assert_eq!(schema.field(9).data_type(), &DataType::Int64);
+        assert!(!schema.field(9).is_nullable());
     }
 
     #[test]
@@ -214,6 +228,8 @@ mod tests {
         let workflow_array = BinaryArray::from(vec![None::<&[u8]>]);
         let priority_array = Int32Array::from(vec![0]);
         let metadata_array = StringArray::from(vec![Some("{}")]);
+        let allocated_at_array = Int64Array::from(vec![None::<i64>]);
+        let duration_array = Int64Array::from(vec![10]);
 
         let batch = RecordBatch::try_new(
             schema.clone(),
@@ -226,12 +242,14 @@ mod tests {
                 Arc::new(workflow_array),
                 Arc::new(priority_array),
                 Arc::new(metadata_array),
+                Arc::new(allocated_at_array),
+                Arc::new(duration_array),
             ],
         );
 
         assert!(batch.is_ok());
         let batch = batch.unwrap();
         assert_eq!(batch.num_rows(), 1);
-        assert_eq!(batch.num_columns(), 8);
+        assert_eq!(batch.num_columns(), 10);
     }
 }

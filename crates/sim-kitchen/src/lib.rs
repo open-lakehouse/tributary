@@ -161,13 +161,22 @@
 
 pub mod agents;
 pub mod events;
+pub mod locations;  // Agent E: Distribution sites for supply chain
 pub mod resources;
 pub mod simulation;
 
-pub use agents::{Customer, CustomerStatus};
+pub mod workflows;  // Agent G: Supply chain workflow
+
+// Re-exports for clean public API
+pub use agents::{Courier, CourierState, Customer, CustomerStatus, DriverState, SupplyDriver};
 pub use events::*;
-pub use resources::{Kitchen, Order};
+pub use locations::{DistributionSite, OrderFulfillment};
+pub use resources::{Inventory, InventoryError, InventoryManager, Kitchen, Order};
 pub use simulation::{
-    FoodPrepWorkflow, KitchenSimulation, KitchenSimulationHooks, add_customers, build_simulation,
+    KitchenSimulation, KitchenSimulationHooks, add_customers, build_simulation,
     process_demands,
+};
+pub use workflows::{
+    CourierDeliveryTask, CourierDeliveryTaskFactory, CourierDeliveryWorkflow,
+    SupplyChainTaskFactory, SupplyChainWorkflow, SupplyDeliveryTask,
 };

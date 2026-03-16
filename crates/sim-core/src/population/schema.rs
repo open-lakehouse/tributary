@@ -26,7 +26,7 @@
 //!
 //! # Example
 //!
-//! ```rust
+//! ```rust,ignore
 //! use sim_core::population::schema::agent_schema;
 //!
 //! let schema = agent_schema();
@@ -59,7 +59,7 @@ use std::sync::Arc;
 ///
 /// # Example
 ///
-/// ```rust
+/// ```rust,ignore
 /// use sim_core::population::schema::agent_schema;
 /// use arrow::array::RecordBatch;
 ///

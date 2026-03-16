@@ -39,3 +39,8 @@ indexmap = { version = "2.9.0" }
 approx = "0.5.1"
 rstest = "0.26.0"
 tokio = { version = "1", features = ["full"] }
+criterion = "0.5"
+
+[[bench]]
+name = "routing_performance"
+harness = false

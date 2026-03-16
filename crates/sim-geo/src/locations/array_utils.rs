@@ -149,6 +149,7 @@ impl<'a> LocationArrays<'a> {
     }
 
     /// Copy all rows from the arrays into builders
+    #[allow(dead_code)]
     pub fn copy_all_to_builders(&self, builders: &mut LocationArrayBuilders) {
         let num_rows = self.id.len();
         for i in 0..num_rows {

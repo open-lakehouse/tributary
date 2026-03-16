@@ -1,0 +1,1767 @@
+{
+  "_comment": "Sample CloudEvents v1.0 stream with 100 events",
+  "_schema": {
+    "specversion": "CloudEvents version (1.0)",
+    "id": "Unique event identifier (UUID)",
+    "source": "Event source URI",
+    "type": "Event type identifier",
+    "time": "Event timestamp (RFC3339)",
+    "datacontenttype": "Content type of data field",
+    "data": "Event payload (varies by type)"
+  },
+  "events": [
+    {
+      "specversion": "1.0",
+      "id": "899ec873-221a-4324-82c6-15211dc852e1",
+      "source": "urn:sim:agent:agent-0007",
+      "type": "com.simulation.agent_ticked",
+      "time": "2026-03-16T09:17:46.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0007",
+        "tick": 0,
+        "state": {
+          "position": {
+            "x": 165.7482643117245,
+            "y": 131.04672323407684
+          },
+          "energy": 52.479828025086704,
+          "velocity": 6.210924813854552
+        },
+        "actions_taken": 3
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "3f236bf7-f764-4d06-bbbd-835eb6561e68",
+      "source": "urn:sim:agent:agent-0009",
+      "type": "com.simulation.agent_created",
+      "time": "2026-03-16T09:18:22.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0009",
+        "agent_type": "optimizer",
+        "initial_state": {
+          "position": {
+            "x": 555.229962621039,
+            "y": 460.5533256152505
+          },
+          "energy": 100.0
+        }
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "410a00c8-339d-4a72-80ed-543c56dc8076",
+      "source": "urn:sim:agent:agent-0009",
+      "type": "com.simulation.workflow_step_completed",
+      "time": "2026-03-16T09:18:58.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0009",
+        "workflow_id": "workflow-2",
+        "step_name": "validate",
+        "duration_ms": 68,
+        "success": false
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "8dce02e2-6213-4893-8573-9c055db18093",
+      "source": "urn:sim:agent:agent-0008",
+      "type": "com.simulation.resource_allocated",
+      "time": "2026-03-16T09:19:34.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0008",
+        "resource_type": "cpu",
+        "amount": 51.27258390734995,
+        "allocation_id": "67fd9d56-bb5d-48ef-a502-6e2082e9de35"
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "417ae005-eba9-4b34-8d90-272b2cbb99d1",
+      "source": "urn:sim:agent:agent-0004",
+      "type": "com.simulation.workflow_step_completed",
+      "time": "2026-03-16T09:20:10.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0004",
+        "workflow_id": "workflow-4",
+        "step_name": "process",
+        "duration_ms": 394,
+        "success": true
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "80920cce-275a-4a5e-b9b0-0e8ebd15cab6",
+      "source": "urn:sim:agent:agent-0006",
+      "type": "com.simulation.resource_allocated",
+      "time": "2026-03-16T09:20:46.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0006",
+        "resource_type": "storage",
+        "amount": 85.37621788782639,
+        "allocation_id": "6df3ca39-9894-4764-b19a-14aa2f85706a"
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "e4ef5020-2ed0-4a05-8b65-59dd58fa4f01",
+      "source": "urn:sim:agent:agent-0000",
+      "type": "com.simulation.agent_created",
+      "time": "2026-03-16T09:21:22.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0000",
+        "agent_type": "worker",
+        "initial_state": {
+          "position": {
+            "x": 212.28173169450338,
+            "y": 900.5877332870875
+          },
+          "energy": 100.0
+        }
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "d4de29a4-0920-40e9-97b1-bcf7a5162763",
+      "source": "urn:sim:agent:agent-0009",
+      "type": "com.simulation.agent_ticked",
+      "time": "2026-03-16T09:21:58.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0009",
+        "tick": 7,
+        "state": {
+          "position": {
+            "x": 514.1217304600425,
+            "y": 119.71303454484993
+          },
+          "energy": 90.49431578752689,
+          "velocity": 4.437139227999896
+        },
+        "actions_taken": 5
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "fe139910-67a7-46e3-826e-d4950731eb37",
+      "source": "urn:sim:agent:agent-0006",
+      "type": "com.simulation.workflow_step_completed",
+      "time": "2026-03-16T09:22:34.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0006",
+        "workflow_id": "workflow-3",
+        "step_name": "process",
+        "duration_ms": 79,
+        "success": true
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "43a53873-f319-483b-abfe-b1e3157d080a",
+      "source": "urn:sim:agent:agent-0007",
+      "type": "com.simulation.agent_created",
+      "time": "2026-03-16T09:23:10.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0007",
+        "agent_type": "coordinator",
+        "initial_state": {
+          "position": {
+            "x": 375.08957722925584,
+            "y": 176.0123732849571
+          },
+          "energy": 100.0
+        }
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "5f588636-b0ed-4c9a-8e74-b1750d05dedb",
+      "source": "urn:sim:agent:agent-0002",
+      "type": "com.simulation.workflow_step_completed",
+      "time": "2026-03-16T09:23:46.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0002",
+        "workflow_id": "workflow-0",
+        "step_name": "validate",
+        "duration_ms": 126,
+        "success": true
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "21b39b14-4e6d-4f30-adb3-248978889918",
+      "source": "urn:sim:agent:agent-0004",
+      "type": "com.simulation.resource_allocated",
+      "time": "2026-03-16T09:24:22.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0004",
+        "resource_type": "cpu",
+        "amount": 65.26211239757875,
+        "allocation_id": "012024ea-2d6f-423e-aad1-1ea45d9757da"
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "449d07ce-bd9c-4657-9bbd-d6272cd3e9e6",
+      "source": "urn:sim:agent:agent-0000",
+      "type": "com.simulation.agent_created",
+      "time": "2026-03-16T09:24:58.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0000",
+        "agent_type": "worker",
+        "initial_state": {
+          "position": {
+            "x": 713.1931018243929,
+            "y": 288.1020810308464
+          },
+          "energy": 100.0
+        }
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "5072e2fe-379a-4e3b-9e8c-6d8cd887638a",
+      "source": "urn:sim:agent:agent-0006",
+      "type": "com.simulation.agent_created",
+      "time": "2026-03-16T09:25:34.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0006",
+        "agent_type": "coordinator",
+        "initial_state": {
+          "position": {
+            "x": 586.7161263271826,
+            "y": 217.8044016175229
+          },
+          "energy": 100.0
+        }
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "44d0b4b5-412f-4260-a951-86d3daeca3a7",
+      "source": "urn:sim:agent:agent-0004",
+      "type": "com.simulation.agent_created",
+      "time": "2026-03-16T09:26:10.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0004",
+        "agent_type": "coordinator",
+        "initial_state": {
+          "position": {
+            "x": 132.68846798650446,
+            "y": 853.329733537748
+          },
+          "energy": 100.0
+        }
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "38ec1272-3706-4343-94e8-60269716de19",
+      "source": "urn:sim:agent:agent-0004",
+      "type": "com.simulation.workflow_step_completed",
+      "time": "2026-03-16T09:26:46.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0004",
+        "workflow_id": "workflow-0",
+        "step_name": "finalize",
+        "duration_ms": 429,
+        "success": true
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "b87a6c8c-4351-4ef3-ba8d-8b5454331eca",
+      "source": "urn:sim:agent:agent-0006",
+      "type": "com.simulation.agent_created",
+      "time": "2026-03-16T09:27:22.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0006",
+        "agent_type": "optimizer",
+        "initial_state": {
+          "position": {
+            "x": 754.9835670220912,
+            "y": 982.2597745400307
+          },
+          "energy": 100.0
+        }
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "d1e72297-9193-4e86-8bdf-149c8f52b0bf",
+      "source": "urn:sim:agent:agent-0001",
+      "type": "com.simulation.agent_created",
+      "time": "2026-03-16T09:27:58.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0001",
+        "agent_type": "optimizer",
+        "initial_state": {
+          "position": {
+            "x": 183.12672365400329,
+            "y": 376.19716094182763
+          },
+          "energy": 100.0
+        }
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "e61ef9fd-48f6-408a-b65e-20c38b143fed",
+      "source": "urn:sim:agent:agent-0000",
+      "type": "com.simulation.agent_ticked",
+      "time": "2026-03-16T09:28:34.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0000",
+        "tick": 18,
+        "state": {
+          "position": {
+            "x": 772.4593175345968,
+            "y": 838.7076151655993
+          },
+          "energy": 88.55562494445076,
+          "velocity": 8.981712946549397
+        },
+        "actions_taken": 3
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "32f410a5-caaa-4126-9cdf-7c34d9ad997d",
+      "source": "urn:sim:agent:agent-0007",
+      "type": "com.simulation.agent_created",
+      "time": "2026-03-16T09:29:10.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0007",
+        "agent_type": "coordinator",
+        "initial_state": {
+          "position": {
+            "x": 595.2493673628073,
+            "y": 768.9016280453958
+          },
+          "energy": 100.0
+        }
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "e379204a-13e6-4d07-a174-70e0a24b6d74",
+      "source": "urn:sim:agent:agent-0009",
+      "type": "com.simulation.resource_allocated",
+      "time": "2026-03-16T09:29:46.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0009",
+        "resource_type": "cpu",
+        "amount": 49.4052111507432,
+        "allocation_id": "fd7ca216-53f5-4aed-97a9-53913b75f361"
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "6daf43b6-611d-4b04-b6ba-4e383e696762",
+      "source": "urn:sim:agent:agent-0006",
+      "type": "com.simulation.agent_ticked",
+      "time": "2026-03-16T09:30:22.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0006",
+        "tick": 21,
+        "state": {
+          "position": {
+            "x": 803.6051223183861,
+            "y": 713.3890474147635
+          },
+          "energy": 62.9857116499452,
+          "velocity": 5.191307485589868
+        },
+        "actions_taken": 4
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "f3623cb1-448e-4fc1-96c7-1f8aa3b810f7",
+      "source": "urn:sim:agent:agent-0006",
+      "type": "com.simulation.agent_ticked",
+      "time": "2026-03-16T09:30:58.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0006",
+        "tick": 22,
+        "state": {
+          "position": {
+            "x": 343.84817735689677,
+            "y": 556.8112915681343
+          },
+          "energy": 94.3082989317901,
+          "velocity": 4.044133264124571
+        },
+        "actions_taken": 3
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "b916e68a-50db-4389-b296-1c13c743468c",
+      "source": "urn:sim:agent:agent-0008",
+      "type": "com.simulation.resource_allocated",
+      "time": "2026-03-16T09:31:34.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0008",
+        "resource_type": "memory",
+        "amount": 12.111865410466478,
+        "allocation_id": "534ecab3-cc0e-4257-857d-8c7c79d2d8f2"
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "d50cadf4-3e35-46b1-bb9f-806620138dfb",
+      "source": "urn:sim:agent:agent-0005",
+      "type": "com.simulation.agent_ticked",
+      "time": "2026-03-16T09:32:10.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0005",
+        "tick": 24,
+        "state": {
+          "position": {
+            "x": 699.5869025523104,
+            "y": 669.393079108929
+          },
+          "energy": 77.26417189984437,
+          "velocity": 5.074399542401505
+        },
+        "actions_taken": 4
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "38950ab3-5f17-44ac-a9df-0408489e4ef6",
+      "source": "urn:sim:agent:agent-0009",
+      "type": "com.simulation.agent_created",
+      "time": "2026-03-16T09:32:46.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0009",
+        "agent_type": "optimizer",
+        "initial_state": {
+          "position": {
+            "x": 431.9950099029396,
+            "y": 673.1548569915014
+          },
+          "energy": 100.0
+        }
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "87526118-531b-434f-943b-8362ce9407b2",
+      "source": "urn:sim:agent:agent-0009",
+      "type": "com.simulation.workflow_step_completed",
+      "time": "2026-03-16T09:33:22.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0009",
+        "workflow_id": "workflow-1",
+        "step_name": "finalize",
+        "duration_ms": 441,
+        "success": true
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "b13d268d-9911-4d8c-9fb5-1e6f3e1384dc",
+      "source": "urn:sim:agent:agent-0009",
+      "type": "com.simulation.agent_ticked",
+      "time": "2026-03-16T09:33:58.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0009",
+        "tick": 27,
+        "state": {
+          "position": {
+            "x": 821.5463017298432,
+            "y": 828.292959108386
+          },
+          "energy": 96.15244804872898,
+          "velocity": 2.376404252039123
+        },
+        "actions_taken": 3
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "39ff1877-62cd-4b3d-9631-b1c64c8ceeaf",
+      "source": "urn:sim:agent:agent-0006",
+      "type": "com.simulation.agent_ticked",
+      "time": "2026-03-16T09:34:34.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0006",
+        "tick": 28,
+        "state": {
+          "position": {
+            "x": 767.2736396382161,
+            "y": 642.2976124959619
+          },
+          "energy": 68.35224481075994,
+          "velocity": 7.542622277893907
+        },
+        "actions_taken": 0
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "4351276e-8d87-4bb9-9989-dae0a8bff382",
+      "source": "urn:sim:agent:agent-0005",
+      "type": "com.simulation.agent_ticked",
+      "time": "2026-03-16T09:35:10.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0005",
+        "tick": 29,
+        "state": {
+          "position": {
+            "x": 130.8103759851562,
+            "y": 320.6776151931855
+          },
+          "energy": 90.58896800754187,
+          "velocity": 9.977444144833752
+        },
+        "actions_taken": 4
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "e05c1575-b618-4453-9b37-7f18b1b851be",
+      "source": "urn:sim:agent:agent-0003",
+      "type": "com.simulation.agent_created",
+      "time": "2026-03-16T09:35:46.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0003",
+        "agent_type": "optimizer",
+        "initial_state": {
+          "position": {
+            "x": 122.11945632659504,
+            "y": 216.04984888036682
+          },
+          "energy": 100.0
+        }
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "4358f74b-6ca6-4e1b-be4a-8d0d7de67606",
+      "source": "urn:sim:agent:agent-0007",
+      "type": "com.simulation.resource_allocated",
+      "time": "2026-03-16T09:36:22.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0007",
+        "resource_type": "storage",
+        "amount": 62.08798028671134,
+        "allocation_id": "b6f6cb91-9c28-4fa0-803a-ff3c6b626f98"
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "6dc585b2-5b79-4a4c-a355-70aeeda91d86",
+      "source": "urn:sim:agent:agent-0006",
+      "type": "com.simulation.agent_ticked",
+      "time": "2026-03-16T09:36:58.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0006",
+        "tick": 32,
+        "state": {
+          "position": {
+            "x": 748.4935943871279,
+            "y": 77.496125438279
+          },
+          "energy": 57.16205378824458,
+          "velocity": 4.898873940349652
+        },
+        "actions_taken": 4
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "90e3ae98-e22d-4590-9351-fb77d3fec0ad",
+      "source": "urn:sim:agent:agent-0001",
+      "type": "com.simulation.agent_created",
+      "time": "2026-03-16T09:37:34.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0001",
+        "agent_type": "coordinator",
+        "initial_state": {
+          "position": {
+            "x": 938.5778344051256,
+            "y": 492.185159589584
+          },
+          "energy": 100.0
+        }
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "3f7453a0-b9ea-48d9-b9c8-31befc96230b",
+      "source": "urn:sim:agent:agent-0002",
+      "type": "com.simulation.resource_allocated",
+      "time": "2026-03-16T09:38:10.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0002",
+        "resource_type": "storage",
+        "amount": 37.73300157770926,
+        "allocation_id": "ecbf1661-39a7-408e-ab06-98a6275d581d"
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "15f19b1b-cb97-4889-9378-f5fad6fea969",
+      "source": "urn:sim:agent:agent-0008",
+      "type": "com.simulation.agent_created",
+      "time": "2026-03-16T09:38:46.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0008",
+        "agent_type": "coordinator",
+        "initial_state": {
+          "position": {
+            "x": 614.7897922397968,
+            "y": 36.62348610453448
+          },
+          "energy": 100.0
+        }
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "0f0d5620-9928-49fc-b7a9-33438d277956",
+      "source": "urn:sim:agent:agent-0003",
+      "type": "com.simulation.agent_created",
+      "time": "2026-03-16T09:39:22.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0003",
+        "agent_type": "worker",
+        "initial_state": {
+          "position": {
+            "x": 673.4728539934284,
+            "y": 263.6340549132443
+          },
+          "energy": 100.0
+        }
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "5b5aead4-7234-49bf-9991-4e168e84171c",
+      "source": "urn:sim:agent:agent-0003",
+      "type": "com.simulation.agent_ticked",
+      "time": "2026-03-16T09:39:58.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0003",
+        "tick": 37,
+        "state": {
+          "position": {
+            "x": 899.8892116479593,
+            "y": 616.7222823320026
+          },
+          "energy": 65.73046597708654,
+          "velocity": 2.8656197902444305
+        },
+        "actions_taken": 3
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "b6cd447d-187f-4fa3-9198-376fc7925656",
+      "source": "urn:sim:agent:agent-0006",
+      "type": "com.simulation.agent_created",
+      "time": "2026-03-16T09:40:34.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0006",
+        "agent_type": "coordinator",
+        "initial_state": {
+          "position": {
+            "x": 524.0089929592283,
+            "y": 994.1160251192455
+          },
+          "energy": 100.0
+        }
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "6b933e86-97e6-4ecf-8dfd-feb8c2d4062f",
+      "source": "urn:sim:agent:agent-0009",
+      "type": "com.simulation.workflow_step_completed",
+      "time": "2026-03-16T09:41:10.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0009",
+        "workflow_id": "workflow-4",
+        "step_name": "validate",
+        "duration_ms": 429,
+        "success": true
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "ea2008e2-8806-4f2b-a657-bcdc41786a7f",
+      "source": "urn:sim:agent:agent-0008",
+      "type": "com.simulation.agent_created",
+      "time": "2026-03-16T09:41:46.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0008",
+        "agent_type": "optimizer",
+        "initial_state": {
+          "position": {
+            "x": 981.0365119958363,
+            "y": 949.1461757326757
+          },
+          "energy": 100.0
+        }
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "3995e466-4bc7-4c05-964f-b21a4b2ec49e",
+      "source": "urn:sim:agent:agent-0004",
+      "type": "com.simulation.agent_ticked",
+      "time": "2026-03-16T09:42:22.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0004",
+        "tick": 41,
+        "state": {
+          "position": {
+            "x": 272.08166207633747,
+            "y": 857.1764259685508
+          },
+          "energy": 60.1531037829385,
+          "velocity": 3.627040995422759
+        },
+        "actions_taken": 2
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "f1511623-1dcd-4f0a-a895-3dc2f3644db9",
+      "source": "urn:sim:agent:agent-0002",
+      "type": "com.simulation.workflow_step_completed",
+      "time": "2026-03-16T09:42:58.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0002",
+        "workflow_id": "workflow-2",
+        "step_name": "finalize",
+        "duration_ms": 228,
+        "success": true
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "591d9d9e-7145-4b57-8521-c69a3164b2ac",
+      "source": "urn:sim:agent:agent-0006",
+      "type": "com.simulation.agent_ticked",
+      "time": "2026-03-16T09:43:34.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0006",
+        "tick": 43,
+        "state": {
+          "position": {
+            "x": 608.1064850575807,
+            "y": 832.2025589986781
+          },
+          "energy": 52.62139313220241,
+          "velocity": 5.562250975530354
+        },
+        "actions_taken": 2
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "54eb6565-d1f0-4ef4-8c1f-64eb28af6918",
+      "source": "urn:sim:agent:agent-0005",
+      "type": "com.simulation.agent_created",
+      "time": "2026-03-16T09:44:10.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0005",
+        "agent_type": "coordinator",
+        "initial_state": {
+          "position": {
+            "x": 658.2971077255281,
+            "y": 130.0565992411157
+          },
+          "energy": 100.0
+        }
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "c2dbd639-34f0-4915-8aca-2dfb07d2d2d4",
+      "source": "urn:sim:agent:agent-0009",
+      "type": "com.simulation.agent_ticked",
+      "time": "2026-03-16T09:44:46.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0009",
+        "tick": 45,
+        "state": {
+          "position": {
+            "x": 469.6612673444737,
+            "y": 307.7170289703849
+          },
+          "energy": 52.97413461174704,
+          "velocity": 2.569165437517984
+        },
+        "actions_taken": 5
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "16692100-aa43-47a7-80a3-efb53679857a",
+      "source": "urn:sim:agent:agent-0009",
+      "type": "com.simulation.resource_allocated",
+      "time": "2026-03-16T09:45:22.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0009",
+        "resource_type": "network",
+        "amount": 85.94556852584981,
+        "allocation_id": "4f532977-89c1-4da4-9195-4b5bf4457326"
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "1b3e65a1-dc09-428d-abc1-f74eaa49db01",
+      "source": "urn:sim:agent:agent-0005",
+      "type": "com.simulation.resource_allocated",
+      "time": "2026-03-16T09:45:58.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0005",
+        "resource_type": "network",
+        "amount": 60.66614157851615,
+        "allocation_id": "e695fa44-3817-4090-9aa9-34e842c52fa0"
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "63b7ee7c-f02c-4596-a4f1-3b6bd0743086",
+      "source": "urn:sim:agent:agent-0007",
+      "type": "com.simulation.workflow_step_completed",
+      "time": "2026-03-16T09:46:34.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0007",
+        "workflow_id": "workflow-3",
+        "step_name": "finalize",
+        "duration_ms": 492,
+        "success": true
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "787c0967-197c-4e25-a476-ca72d3577560",
+      "source": "urn:sim:agent:agent-0005",
+      "type": "com.simulation.workflow_step_completed",
+      "time": "2026-03-16T09:47:10.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0005",
+        "workflow_id": "workflow-4",
+        "step_name": "process",
+        "duration_ms": 285,
+        "success": true
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "0bb0ea2a-91be-4f16-9bf5-7dc9822ede06",
+      "source": "urn:sim:agent:agent-0002",
+      "type": "com.simulation.agent_created",
+      "time": "2026-03-16T09:47:46.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0002",
+        "agent_type": "optimizer",
+        "initial_state": {
+          "position": {
+            "x": 257.59124933480757,
+            "y": 357.068657711339
+          },
+          "energy": 100.0
+        }
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "76c61715-8905-41a1-b0a2-1dae77001529",
+      "source": "urn:sim:agent:agent-0001",
+      "type": "com.simulation.resource_allocated",
+      "time": "2026-03-16T09:48:22.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0001",
+        "resource_type": "memory",
+        "amount": 90.03397047010131,
+        "allocation_id": "4f71f6b2-51a1-4312-a89f-4199ad1aae55"
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "dfde2bed-d14b-4de0-8900-c43dbba956a3",
+      "source": "urn:sim:agent:agent-0004",
+      "type": "com.simulation.agent_created",
+      "time": "2026-03-16T09:48:58.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0004",
+        "agent_type": "worker",
+        "initial_state": {
+          "position": {
+            "x": 189.02370523683942,
+            "y": 607.6030438243084
+          },
+          "energy": 100.0
+        }
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "2e1d028a-a377-4b57-b321-293185aedea1",
+      "source": "urn:sim:agent:agent-0002",
+      "type": "com.simulation.workflow_step_completed",
+      "time": "2026-03-16T09:49:34.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0002",
+        "workflow_id": "workflow-3",
+        "step_name": "validate",
+        "duration_ms": 350,
+        "success": true
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "9e7b91de-a435-4108-8b24-177a343aedb2",
+      "source": "urn:sim:agent:agent-0000",
+      "type": "com.simulation.resource_allocated",
+      "time": "2026-03-16T09:50:10.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0000",
+        "resource_type": "cpu",
+        "amount": 40.25409348686311,
+        "allocation_id": "c9031350-b744-4e1f-97a7-0d3eccb92522"
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "78c3b42f-3502-438e-a055-9052fa35f671",
+      "source": "urn:sim:agent:agent-0000",
+      "type": "com.simulation.workflow_step_completed",
+      "time": "2026-03-16T09:50:46.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0000",
+        "workflow_id": "workflow-0",
+        "step_name": "initialize",
+        "duration_ms": 308,
+        "success": true
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "42438c41-bc04-49c8-b6d2-86d932f209e5",
+      "source": "urn:sim:agent:agent-0002",
+      "type": "com.simulation.agent_created",
+      "time": "2026-03-16T09:51:22.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0002",
+        "agent_type": "coordinator",
+        "initial_state": {
+          "position": {
+            "x": 466.6492330743814,
+            "y": 36.15768503856698
+          },
+          "energy": 100.0
+        }
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "4ffb73cb-5153-432f-83ee-bf988e0e3f56",
+      "source": "urn:sim:agent:agent-0008",
+      "type": "com.simulation.workflow_step_completed",
+      "time": "2026-03-16T09:51:58.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0008",
+        "workflow_id": "workflow-2",
+        "step_name": "initialize",
+        "duration_ms": 344,
+        "success": true
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "6f5afd16-3a83-41f7-b520-fbd71fe0b6bd",
+      "source": "urn:sim:agent:agent-0009",
+      "type": "com.simulation.agent_ticked",
+      "time": "2026-03-16T09:52:34.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0009",
+        "tick": 58,
+        "state": {
+          "position": {
+            "x": 539.0248020737737,
+            "y": 267.9190642970777
+          },
+          "energy": 80.79066751336238,
+          "velocity": 6.2634076043889175
+        },
+        "actions_taken": 3
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "66fa1724-23f7-4c74-a5c5-28ca60242400",
+      "source": "urn:sim:agent:agent-0006",
+      "type": "com.simulation.agent_created",
+      "time": "2026-03-16T09:53:10.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0006",
+        "agent_type": "optimizer",
+        "initial_state": {
+          "position": {
+            "x": 483.7286055509178,
+            "y": 65.58035114423211
+          },
+          "energy": 100.0
+        }
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "f6f5f567-6b19-421c-944e-b578441c53dc",
+      "source": "urn:sim:agent:agent-0008",
+      "type": "com.simulation.agent_ticked",
+      "time": "2026-03-16T09:53:46.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0008",
+        "tick": 60,
+        "state": {
+          "position": {
+            "x": 964.8708210140535,
+            "y": 751.663676423309
+          },
+          "energy": 99.08404246921489,
+          "velocity": 8.467879641756603
+        },
+        "actions_taken": 2
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "423ca793-8b08-46d7-815f-898d840b9654",
+      "source": "urn:sim:agent:agent-0001",
+      "type": "com.simulation.resource_allocated",
+      "time": "2026-03-16T09:54:22.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0001",
+        "resource_type": "cpu",
+        "amount": 60.35165297778299,
+        "allocation_id": "43eed8bb-b947-41d8-85b6-a146482e580e"
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "d66b47d2-cec8-482f-b923-2076d3f3bdf3",
+      "source": "urn:sim:agent:agent-0002",
+      "type": "com.simulation.agent_created",
+      "time": "2026-03-16T09:54:58.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0002",
+        "agent_type": "worker",
+        "initial_state": {
+          "position": {
+            "x": 17.646023698141057,
+            "y": 594.5165502391169
+          },
+          "energy": 100.0
+        }
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "268c5493-ecf8-4fdd-bb35-0c53f97e6ca7",
+      "source": "urn:sim:agent:agent-0001",
+      "type": "com.simulation.agent_created",
+      "time": "2026-03-16T09:55:34.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0001",
+        "agent_type": "coordinator",
+        "initial_state": {
+          "position": {
+            "x": 40.27107764873783,
+            "y": 989.3431091666623
+          },
+          "energy": 100.0
+        }
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "ef00be12-b469-4702-b25b-f03b8a73beff",
+      "source": "urn:sim:agent:agent-0002",
+      "type": "com.simulation.agent_ticked",
+      "time": "2026-03-16T09:56:10.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0002",
+        "tick": 64,
+        "state": {
+          "position": {
+            "x": 744.5008536699353,
+            "y": 272.9352211665064
+          },
+          "energy": 55.71196886393771,
+          "velocity": 9.057683913769921
+        },
+        "actions_taken": 3
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "f1f2bad3-c80a-4080-9b0d-449e694c9f13",
+      "source": "urn:sim:agent:agent-0001",
+      "type": "com.simulation.resource_allocated",
+      "time": "2026-03-16T09:56:46.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0001",
+        "resource_type": "cpu",
+        "amount": 90.02008238620371,
+        "allocation_id": "d76fbd16-b4e9-40fd-90d5-85a7f965ac7f"
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "f0bb42ef-748e-4398-bdf3-5c501f3a1480",
+      "source": "urn:sim:agent:agent-0006",
+      "type": "com.simulation.workflow_step_completed",
+      "time": "2026-03-16T09:57:22.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0006",
+        "workflow_id": "workflow-1",
+        "step_name": "finalize",
+        "duration_ms": 486,
+        "success": true
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "5b1c84d0-5749-409e-83fb-565ae3693220",
+      "source": "urn:sim:agent:agent-0008",
+      "type": "com.simulation.agent_created",
+      "time": "2026-03-16T09:57:58.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0008",
+        "agent_type": "coordinator",
+        "initial_state": {
+          "position": {
+            "x": 495.96482857030935,
+            "y": 145.84587862547727
+          },
+          "energy": 100.0
+        }
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "65f525f3-2ced-4a3e-a4fa-a0e2455d6b50",
+      "source": "urn:sim:agent:agent-0003",
+      "type": "com.simulation.resource_allocated",
+      "time": "2026-03-16T09:58:34.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0003",
+        "resource_type": "storage",
+        "amount": 11.16458597274304,
+        "allocation_id": "44478221-b2d4-40ce-80ff-e954dae79073"
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "5743fcee-68a8-43c6-8dd4-1b8a04fb74e6",
+      "source": "urn:sim:agent:agent-0005",
+      "type": "com.simulation.agent_created",
+      "time": "2026-03-16T09:59:10.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0005",
+        "agent_type": "optimizer",
+        "initial_state": {
+          "position": {
+            "x": 182.10237991434786,
+            "y": 753.082346276164
+          },
+          "energy": 100.0
+        }
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "f1404d59-fc65-4223-a2b7-977e6a5f4c15",
+      "source": "urn:sim:agent:agent-0004",
+      "type": "com.simulation.agent_created",
+      "time": "2026-03-16T09:59:46.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0004",
+        "agent_type": "worker",
+        "initial_state": {
+          "position": {
+            "x": 495.0330752438927,
+            "y": 144.5261769270063
+          },
+          "energy": 100.0
+        }
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "837329c3-69a4-4d8a-a56a-976951eca3a8",
+      "source": "urn:sim:agent:agent-0000",
+      "type": "com.simulation.workflow_step_completed",
+      "time": "2026-03-16T10:00:22.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0000",
+        "workflow_id": "workflow-1",
+        "step_name": "finalize",
+        "duration_ms": 222,
+        "success": true
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "a26c5f68-b906-40ea-961a-59d8595f38ef",
+      "source": "urn:sim:agent:agent-0005",
+      "type": "com.simulation.workflow_step_completed",
+      "time": "2026-03-16T10:00:58.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0005",
+        "workflow_id": "workflow-2",
+        "step_name": "validate",
+        "duration_ms": 145,
+        "success": true
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "61a52f38-2309-45d4-afb7-4b515386c9e2",
+      "source": "urn:sim:agent:agent-0006",
+      "type": "com.simulation.resource_allocated",
+      "time": "2026-03-16T10:01:34.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0006",
+        "resource_type": "memory",
+        "amount": 88.46840672151511,
+        "allocation_id": "49e6ab59-6254-45e3-aa69-fb541d0cc7ea"
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "0d847841-9a99-4269-8476-2bef9aac8344",
+      "source": "urn:sim:agent:agent-0000",
+      "type": "com.simulation.agent_ticked",
+      "time": "2026-03-16T10:02:10.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0000",
+        "tick": 74,
+        "state": {
+          "position": {
+            "x": 531.0844223172086,
+            "y": 0.24304220334325777
+          },
+          "energy": 70.25204085053971,
+          "velocity": 9.780782102740881
+        },
+        "actions_taken": 2
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "baee5051-f46c-42ba-9481-722005e5b9be",
+      "source": "urn:sim:agent:agent-0004",
+      "type": "com.simulation.workflow_step_completed",
+      "time": "2026-03-16T10:02:46.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0004",
+        "workflow_id": "workflow-0",
+        "step_name": "initialize",
+        "duration_ms": 470,
+        "success": true
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "842103e2-23a7-421b-a22e-946a1f13e782",
+      "source": "urn:sim:agent:agent-0006",
+      "type": "com.simulation.resource_allocated",
+      "time": "2026-03-16T10:03:22.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0006",
+        "resource_type": "network",
+        "amount": 57.989092925398815,
+        "allocation_id": "9014580c-2731-4817-883c-d0339f4240b5"
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "2cf220a0-4728-4ccc-adf7-9517644fc806",
+      "source": "urn:sim:agent:agent-0000",
+      "type": "com.simulation.resource_allocated",
+      "time": "2026-03-16T10:03:58.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0000",
+        "resource_type": "network",
+        "amount": 74.78118838849478,
+        "allocation_id": "9d46f10d-5b6a-4b73-b638-0964c3aa45ec"
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "9da1904c-21e0-4ba6-b999-7a6372bc84ff",
+      "source": "urn:sim:agent:agent-0002",
+      "type": "com.simulation.resource_allocated",
+      "time": "2026-03-16T10:04:34.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0002",
+        "resource_type": "network",
+        "amount": 93.56891312105057,
+        "allocation_id": "f3981471-db96-40e4-a974-0d9e4941a634"
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "d5fc8872-92f2-43a5-ab6d-8cdf28ea8db0",
+      "source": "urn:sim:agent:agent-0004",
+      "type": "com.simulation.agent_created",
+      "time": "2026-03-16T10:05:10.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0004",
+        "agent_type": "worker",
+        "initial_state": {
+          "position": {
+            "x": 362.89916875590256,
+            "y": 354.81231124962665
+          },
+          "energy": 100.0
+        }
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "1c8f3d53-547b-44cf-b4d8-382c12a6913e",
+      "source": "urn:sim:agent:agent-0009",
+      "type": "com.simulation.agent_ticked",
+      "time": "2026-03-16T10:05:46.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0009",
+        "tick": 80,
+        "state": {
+          "position": {
+            "x": 343.6726835793271,
+            "y": 136.58998414173683
+          },
+          "energy": 84.89130861022032,
+          "velocity": 0.288380210140583
+        },
+        "actions_taken": 5
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "924b29d4-aca1-4283-9338-1269d199c270",
+      "source": "urn:sim:agent:agent-0008",
+      "type": "com.simulation.agent_created",
+      "time": "2026-03-16T10:06:22.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0008",
+        "agent_type": "optimizer",
+        "initial_state": {
+          "position": {
+            "x": 897.3946475432085,
+            "y": 928.8890985662255
+          },
+          "energy": 100.0
+        }
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "8cce9098-afdb-4b9c-b563-7dfad98f1478",
+      "source": "urn:sim:agent:agent-0009",
+      "type": "com.simulation.agent_created",
+      "time": "2026-03-16T10:06:58.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0009",
+        "agent_type": "optimizer",
+        "initial_state": {
+          "position": {
+            "x": 335.5152000784708,
+            "y": 458.80657412569445
+          },
+          "energy": 100.0
+        }
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "85178c06-384b-4266-be41-fac14e55e027",
+      "source": "urn:sim:agent:agent-0009",
+      "type": "com.simulation.agent_ticked",
+      "time": "2026-03-16T10:07:34.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0009",
+        "tick": 83,
+        "state": {
+          "position": {
+            "x": 841.5155916496905,
+            "y": 754.3341177435524
+          },
+          "energy": 91.40738854812503,
+          "velocity": 4.369563298253451
+        },
+        "actions_taken": 2
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "030d4f31-90e0-49c6-a4e7-f65a2e9e4304",
+      "source": "urn:sim:agent:agent-0000",
+      "type": "com.simulation.agent_ticked",
+      "time": "2026-03-16T10:08:10.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0000",
+        "tick": 84,
+        "state": {
+          "position": {
+            "x": 977.3394499148877,
+            "y": 678.4757266208813
+          },
+          "energy": 74.8573235425573,
+          "velocity": 5.073909195296889
+        },
+        "actions_taken": 0
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "15533a60-8607-4a00-b58f-b299d848ea66",
+      "source": "urn:sim:agent:agent-0006",
+      "type": "com.simulation.resource_allocated",
+      "time": "2026-03-16T10:08:46.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0006",
+        "resource_type": "storage",
+        "amount": 95.96696997522794,
+        "allocation_id": "0bb1b060-0eb0-46a7-8c55-96307059b0eb"
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "f2bd78c2-6e23-4cb9-a0ed-2bc59085323e",
+      "source": "urn:sim:agent:agent-0002",
+      "type": "com.simulation.workflow_step_completed",
+      "time": "2026-03-16T10:09:22.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0002",
+        "workflow_id": "workflow-1",
+        "step_name": "initialize",
+        "duration_ms": 423,
+        "success": true
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "e180aa3e-ad41-4fc4-8c9b-0c542ccaa866",
+      "source": "urn:sim:agent:agent-0002",
+      "type": "com.simulation.resource_allocated",
+      "time": "2026-03-16T10:09:58.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0002",
+        "resource_type": "storage",
+        "amount": 79.14992041148099,
+        "allocation_id": "af58ef98-5cd9-45e6-b8a6-405158fcb63b"
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "a6e8bc2f-28b9-408d-8658-cee8566d833b",
+      "source": "urn:sim:agent:agent-0001",
+      "type": "com.simulation.workflow_step_completed",
+      "time": "2026-03-16T10:10:34.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0001",
+        "workflow_id": "workflow-3",
+        "step_name": "process",
+        "duration_ms": 338,
+        "success": true
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "07aa5dc4-35ff-4bec-b967-a51248cb41a0",
+      "source": "urn:sim:agent:agent-0003",
+      "type": "com.simulation.workflow_step_completed",
+      "time": "2026-03-16T10:11:10.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0003",
+        "workflow_id": "workflow-4",
+        "step_name": "initialize",
+        "duration_ms": 364,
+        "success": true
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "f8b73973-5e62-48b5-8ea9-69702f3ef5f3",
+      "source": "urn:sim:agent:agent-0001",
+      "type": "com.simulation.resource_allocated",
+      "time": "2026-03-16T10:11:46.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0001",
+        "resource_type": "storage",
+        "amount": 32.39805009090493,
+        "allocation_id": "4fcde42e-2800-46ec-9aad-d78698285b09"
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "bfa81544-43c1-4961-a367-5c653a3f6875",
+      "source": "urn:sim:agent:agent-0007",
+      "type": "com.simulation.agent_ticked",
+      "time": "2026-03-16T10:12:22.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0007",
+        "tick": 91,
+        "state": {
+          "position": {
+            "x": 3.292567723241935,
+            "y": 921.2408585178908
+          },
+          "energy": 54.42109394003731,
+          "velocity": 0.516048317088541
+        },
+        "actions_taken": 4
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "b35738b4-9c03-47bc-a03c-b8f80cb90a44",
+      "source": "urn:sim:agent:agent-0007",
+      "type": "com.simulation.agent_ticked",
+      "time": "2026-03-16T10:12:58.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0007",
+        "tick": 92,
+        "state": {
+          "position": {
+            "x": 686.5908438139436,
+            "y": 725.0506013571247
+          },
+          "energy": 66.7100175644781,
+          "velocity": 3.616932997134853
+        },
+        "actions_taken": 0
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "6a1b7cf2-5ec8-413d-a32f-4ca0c7efdcb3",
+      "source": "urn:sim:agent:agent-0005",
+      "type": "com.simulation.workflow_step_completed",
+      "time": "2026-03-16T10:13:34.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0005",
+        "workflow_id": "workflow-3",
+        "step_name": "initialize",
+        "duration_ms": 235,
+        "success": true
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "095b5ade-2557-4bb1-a643-58e4a9d38db0",
+      "source": "urn:sim:agent:agent-0007",
+      "type": "com.simulation.agent_ticked",
+      "time": "2026-03-16T10:14:10.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0007",
+        "tick": 94,
+        "state": {
+          "position": {
+            "x": 446.390539127678,
+            "y": 790.34567378386
+          },
+          "energy": 79.64849214571822,
+          "velocity": 3.889174681243043
+        },
+        "actions_taken": 0
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "3c6dcfd6-092e-4531-9921-b243e98cc585",
+      "source": "urn:sim:agent:agent-0002",
+      "type": "com.simulation.agent_ticked",
+      "time": "2026-03-16T10:14:46.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0002",
+        "tick": 95,
+        "state": {
+          "position": {
+            "x": 564.5749409791042,
+            "y": 151.8982506415497
+          },
+          "energy": 53.56509010149261,
+          "velocity": 9.942050693757654
+        },
+        "actions_taken": 2
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "9e36d12f-39ec-4c8d-9f74-f840127a106f",
+      "source": "urn:sim:agent:agent-0007",
+      "type": "com.simulation.agent_ticked",
+      "time": "2026-03-16T10:15:22.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0007",
+        "tick": 96,
+        "state": {
+          "position": {
+            "x": 688.3024670727888,
+            "y": 697.9889469210011
+          },
+          "energy": 89.91598972464436,
+          "velocity": 3.838586016981594
+        },
+        "actions_taken": 0
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "256a094a-1dff-42f3-823c-1d8163fa1bb3",
+      "source": "urn:sim:agent:agent-0008",
+      "type": "com.simulation.resource_allocated",
+      "time": "2026-03-16T10:15:58.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0008",
+        "resource_type": "memory",
+        "amount": 72.38195028495906,
+        "allocation_id": "9f813f07-13e5-4a99-bd65-79dff6e6b32a"
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "def1a58f-564b-40bf-8bdc-f9461e80d38a",
+      "source": "urn:sim:agent:agent-0007",
+      "type": "com.simulation.agent_created",
+      "time": "2026-03-16T10:16:34.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0007",
+        "agent_type": "optimizer",
+        "initial_state": {
+          "position": {
+            "x": 323.73295434459993,
+            "y": 830.4519274002713
+          },
+          "energy": 100.0
+        }
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "5c8437bc-85d8-4302-9a10-85bf68eebf24",
+      "source": "urn:sim:agent:agent-0006",
+      "type": "com.simulation.resource_allocated",
+      "time": "2026-03-16T10:17:10.518945Z",
+      "datacontenttype": "application/json",
+      "data": {
+        "agent_id": "agent-0006",
+        "resource_type": "memory",
+        "amount": 87.84617350144272,
+        "allocation_id": "b2404e03-99b2-426c-b08d-cfb577a84d97"
+      }
+    }
+  ]
+}

@@ -61,7 +61,7 @@ mod tests {
         }
 
         // Verify RecordBatch has correct number of rows
-        assert_eq!(engine.instance_count(), 100);
+        assert_eq!(engine.instance_table.instance_count(), 100);
 
         // Verify all instances are retrievable
         let running = engine.get_running_instances().unwrap();
@@ -69,7 +69,7 @@ mod tests {
 
         // Verify each instance has correct initial state
         for instance_id in running {
-            let instance = engine.get_instance(instance_id).unwrap();
+            let instance = engine.instance_table.get_instance(instance_id).unwrap();
             assert_eq!(instance.workflow_id, workflow_id);
             assert_eq!(instance.current_step, 0);
             assert_eq!(instance.total_steps, 3);
@@ -92,7 +92,7 @@ mod tests {
 
         // Advance through all 5 steps
         for step in 0..5 {
-            let instance = engine.get_instance(instance_id).unwrap();
+            let instance = engine.instance_table.get_instance(instance_id).unwrap();
             assert_eq!(instance.current_step, step);
             assert!(!instance.is_complete);
 
@@ -116,7 +116,7 @@ mod tests {
         }
 
         // Verify final state
-        let instance = engine.get_instance(instance_id).unwrap();
+        let instance = engine.instance_table.get_instance(instance_id).unwrap();
         assert_eq!(instance.current_step, 5);
         assert!(instance.is_complete);
     }
@@ -133,17 +133,17 @@ mod tests {
         let instance_id = instance.id;
 
         // Initially not complete
-        let status = engine.get_instance_status(instance_id).unwrap();
+        let status = engine.instance_table.get_instance_status(instance_id).unwrap();
         assert_eq!(status, crate::workflows::InstanceStatus::Running);
 
         // Complete the workflow
         engine.complete_instance(instance_id).unwrap();
 
         // Verify status changed
-        let status = engine.get_instance_status(instance_id).unwrap();
+        let status = engine.instance_table.get_instance_status(instance_id).unwrap();
         assert_eq!(status, crate::workflows::InstanceStatus::Complete);
 
-        let instance = engine.get_instance(instance_id).unwrap();
+        let instance = engine.instance_table.get_instance(instance_id).unwrap();
         assert!(instance.is_complete);
     }
 
@@ -206,7 +206,7 @@ mod tests {
 
         // Query by agent (should be empty as no agents assigned)
         let agent_id = AgentId::new();
-        let agent_workflows = engine.get_agent_workflows(agent_id).unwrap();
+        let agent_workflows = engine.instance_table.get_agent_workflows(agent_id).unwrap();
         assert_eq!(agent_workflows.len(), 0);
 
         // Note: In a full implementation, we would test assigning agents
@@ -225,22 +225,22 @@ mod tests {
         let instance_id = instance.id;
 
         // Initially running
-        let status = engine.get_instance_status(instance_id).unwrap();
+        let status = engine.instance_table.get_instance_status(instance_id).unwrap();
         assert_eq!(status, crate::workflows::InstanceStatus::Running);
 
         // Pause
         engine.pause_instance(instance_id).unwrap();
-        let status = engine.get_instance_status(instance_id).unwrap();
+        let status = engine.instance_table.get_instance_status(instance_id).unwrap();
         assert_eq!(status, crate::workflows::InstanceStatus::Paused);
 
         // Resume
         engine.resume_instance(instance_id).unwrap();
-        let status = engine.get_instance_status(instance_id).unwrap();
+        let status = engine.instance_table.get_instance_status(instance_id).unwrap();
         assert_eq!(status, crate::workflows::InstanceStatus::Running);
 
         // Pause again
         engine.pause_instance(instance_id).unwrap();
-        let status = engine.get_instance_status(instance_id).unwrap();
+        let status = engine.instance_table.get_instance_status(instance_id).unwrap();
         assert_eq!(status, crate::workflows::InstanceStatus::Paused);
     }
 
@@ -274,7 +274,7 @@ mod tests {
 
         // Verify all advanced
         for instance_id in &instance_ids {
-            let instance = engine.get_instance(*instance_id).unwrap();
+            let instance = engine.instance_table.get_instance(*instance_id).unwrap();
             assert_eq!(instance.current_step, 1);
         }
 
@@ -309,7 +309,7 @@ mod tests {
             Some(crate::workflows::WorkflowStepEvent::WorkflowCompleted { .. })
         ));
 
-        let instance = engine.get_instance(instance_id).unwrap();
+        let instance = engine.instance_table.get_instance(instance_id).unwrap();
         assert!(instance.is_complete);
     }
 
@@ -330,7 +330,7 @@ mod tests {
             .advance_instance_step(instance_id, completion_time)
             .unwrap();
 
-        let instance = engine.get_instance(instance_id).unwrap();
+        let instance = engine.instance_table.get_instance(instance_id).unwrap();
         assert!(instance.is_complete);
 
         // Try to advance again - should fail
@@ -355,7 +355,7 @@ mod tests {
         let instance = engine.start_instance(workflow_id).unwrap();
         let instance_id = instance.id;
 
-        assert_eq!(engine.instance_count(), 1);
+        assert_eq!(engine.instance_table.instance_count(), 1);
         assert_eq!(instance.current_step, 0);
 
         let completion_time = chrono::Utc::now();
@@ -388,7 +388,7 @@ mod tests {
         ));
 
         // Verify final state
-        let instance = engine.get_instance(instance_id).unwrap();
+        let instance = engine.instance_table.get_instance(instance_id).unwrap();
         assert_eq!(instance.current_step, 3);
         assert!(instance.is_complete);
 
@@ -412,7 +412,7 @@ mod tests {
         let instance_id = instance.id;
 
         // Retrieve and verify
-        let retrieved = engine.get_instance(instance_id).unwrap();
+        let retrieved = engine.instance_table.get_instance(instance_id).unwrap();
         assert_eq!(retrieved.id, instance_id);
         assert_eq!(retrieved.workflow_id, workflow_id);
         assert_eq!(retrieved.current_step, 0);
@@ -425,7 +425,7 @@ mod tests {
             .advance_instance_step(instance_id, completion_time)
             .unwrap();
 
-        let retrieved = engine.get_instance(instance_id).unwrap();
+        let retrieved = engine.instance_table.get_instance(instance_id).unwrap();
         assert_eq!(retrieved.current_step, 1);
     }
 
@@ -485,7 +485,7 @@ mod tests {
         assert_eq!(schema.field(9).name(), "metadata");
 
         // Verify initial RecordBatch is empty
-        assert_eq!(engine.instance_count(), 0);
+        assert_eq!(engine.instance_table.instance_count(), 0);
     }
 
     /// Test 14: Concurrent instance operations
@@ -505,14 +505,14 @@ mod tests {
         }
 
         // Verify all instances exist and are unique
-        assert_eq!(engine.instance_count(), 50);
+        assert_eq!(engine.instance_table.instance_count(), 50);
 
         let unique_ids: std::collections::HashSet<_> = ids.iter().collect();
         assert_eq!(unique_ids.len(), 50);
 
         // Verify all are retrievable
         for id in ids {
-            let instance = engine.get_instance(id);
+            let instance = engine.instance_table.get_instance(id);
             assert!(instance.is_some());
         }
     }
@@ -552,6 +552,7 @@ mod tests {
 
         // Paused instances are queried via get_instances_by_status
         let paused = engine
+            .instance_table
             .get_instances_by_status(crate::workflows::InstanceStatus::Paused)
             .unwrap();
         assert_eq!(paused.len(), 1);

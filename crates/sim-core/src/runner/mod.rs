@@ -5,6 +5,7 @@
 //! - Resource allocation
 //! - Workflow execution
 //! - Time advancement
+//! - Telemetry generation (optional)
 //!
 //! # Example
 //!
@@ -22,6 +23,11 @@
 //! runner.run_for_steps(100)?;
 //! ```
 
+pub mod telemetry;
+mod queries;
+
+pub use queries::query_simulation;
+
 use crate::Result;
 use crate::context::{SimulationConfig, SimulationContext};
 use crate::population::{Agent, AgentTickResult, PopulationHandler};
@@ -29,7 +35,7 @@ use crate::resources::{
     AllocationStrategy, Assignment, Resource, ResourceAllocator, Task, TaskFactory,
 };
 use crate::snapshot::{SnapshotBackend, SnapshotData, SnapshotManager, SnapshotMetadata};
-use crate::workflows::{Workflow, WorkflowEngine, WorkflowStepEvent};
+use crate::workflows::{Workflow, WorkflowEngine, WorkflowRegistry, WorkflowStepEvent};
 use arrow::array::RecordBatch;
 use std::marker::PhantomData;
 
@@ -128,8 +134,10 @@ where
     population: Option<PopulationHandler<A>>,
     /// Resource allocator (optional)
     resources: Option<ResourceAllocator<R, T>>,
-    /// Workflow engine (optional)
+    /// Workflow engine (optional, legacy single-workflow support)
     workflows: Option<WorkflowEngine<W>>,
+    /// Workflow registry (optional, multi-workflow support)
+    workflow_registry: Option<WorkflowRegistry<W>>,
     /// Task factory for creating tasks from workflow steps (optional)
     task_factory: Option<Box<dyn TaskFactory<T>>>,
     /// Lifecycle hooks
@@ -169,6 +177,7 @@ where
             population: None,
             resources: None,
             workflows: None,
+            workflow_registry: None,
             task_factory: None,
             hooks: Box::new(NoOpHooks),
             stats: SimulationStats::default(),
@@ -187,6 +196,7 @@ where
             population: None,
             resources: None,
             workflows: None,
+            workflow_registry: None,
             task_factory: None,
             hooks: Box::new(NoOpHooks),
             stats: SimulationStats::default(),
@@ -260,6 +270,30 @@ where
         self.workflows.as_mut()
     }
 
+    /// Set the workflow registry for multi-workflow support
+    ///
+    /// # Arguments
+    ///
+    /// * `registry` - WorkflowRegistry instance
+    ///
+    /// # Note
+    ///
+    /// Using workflow_registry is mutually exclusive with the single workflow engine.
+    /// Set either workflow_registry OR workflows, not both.
+    pub fn set_workflow_registry(&mut self, registry: WorkflowRegistry<W>) {
+        self.workflow_registry = Some(registry);
+    }
+
+    /// Get the workflow registry
+    pub fn workflow_registry(&self) -> Option<&WorkflowRegistry<W>> {
+        self.workflow_registry.as_ref()
+    }
+
+    /// Get mutable reference to workflow registry
+    pub fn workflow_registry_mut(&mut self) -> Option<&mut WorkflowRegistry<W>> {
+        self.workflow_registry.as_mut()
+    }
+
     /// Get simulation statistics
     pub fn stats(&self) -> &SimulationStats {
         &self.stats
@@ -281,10 +315,12 @@ where
             self.hooks.on_agents_ticked(&self.context, &results)?;
         }
 
-        // Process workflows if engine exists
-        if let Some(workflows) = &mut self.workflows {
-            let current_time = self.context.current_time();
+        // Process workflows - support both single engine and registry
+        let current_time = self.context.current_time();
+        let mut all_workflow_events = Vec::new();
 
+        // Process single workflow engine (legacy support)
+        if let Some(workflows) = &mut self.workflows {
             // Step 1: Tick workflows (process time-based steps)
             let mut workflow_events = workflows.tick(current_time)?;
 
@@ -306,7 +342,9 @@ where
                 if let Some(task_factory) = &self.task_factory {
                     // Collect info about ready instances first (to avoid borrow issues)
                     let mut instances_to_create = Vec::new();
-                    for instance in workflows.get_ready_instances() {
+                    let ready_instances = workflows.instance_table.get_ready_instances();
+
+                    for instance in ready_instances {
                         if let Some(workflow) = workflows.get_workflow(instance.workflow_id)
                             && let Some(step) = workflow.get_step(instance.current_step)
                         {
@@ -314,22 +352,38 @@ where
                         }
                     }
 
-                    // Now create tasks (but don't mark as assigned yet - that happens on allocation)
+                    // Now create tasks and mark instances as having tasks assigned
                     for (instance_id, step, time) in instances_to_create {
                         // Create task from workflow step
                         let task = task_factory.create_task(instance_id, &step, time);
 
                         // Add task to resource allocator
                         let _ = resources.add_task(task);
+
+                        // Mark instance as having a task assigned to prevent duplicate task creation
+                        workflows.mark_task_assigned(instance_id)?;
                     }
                 }
             }
 
-            // Step 5: Emit workflow events through hooks
-            for event in workflow_events {
-                self.hooks
-                    .on_workflow_step_completed(&self.context, &event)?;
-            }
+            all_workflow_events.extend(workflow_events);
+        }
+
+        // Process workflow registry (multi-workflow support)
+        if let Some(registry) = &mut self.workflow_registry {
+            // Step 1: Tick all workflow engines in registry
+            let registry_events = registry.tick_all(current_time)?;
+            all_workflow_events.extend(registry_events);
+
+            // Note: Task creation and advancement for registry workflows would require
+            // additional logic to map tasks to specific workflow engines by name.
+            // This is left as future work for Phase 9 implementation.
+        }
+
+        // Emit all workflow events through hooks
+        for event in all_workflow_events {
+            self.hooks
+                .on_workflow_step_completed(&self.context, &event)?;
         }
 
         // Advance time
@@ -371,13 +425,11 @@ where
 
             // Mark workflow instances as assigned
             if let Some(workflows) = &mut self.workflows {
-                for (task_id, instance_id, duration) in workflow_tasks {
+                for (task_id, instance_id, _duration) in workflow_tasks {
                     // Check if this task was assigned
-                    if assignments.iter().any(|a| a.task_id == task_id)
-                        && let Some(mut instance) = workflows.get_instance_mut(instance_id)
-                    {
-                        let expected_completion = current_time + duration;
-                        instance.mark_assigned(expected_completion);
+                    if assignments.iter().any(|a| a.task_id == task_id) {
+                        // Mark the instance as having a task assigned
+                        let _ = workflows.mark_task_assigned(instance_id);
                     }
                 }
             }
@@ -560,7 +612,7 @@ where
         };
 
         let workflow_instances = if let Some(wf) = &self.workflows {
-            wf.export_batch()
+            wf.instance_table.export_batch()
         } else {
             // Create empty batch with schema
             RecordBatch::new_empty(crate::workflows::workflow_instance_schema())
@@ -657,7 +709,7 @@ where
         }
 
         if let Some(wf) = &mut self.workflows {
-            wf.import_batch(snapshot_data.workflow_instances.clone())?;
+            wf.instance_table.import_batch(snapshot_data.workflow_instances.clone())?;
         }
 
         // Step 3: Verify state consistency
@@ -675,7 +727,7 @@ where
         let workflow_instance_count = self
             .workflows
             .as_ref()
-            .map(|w| w.instance_count())
+            .map(|w| w.instance_table.instance_count())
             .unwrap_or(0);
 
         // Verify counts match what we imported
@@ -723,12 +775,64 @@ where
 
         Ok(metadata)
     }
+
+    /// Execute SQL query across simulation entities
+    ///
+    /// Provides a SQL interface to query across multiple entity types (agents, resources,
+    /// tasks, workflow instances) using DataFusion. This enables complex analytical queries
+    /// with JOINs, aggregations, and filtering.
+    ///
+    /// # Available Tables
+    ///
+    /// - `agents` - Agent population (if PopulationHandler exists)
+    /// - `resources` - Available resources (if ResourceAllocator exists)
+    /// - `tasks` - Task queue (if ResourceAllocator exists)
+    /// - `workflow_instances` - Workflow execution state (if WorkflowEngine exists)
+    ///
+    /// # Arguments
+    ///
+    /// * `sql` - SQL query string (supports full DataFusion SQL syntax)
+    ///
+    /// # Returns
+    ///
+    /// Vector of RecordBatch results from the query
+    ///
+    /// # Errors
+    ///
+    /// Returns error if:
+    /// - SQL is invalid or malformed
+    /// - Query references non-existent tables
+    /// - DataFusion execution fails
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// // Find agents with assigned tasks
+    /// let result = runner.query("
+    ///     SELECT a.agent_type, COUNT(*) as count
+    ///     FROM agents a
+    ///     JOIN tasks t ON a.id = t.assigned_agent_id
+    ///     WHERE t.status = 'active'
+    ///     GROUP BY a.agent_type
+    /// ").await?;
+    ///
+    /// // Analyze resource utilization
+    /// let result = runner.query("
+    ///     SELECT
+    ///         r.resource_type,
+    ///         ROUND(100.0 * (r.capacity - r.available) / r.capacity, 2) as utilization_pct
+    ///     FROM resources r
+    ///     ORDER BY utilization_pct DESC
+    /// ").await?;
+    /// ```
+    pub async fn query(&self, sql: &str) -> Result<Vec<arrow::record_batch::RecordBatch>> {
+        queries::query_simulation(self, sql).await
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Error;
     use crate::population::AgentStatus;
     use crate::utils::idents::{AgentId, ResourceId, TaskId, WorkflowId};
     use crate::workflows::WorkflowStep;
@@ -1077,6 +1181,7 @@ mod tests {
                 .workflows
                 .as_ref()
                 .unwrap()
+                .instance_table
                 .get_instance(instance_id)
                 .unwrap()
                 .current_step,
@@ -1093,6 +1198,7 @@ mod tests {
             .workflows
             .as_ref()
             .unwrap()
+            .instance_table
             .get_instance(instance_id)
             .unwrap();
         assert_eq!(instance.current_step, 1);
@@ -1502,6 +1608,6 @@ mod tests {
         // Restore snapshot
         let restore_metadata = runner.restore_snapshot("workflow_test").await.unwrap();
         assert_eq!(restore_metadata.workflow_instance_count, 2);
-        assert_eq!(runner.workflows().unwrap().instance_count(), 2);
+        assert_eq!(runner.workflows().unwrap().instance_table.instance_count(), 2);
     }
 }

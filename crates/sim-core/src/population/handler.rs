@@ -16,6 +16,8 @@ use arrow::array::{
     Array, ArrayRef, FixedSizeBinaryBuilder, Float64Builder, RecordBatch, StringBuilder,
 };
 use arrow::datatypes::SchemaRef;
+use datafusion::datasource::MemTable;
+use datafusion::prelude::*;
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -1069,6 +1071,72 @@ impl<A: Agent> PopulationHandler<A> {
 
         Ok(())
     }
+
+    /// Execute SQL query on agent population using DataFusion
+    ///
+    /// This method allows you to query the agent population using standard SQL.
+    /// The RecordBatch is registered as a table named "agents" that you can query.
+    ///
+    /// # Arguments
+    ///
+    /// * `sql` - SQL query string to execute
+    ///
+    /// # Returns
+    ///
+    /// A RecordBatch containing the query results
+    ///
+    /// # Errors
+    ///
+    /// Returns Error::DataFusion if the query fails or is invalid
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// // Get all active agents
+    /// let active = handler.query("SELECT * FROM agents WHERE status = 'active'").await?;
+    ///
+    /// // Count agents by type
+    /// let counts = handler.query("SELECT agent_type, COUNT(*) FROM agents GROUP BY agent_type").await?;
+    ///
+    /// // Get agents at specific location
+    /// let nearby = handler.query(
+    ///     "SELECT * FROM agents WHERE position_x > 10.0 AND position_x < 20.0"
+    /// ).await?;
+    /// ```
+    pub async fn query(&self, sql: &str) -> Result<RecordBatch> {
+        // Create DataFusion session context
+        let ctx = SessionContext::new();
+
+        // Create MemTable from the current RecordBatch
+        let provider = MemTable::try_new(self.schema.clone(), vec![vec![self.agents.clone()]])?;
+
+        // Register the table
+        ctx.register_table("agents", Arc::new(provider))?;
+
+        // Execute the SQL query
+        let df = ctx.sql(sql).await?;
+
+        // Collect results
+        let batches = df.collect().await?;
+
+        // Concatenate all result batches into a single RecordBatch
+        if batches.is_empty() {
+            // Return empty batch with the schema
+            Ok(Self::create_empty_batch(self.schema.clone()))
+        } else if batches.len() == 1 {
+            // Single batch, return it directly
+            Ok(batches.into_iter().next().unwrap())
+        } else {
+            // Multiple batches, concatenate them
+            let schema = batches[0].schema();
+            arrow::compute::concat_batches(&schema, &batches).map_err(|e| {
+                Error::DataFusion(datafusion::error::DataFusionError::ArrowError(
+                    Box::new(e),
+                    None,
+                ))
+            })
+        }
+    }
 }
 
 impl<A: Agent> Default for PopulationHandler<A> {
@@ -1430,5 +1498,192 @@ mod tests {
         let removed = new_handler.remove_agent(id1);
         assert!(removed.is_some());
         assert_eq!(new_handler.count(), 1);
+    }
+
+    // SQL Query Tests
+
+    #[tokio::test]
+    async fn test_query_all_agents() {
+        let mut handler = PopulationHandler::new();
+
+        // Add test agents
+        let agent1 = TestAgent {
+            id: AgentId::new(),
+            status: TestStatus::Idle,
+            tick_count: 5,
+        };
+        let agent2 = TestAgent {
+            id: AgentId::new(),
+            status: TestStatus::Idle,
+            tick_count: 10,
+        };
+        let agent3 = TestAgent {
+            id: AgentId::new(),
+            status: TestStatus::Idle,
+            tick_count: 15,
+        };
+
+        handler.add_agent(agent1);
+        handler.add_agent(agent2);
+        handler.add_agent(agent3);
+
+        // Query all agents
+        let result = handler.query("SELECT * FROM agents").await.unwrap();
+
+        assert_eq!(result.num_rows(), 3);
+        assert_eq!(result.num_columns(), 6);
+    }
+
+    #[tokio::test]
+    async fn test_query_by_status() {
+        let mut handler = PopulationHandler::new();
+
+        // Create agents with different statuses by modifying their arrow rows
+        let agent1 = TestAgent {
+            id: AgentId::new(),
+            status: TestStatus::Idle,
+            tick_count: 1,
+        };
+        let agent2 = TestAgent {
+            id: AgentId::new(),
+            status: TestStatus::Idle,
+            tick_count: 2,
+        };
+        let agent3 = TestAgent {
+            id: AgentId::new(),
+            status: TestStatus::Idle,
+            tick_count: 3,
+        };
+
+        handler.add_agent(agent1);
+        handler.add_agent(agent2);
+        handler.add_agent(agent3);
+
+        // All agents have 'idle' status
+        let result = handler
+            .query("SELECT * FROM agents WHERE status = 'idle'")
+            .await
+            .unwrap();
+
+        assert_eq!(result.num_rows(), 3);
+
+        // Query for non-existent status
+        let result = handler
+            .query("SELECT * FROM agents WHERE status = 'active'")
+            .await
+            .unwrap();
+
+        assert_eq!(result.num_rows(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_query_count() {
+        let mut handler = PopulationHandler::new();
+
+        // Add agents
+        for _ in 0..5 {
+            let agent = TestAgent {
+                id: AgentId::new(),
+                status: TestStatus::Idle,
+                tick_count: 0,
+            };
+            handler.add_agent(agent);
+        }
+
+        // Count all agents
+        let result = handler
+            .query("SELECT COUNT(*) as total FROM agents")
+            .await
+            .unwrap();
+
+        assert_eq!(result.num_rows(), 1);
+
+        // Extract the count value
+        let count_array = result
+            .column(0)
+            .as_any()
+            .downcast_ref::<arrow::array::Int64Array>()
+            .unwrap();
+
+        assert_eq!(count_array.value(0), 5);
+    }
+
+    #[tokio::test]
+    async fn test_query_with_aggregation() {
+        let mut handler = PopulationHandler::new();
+
+        // Add 5 agents (all with type "test" since TestAgent::agent_type() always returns "test")
+        for i in 0..5 {
+            let agent = TestAgent {
+                id: AgentId::new(),
+                status: TestStatus::Idle,
+                tick_count: i,
+            };
+            handler.add_agent(agent);
+        }
+
+        // Group by agent_type and count
+        let result = handler
+            .query("SELECT agent_type, COUNT(*) as count FROM agents GROUP BY agent_type")
+            .await
+            .unwrap();
+
+        // Should have 1 row since all agents have type "test"
+        assert_eq!(result.num_rows(), 1);
+
+        // Extract type and count columns
+        let type_array = result
+            .column(0)
+            .as_any()
+            .downcast_ref::<arrow::array::StringArray>()
+            .unwrap();
+        let count_array = result
+            .column(1)
+            .as_any()
+            .downcast_ref::<arrow::array::Int64Array>()
+            .unwrap();
+
+        // Verify results
+        assert_eq!(type_array.value(0), "test");
+        assert_eq!(count_array.value(0), 5);
+
+        // Also test other aggregations
+        let result = handler
+            .query("SELECT status, COUNT(*) as count FROM agents GROUP BY status")
+            .await
+            .unwrap();
+
+        assert_eq!(result.num_rows(), 1);
+
+        let status_array = result
+            .column(0)
+            .as_any()
+            .downcast_ref::<arrow::array::StringArray>()
+            .unwrap();
+        let count_array = result
+            .column(1)
+            .as_any()
+            .downcast_ref::<arrow::array::Int64Array>()
+            .unwrap();
+
+        assert_eq!(status_array.value(0), "idle");
+        assert_eq!(count_array.value(0), 5);
+    }
+
+    #[tokio::test]
+    async fn test_query_invalid_sql() {
+        let handler = PopulationHandler::<TestAgent>::new();
+
+        // Invalid SQL syntax
+        let result = handler.query("SELECT * FORM agents").await;
+        assert!(result.is_err());
+
+        // Invalid table name
+        let result = handler.query("SELECT * FROM nonexistent").await;
+        assert!(result.is_err());
+
+        // Invalid column name
+        let result = handler.query("SELECT invalid_column FROM agents").await;
+        assert!(result.is_err());
     }
 }

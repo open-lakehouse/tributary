@@ -535,9 +535,24 @@ impl WorkflowInstanceTable {
     pub fn get_ready_instances(&self) -> Vec<WorkflowInstance> {
         let mut instances = Vec::new();
 
+        // Get status column to check if instance is ready
+        let status_array = match self
+            .instances
+            .column(2)
+            .as_any()
+            .downcast_ref::<arrow::array::StringArray>()
+        {
+            Some(arr) => arr,
+            None => return instances,
+        };
+
         // Iterate through all rows in RecordBatch
         for row_idx in 0..self.instances.num_rows() {
-            if let Some(instance) = self.get_instance_at_row(row_idx)
+            let status_str = status_array.value(row_idx);
+
+            // Only return instances with "Running" status (not "TaskAssigned", "Complete", etc.)
+            if status_str == "Running"
+                && let Some(instance) = self.get_instance_at_row(row_idx)
                 && instance.is_ready_for_assignment()
             {
                 instances.push(instance);

@@ -12,6 +12,7 @@ use sim_core::{Resource, ResourceId, Task, TaskId};
 ///
 /// ```rust
 /// use sim_kitchen::Kitchen;
+/// use sim_core::Resource;
 ///
 /// let kitchen = Kitchen::new("Main Kitchen".to_string(), 5);
 /// assert_eq!(kitchen.capacity(), 5);
@@ -88,6 +89,7 @@ impl Resource for Kitchen {
 ///
 /// ```rust
 /// use sim_kitchen::Order;
+/// use sim_core::Task;
 ///
 /// let order = Order::new(
 ///     "order-123".to_string(),

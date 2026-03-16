@@ -235,7 +235,7 @@ fn test_complete_workflow_lifecycle() {
 
     // Setup resources
     let mut allocator = ResourceAllocator::new();
-    allocator.add_resource(TestResource {
+    let _ = allocator.add_resource(TestResource {
         id: ResourceId::new(),
         capacity: 10,
         load: 0,
@@ -270,7 +270,7 @@ fn test_complete_workflow_lifecycle() {
 
     // 7. Verify workflow advanced to step 2
     let workflows = runner.workflows().unwrap();
-    let instance = workflows.get_instance(instance_id).unwrap();
+    let instance = workflows.instance_table.get_instance(instance_id).unwrap();
     assert_eq!(instance.current_step, 1);
     assert!(!instance.is_complete);
 
@@ -287,7 +287,7 @@ fn test_complete_workflow_lifecycle() {
 
     // Verify workflow advanced to step 3
     let workflows = runner.workflows().unwrap();
-    let instance = workflows.get_instance(instance_id).unwrap();
+    let instance = workflows.instance_table.get_instance(instance_id).unwrap();
     assert_eq!(instance.current_step, 2);
     assert!(!instance.is_complete);
 
@@ -302,7 +302,7 @@ fn test_complete_workflow_lifecycle() {
 
     // 11. Verify workflow marked complete
     let workflows = runner.workflows().unwrap();
-    let instance = workflows.get_instance(instance_id).unwrap();
+    let instance = workflows.instance_table.get_instance(instance_id).unwrap();
     assert_eq!(instance.current_step, 3);
     assert!(instance.is_complete);
 
@@ -399,7 +399,7 @@ fn test_multiple_concurrent_workflows() {
     // Setup resources (enough capacity for all tasks)
     let mut allocator = ResourceAllocator::new();
     for _ in 0..3 {
-        allocator.add_resource(TestResource {
+        let _ = allocator.add_resource(TestResource {
             id: ResourceId::new(),
             capacity: 10,
             load: 0,
@@ -432,12 +432,12 @@ fn test_multiple_concurrent_workflows() {
     // All workflows should advance to step 1
     let workflows = runner.workflows().unwrap();
     for instance_id in &instance_ids {
-        let instance = workflows.get_instance(*instance_id).unwrap();
+        let instance = workflows.instance_table.get_instance(*instance_id).unwrap();
         assert_eq!(instance.current_step, 1);
         assert!(!instance.is_complete);
     }
 
-    // Should have 3 new tasks
+    // Should have 3 new tasks (1 per workflow instance)
     assert_eq!(runner.resources().unwrap().pending_task_count(), 3);
 
     // Allocate and complete second step
@@ -450,7 +450,7 @@ fn test_multiple_concurrent_workflows() {
     // All workflows should be complete
     let workflows = runner.workflows().unwrap();
     for instance_id in &instance_ids {
-        let instance = workflows.get_instance(*instance_id).unwrap();
+        let instance = workflows.instance_table.get_instance(*instance_id).unwrap();
         assert_eq!(instance.current_step, 2);
         assert!(instance.is_complete);
     }

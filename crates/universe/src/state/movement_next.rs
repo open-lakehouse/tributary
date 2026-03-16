@@ -2,9 +2,9 @@ use std::sync::{Arc, LazyLock};
 
 use arrow::{
     array::{ArrayRef, AsArray, FixedSizeBinaryBuilder, Int64Builder, RecordBatch},
-    datatypes::{Float64Type, Int64Type},
+    datatypes::{Float64Type, Int64Type, Field, Schema},
 };
-use arrow_schema::DataType;
+use arrow_schema::{DataType, SchemaRef};
 use datafusion::{
     common::JoinType,
     functions::core::expr_ext::FieldAccessor as _,
@@ -26,6 +26,26 @@ pub struct MovementHandler {
 }
 
 const NODE_INDEX_RESOLUTION: LazyLock<Expr> = LazyLock::new(|| lit(9_i8));
+
+/// Schema for the node_index DataFrame: node_id, osmid, node_index (H3 as Int64), geometry
+static NODE_INDEX_SCHEMA: LazyLock<SchemaRef> = LazyLock::new(|| {
+    SchemaRef::new(Schema::new(vec![
+        Field::new("node_id", DataType::Int64, false),
+        Field::new("osmid", DataType::Int64, false),
+        Field::new("node_index", DataType::Int64, false), // H3 cell ID as BIGINT
+        Field::new(
+            "geometry",
+            DataType::Struct(
+                vec![
+                    Field::new("x", DataType::Float64, false),
+                    Field::new("y", DataType::Float64, false),
+                ]
+                .into(),
+            ),
+            false,
+        ),
+    ]))
+});
 
 impl MovementHandler {
     pub(crate) async fn try_new(ctx: &SimulationContext) -> Result<Self> {
@@ -90,7 +110,15 @@ impl MovementHandler {
     }
 
     fn node_index(&self, ctx: &SimulationContext) -> Result<DataFrame> {
-        Ok(ctx.ctx().read_batches(self.node_index.iter().cloned())?)
+        // When no routing data exists (empty batches), DataFusion needs an explicit schema
+        // to avoid "FieldNotFound" errors when selecting columns
+        if self.node_index.is_empty() {
+            // Create empty DataFrame with proper schema
+            let empty_batch = RecordBatch::new_empty(NODE_INDEX_SCHEMA.clone());
+            Ok(ctx.ctx().read_batch(empty_batch)?)
+        } else {
+            Ok(ctx.ctx().read_batches(self.node_index.iter().cloned())?)
+        }
     }
 
     /// Plan journeys for persons moving through the world.

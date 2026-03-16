@@ -4217,7 +4217,9 @@ dependencies = [
  "rstest",
  "serde",
  "serde_json",
+ "sim-geo",
  "sim-kitchen",
+ "sim-telemetry",
  "tempfile",
  "thiserror 2.0.17",
  "tokio",
@@ -4251,6 +4253,7 @@ dependencies = [
  "arrow",
  "arrow-schema",
  "chrono",
+ "criterion",
  "dashmap",
  "datafusion",
  "fast_paths",
@@ -4279,6 +4282,7 @@ dependencies = [
  "approx",
  "chrono",
  "geo",
+ "h3o",
  "rand",
  "serde",
  "serde_json",
@@ -4293,6 +4297,20 @@ dependencies = [
 [[package]]
 name = "sim-telemetry"
 version = "0.0.1"
+dependencies = [
+ "arrow",
+ "chrono",
+ "criterion",
+ "opentelemetry",
+ "opentelemetry-otlp",
+ "rstest",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.17",
+ "tokio",
+ "uuid",
+]
 
 [[package]]
 name = "simd-adler32"

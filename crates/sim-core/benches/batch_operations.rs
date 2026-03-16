@@ -12,7 +12,8 @@ use geo_types::Point;
 use serde_json::Value;
 use sim_core::{
     Result, SimulationConfig, SimulationContext,
-    population::{Agent, AgentId, AgentStatus, AgentTickResult, ArrowAgentRow, PopulationHandler},
+    population::{Agent, AgentStatus, AgentTickResult, ArrowAgentRow, PopulationHandler},
+    utils::idents::AgentId,
 };
 use uuid::Uuid;
 
@@ -116,7 +117,7 @@ fn bench_batch_add_vs_sequential(c: &mut Criterion) {
                 b.iter(|| {
                     let mut handler = PopulationHandler::new();
                     for _ in 0..size {
-                        handler.add_agent(black_box(create_test_agent())).unwrap();
+                        handler.add_agent(black_box(create_test_agent()));
                     }
                 });
             },
@@ -203,7 +204,7 @@ fn bench_get_agent(c: &mut Criterion) {
             handler.add_agents(agents).unwrap();
 
             b.iter(|| {
-                handler.get_agent(black_box(&first_id)).unwrap();
+                handler.get_agent(black_box(first_id)).unwrap();
             });
         });
     }
@@ -221,7 +222,7 @@ fn bench_agent_count(c: &mut Criterion) {
             handler.add_agents(agents).unwrap();
 
             b.iter(|| {
-                black_box(handler.agent_count());
+                black_box(handler.count());
             });
         });
     }
@@ -243,7 +244,7 @@ fn bench_remove_agent(c: &mut Criterion) {
                     (handler, first_id)
                 },
                 |(mut handler, id)| {
-                    handler.remove_agent(black_box(&id)).unwrap();
+                    handler.remove_agent(black_box(id)).unwrap();
                 },
                 criterion::BatchSize::SmallInput,
             );
