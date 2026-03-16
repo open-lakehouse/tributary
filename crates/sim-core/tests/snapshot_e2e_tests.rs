@@ -13,7 +13,7 @@ use sim_core::{
     SimulationContext,
     context::SimulationConfig,
     population::{Agent, AgentStatus, AgentTickResult, PopulationHandler},
-    resources::{AllocationStrategy, LeastLoaded, Resource, ResourceAllocator, Task, TaskFactory},
+    resources::{LeastLoaded, Resource, ResourceAllocator, Task, TaskFactory},
     runner::SimulationRunner,
     snapshot::{SnapshotBackend, SnapshotMetadata},
     utils::idents::{AgentId, ResourceId, TaskId, WorkflowId, WorkflowInstanceId},

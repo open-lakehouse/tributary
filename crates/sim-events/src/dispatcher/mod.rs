@@ -73,9 +73,10 @@ impl EventDispatcher {
         self.counts.get(event_type).copied().unwrap_or(0)
     }
 
-    /// Clear the buffer
+    /// Clear the buffer and reset counts
     pub fn clear(&mut self) {
         self.buffer.clear();
+        self.counts.clear();
     }
 
     /// Get all buffered events
@@ -205,6 +206,35 @@ mod tests {
     }
 
     #[test]
+    fn test_count_tracking_after_clear() {
+        let mut dispatcher = EventDispatcher::new();
+
+        // Emit events
+        dispatcher.emit(Event::new(Box::new(TestPayload { value: 1 })));
+        dispatcher.emit(Event::new(Box::new(TestPayload { value: 2 })));
+        dispatcher.emit(Event::new(Box::new(TestPayload { value: 3 })));
+
+        assert_eq!(dispatcher.buffered_count(), 3);
+        assert_eq!(dispatcher.count_by_type("test.event"), 3);
+
+        // Clear should reset both buffer and counts
+        dispatcher.clear();
+        assert_eq!(dispatcher.buffered_count(), 0);
+        assert_eq!(dispatcher.count_by_type("test.event"), 0);
+
+        // Verify counts HashMap is empty
+        assert_eq!(dispatcher.event_counts().len(), 0);
+
+        // Emit new events after clear
+        dispatcher.emit(Event::new(Box::new(TestPayload { value: 4 })));
+        dispatcher.emit(Event::new(Box::new(TestPayload { value: 5 })));
+
+        // Counts should start fresh from 0
+        assert_eq!(dispatcher.buffered_count(), 2);
+        assert_eq!(dispatcher.count_by_type("test.event"), 2);
+    }
+
+    #[test]
     fn test_dispatcher_to_records() {
         let mut dispatcher = EventDispatcher::new();
 
@@ -214,5 +244,119 @@ mod tests {
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].event_type, "test.event");
         assert_eq!(records[0].data["value"], 42);
+    }
+
+    #[test]
+    fn test_count_accuracy_long_running() {
+        let mut dispatcher = EventDispatcher::new();
+
+        // Simulate long-running simulation with multiple batches
+        for _batch in 0..100 {
+            // Emit events
+            for i in 0..50 {
+                dispatcher.emit(Event::new(Box::new(TestPayload { value: i })));
+            }
+
+            // Verify count before flush
+            assert_eq!(dispatcher.buffered_count(), 50);
+            assert_eq!(dispatcher.count_by_type("test.event"), 50);
+
+            // Clear after processing (simulating flush)
+            dispatcher.clear();
+
+            // Verify everything is reset
+            assert_eq!(dispatcher.buffered_count(), 0);
+            assert_eq!(dispatcher.count_by_type("test.event"), 0);
+            assert_eq!(dispatcher.event_counts().len(), 0);
+        }
+
+        // Final verification: no memory leak
+        assert_eq!(dispatcher.buffered_count(), 0);
+        assert_eq!(dispatcher.event_counts().len(), 0);
+    }
+
+    #[test]
+    fn test_count_consistency_multiple_clears() {
+        let mut dispatcher = EventDispatcher::new();
+
+        // Test multiple clear operations
+        for iteration in 0..10 {
+            // Emit varying numbers of events
+            let event_count = (iteration + 1) * 5;
+            for i in 0..event_count {
+                dispatcher.emit(Event::new(Box::new(TestPayload { value: i as i32 })));
+            }
+
+            // Verify counts are accurate
+            assert_eq!(dispatcher.buffered_count(), event_count);
+            assert_eq!(dispatcher.count_by_type("test.event"), event_count);
+
+            // Clear
+            dispatcher.clear();
+
+            // Verify complete reset
+            assert_eq!(dispatcher.buffered_count(), 0);
+            assert_eq!(dispatcher.count_by_type("test.event"), 0);
+            assert_eq!(dispatcher.event_counts().len(), 0);
+        }
+    }
+
+    #[derive(Debug)]
+    struct MultiTypePayload {
+        event_type: String,
+        value: i32,
+    }
+
+    impl EventPayload for MultiTypePayload {
+        fn event_type(&self) -> &str {
+            &self.event_type
+        }
+
+        fn source(&self) -> String {
+            "/test".to_string()
+        }
+
+        fn to_json(&self) -> serde_json::Value {
+            json!({ "value": self.value })
+        }
+    }
+
+    #[test]
+    fn test_count_tracking_multiple_types() {
+        let mut dispatcher = EventDispatcher::new();
+
+        // Emit events of different types
+        dispatcher.emit(Event::new(Box::new(MultiTypePayload {
+            event_type: "type.a".to_string(),
+            value: 1,
+        })));
+        dispatcher.emit(Event::new(Box::new(MultiTypePayload {
+            event_type: "type.a".to_string(),
+            value: 2,
+        })));
+        dispatcher.emit(Event::new(Box::new(MultiTypePayload {
+            event_type: "type.b".to_string(),
+            value: 3,
+        })));
+        dispatcher.emit(Event::new(Box::new(MultiTypePayload {
+            event_type: "type.c".to_string(),
+            value: 4,
+        })));
+
+        // Verify counts by type
+        assert_eq!(dispatcher.buffered_count(), 4);
+        assert_eq!(dispatcher.count_by_type("type.a"), 2);
+        assert_eq!(dispatcher.count_by_type("type.b"), 1);
+        assert_eq!(dispatcher.count_by_type("type.c"), 1);
+        assert_eq!(dispatcher.event_counts().len(), 3);
+
+        // Clear should reset all types
+        dispatcher.clear();
+
+        assert_eq!(dispatcher.buffered_count(), 0);
+        assert_eq!(dispatcher.count_by_type("type.a"), 0);
+        assert_eq!(dispatcher.count_by_type("type.b"), 0);
+        assert_eq!(dispatcher.count_by_type("type.c"), 0);
+        assert_eq!(dispatcher.event_counts().len(), 0);
     }
 }

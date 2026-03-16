@@ -1,19 +1,14 @@
 //! Workflow engine implementation with Apache Arrow storage
 
-use super::schema::{InstanceStatus, workflow_instance_schema};
+use super::instance_table::WorkflowInstanceTable;
+use super::schema::InstanceStatus;
 use super::traits::{Workflow, WorkflowInstance};
 use crate::Result;
 use crate::utils::idents::{AgentId, WorkflowId, WorkflowInstanceId};
-use arrow::array::{
-    Array, ArrayRef, BinaryArray, BinaryBuilder, Int64Array, Int64Builder, RecordBatch,
-    StringBuilder,
-};
+use arrow::array::RecordBatch;
 use chrono::{DateTime, Utc};
-use datafusion::prelude::*;
 use std::collections::HashMap;
 use std::marker::PhantomData;
-use std::sync::Arc;
-use uuid::Uuid;
 
 /// Events emitted by workflow progression
 #[derive(Debug, Clone)]
@@ -40,8 +35,8 @@ pub enum WorkflowStepEvent {
 /// # Storage Architecture
 ///
 /// - **Workflow Definitions**: Stored as HashMap (templates, not state)
-/// - **Workflow Instances**: Stored as Arrow RecordBatch (state data)
-/// - **Instance Lookup**: HashMap mapping WorkflowInstanceId → row index (O(1) access)
+/// - **Workflow Instances**: Delegated to WorkflowInstanceTable (Arrow RecordBatch)
+/// - **Instance Lookup**: O(1) access via WorkflowInstanceTable's HashMap index
 ///
 /// # Type Parameters
 ///
@@ -57,119 +52,41 @@ pub enum WorkflowStepEvent {
 /// // Register workflow definitions
 /// engine.register_workflow(cooking_workflow);
 ///
-/// // Start instances (async for Arrow operations)
+/// // Start instances
 /// let instance = engine.start_instance(workflow_id)?;
 ///
-/// // Query running instances via DataFusion
+/// // Query running instances
 /// let running = engine.get_running_instances()?;
 /// ```
 pub struct WorkflowEngine<W: Workflow> {
     /// Registered workflow definitions (templates)
     workflows: HashMap<WorkflowId, W>,
 
-    /// Active workflow instances (Arrow RecordBatch)
-    instances: RecordBatch,
-
-    /// Schema for instances RecordBatch
-    instance_schema: arrow::datatypes::SchemaRef,
-
-    /// Lookup map: WorkflowInstanceId → row index in RecordBatch
-    instance_id_to_row: HashMap<WorkflowInstanceId, usize>,
-
-    /// DataFusion context for SQL queries (RESERVED FOR PHASE 6 WEEK 3)
-    /// TODO: Implement query methods like get_workflows_by_status()
-    /// Currently unused - will be activated when SQL query interface is added
-    #[allow(dead_code)]
-    ctx: SessionContext,
+    /// Instance storage and manipulation (delegated to WorkflowInstanceTable)
+    instance_table: WorkflowInstanceTable,
 
     /// Phantom data
     _phantom: PhantomData<W>,
 }
 
 impl<W: Workflow> WorkflowEngine<W> {
-    /// Validates that a RecordBatch conforms to the expected workflow instance schema
-    fn validate_instance_schema(batch: &RecordBatch) -> Result<()> {
-        use arrow::datatypes::DataType;
-
-        let schema = batch.schema();
-
-        // Expected: 10 columns
-        if schema.fields().len() != 10 {
-            return Err(crate::Error::Workflow(format!(
-                "Invalid instance schema: expected 10 columns, got {}",
-                schema.fields().len()
-            )));
-        }
-
-        // Validate each field
-        let expected = [
-            ("id", DataType::Binary, false),
-            ("workflow_id", DataType::Binary, false),
-            ("status", DataType::Utf8, false),
-            ("current_step_index", DataType::Int64, false),
-            ("total_steps", DataType::Int64, false),
-            ("agent_id", DataType::Binary, true),
-            ("started_at", DataType::Int64, false),
-            ("completed_at", DataType::Int64, true),
-            ("context", DataType::Utf8, true),
-            ("metadata", DataType::Utf8, true),
-        ];
-
-        for (i, (exp_name, exp_type, exp_nullable)) in expected.iter().enumerate() {
-            let field = schema.field(i);
-
-            if field.name() != exp_name {
-                return Err(crate::Error::Workflow(format!(
-                    "Field {} has wrong name: expected '{}', got '{}'",
-                    i,
-                    exp_name,
-                    field.name()
-                )));
-            }
-
-            // Accept Parquet type optimizations: Utf8↔Utf8View, Binary↔BinaryView
-            let type_matches = field.data_type() == exp_type
-                || (matches!(exp_type, DataType::Utf8)
-                    && matches!(field.data_type(), DataType::Utf8View))
-                || (matches!(exp_type, DataType::Binary)
-                    && matches!(field.data_type(), DataType::BinaryView));
-
-            if !type_matches {
-                return Err(crate::Error::Workflow(format!(
-                    "Field '{}' has wrong type: expected {:?}, got {:?}",
-                    exp_name,
-                    exp_type,
-                    field.data_type()
-                )));
-            }
-
-            if field.is_nullable() != *exp_nullable {
-                return Err(crate::Error::Workflow(format!(
-                    "Field '{}' has wrong nullability: expected {}, got {}",
-                    exp_name,
-                    exp_nullable,
-                    field.is_nullable()
-                )));
-            }
-        }
-
-        Ok(())
-    }
-
     /// Create a new workflow engine
     pub fn new() -> Self {
-        let schema = workflow_instance_schema();
-        let empty_batch = RecordBatch::new_empty(schema.clone());
-        let ctx = SessionContext::new();
-
         Self {
             workflows: HashMap::new(),
-            instances: empty_batch,
-            instance_schema: schema,
-            instance_id_to_row: HashMap::new(),
-            ctx,
+            instance_table: WorkflowInstanceTable::new(),
             _phantom: PhantomData,
         }
+    }
+
+    /// Set the current simulation tick
+    pub fn set_current_tick(&mut self, tick: i64) {
+        self.instance_table.set_current_tick(tick);
+    }
+
+    /// Get the current simulation tick
+    pub fn current_tick(&self) -> i64 {
+        self.instance_table.current_tick()
     }
 
     /// Register a workflow definition
@@ -183,7 +100,7 @@ impl<W: Workflow> WorkflowEngine<W> {
         self.workflows.get(&id)
     }
 
-    /// Start a new workflow instance (sync version for compatibility)
+    /// Start a new workflow instance
     ///
     /// # Arguments
     ///
@@ -200,8 +117,8 @@ impl<W: Workflow> WorkflowEngine<W> {
 
         let instance = WorkflowInstance::new(workflow_id, workflow.step_count());
 
-        // Append instance to RecordBatch
-        self.append_instance(&instance)?;
+        // Append instance to table
+        self.instance_table.append_instance(&instance)?;
 
         Ok(instance)
     }
@@ -229,555 +146,12 @@ impl<W: Workflow> WorkflowEngine<W> {
         Ok(instances)
     }
 
-    /// Append a new instance to the RecordBatch
-    fn append_instance(&mut self, instance: &WorkflowInstance) -> Result<()> {
-        let new_row_index = self.instances.num_rows();
-
-        // Build new arrays with the additional row
-        let mut id_builder = BinaryBuilder::new();
-        let mut workflow_id_builder = BinaryBuilder::new();
-        let mut status_builder = StringBuilder::new();
-        let mut current_step_builder = Int64Builder::new();
-        let mut total_steps_builder = Int64Builder::new();
-        let mut agent_id_builder = BinaryBuilder::new();
-        let mut started_at_builder = Int64Builder::new();
-        let mut completed_at_builder = Int64Builder::new();
-        let mut context_builder = StringBuilder::new();
-        let mut metadata_builder = StringBuilder::new();
-
-        // Copy existing data
-        if self.instances.num_rows() > 0 {
-            self.copy_column_data(
-                &mut id_builder,
-                &mut workflow_id_builder,
-                &mut status_builder,
-                &mut current_step_builder,
-                &mut total_steps_builder,
-                &mut agent_id_builder,
-                &mut started_at_builder,
-                &mut completed_at_builder,
-                &mut context_builder,
-                &mut metadata_builder,
-            )?;
-        }
-
-        // Append new instance
-        id_builder.append_value(instance.id.as_bytes());
-        workflow_id_builder.append_value(instance.workflow_id.as_bytes());
-
-        // Determine status
-        let status = if instance.is_complete {
-            InstanceStatus::Complete
-        } else if instance.step_completion_time.is_some() {
-            InstanceStatus::Running
-        } else {
-            InstanceStatus::Running // Default to Running when just created
-        };
-        status_builder.append_value(status.as_str());
-
-        current_step_builder.append_value(instance.current_step as i64);
-        total_steps_builder.append_value(instance.total_steps as i64);
-        agent_id_builder.append_null(); // No agent assigned initially
-        started_at_builder.append_value(0); // TODO: Use actual simulation tick
-        completed_at_builder.append_null();
-        context_builder.append_null();
-
-        // Serialize metadata as JSON
-        if !instance.metadata.is_empty() {
-            let metadata_json = serde_json::to_string(&instance.metadata).map_err(|e| {
-                crate::Error::Workflow(format!("Failed to serialize metadata: {}", e))
-            })?;
-            metadata_builder.append_value(metadata_json);
-        } else {
-            metadata_builder.append_null();
-        }
-
-        // Build arrays
-        let arrays: Vec<ArrayRef> = vec![
-            Arc::new(id_builder.finish()),
-            Arc::new(workflow_id_builder.finish()),
-            Arc::new(status_builder.finish()),
-            Arc::new(current_step_builder.finish()),
-            Arc::new(total_steps_builder.finish()),
-            Arc::new(agent_id_builder.finish()),
-            Arc::new(started_at_builder.finish()),
-            Arc::new(completed_at_builder.finish()),
-            Arc::new(context_builder.finish()),
-            Arc::new(metadata_builder.finish()),
-        ];
-
-        // Create new RecordBatch
-        self.instances = RecordBatch::try_new(self.instance_schema.clone(), arrays)
-            .map_err(|e| crate::Error::Workflow(format!("Failed to create RecordBatch: {}", e)))?;
-
-        // Update lookup map
-        self.instance_id_to_row.insert(instance.id, new_row_index);
-
-        Ok(())
-    }
-
-    /// Copy existing column data from current RecordBatch to builders
-    #[allow(clippy::too_many_arguments)]
-    fn copy_column_data(
-        &self,
-        id_builder: &mut BinaryBuilder,
-        workflow_id_builder: &mut BinaryBuilder,
-        status_builder: &mut StringBuilder,
-        current_step_builder: &mut Int64Builder,
-        total_steps_builder: &mut Int64Builder,
-        agent_id_builder: &mut BinaryBuilder,
-        started_at_builder: &mut Int64Builder,
-        completed_at_builder: &mut Int64Builder,
-        context_builder: &mut StringBuilder,
-        metadata_builder: &mut StringBuilder,
-    ) -> Result<()> {
-        let num_rows = self.instances.num_rows();
-
-        // Extract arrays
-        let id_array = self
-            .instances
-            .column(0)
-            .as_any()
-            .downcast_ref::<BinaryArray>()
-            .ok_or_else(|| {
-                crate::Error::Workflow("Failed to downcast id column to BinaryArray".to_string())
-            })?;
-        let workflow_id_array = self
-            .instances
-            .column(1)
-            .as_any()
-            .downcast_ref::<BinaryArray>()
-            .ok_or_else(|| {
-                crate::Error::Workflow(
-                    "Failed to downcast workflow_id column to BinaryArray".to_string(),
-                )
-            })?;
-        let status_array = self
-            .instances
-            .column(2)
-            .as_any()
-            .downcast_ref::<arrow::array::StringArray>()
-            .ok_or_else(|| {
-                crate::Error::Workflow(
-                    "Failed to downcast status column to StringArray".to_string(),
-                )
-            })?;
-        let current_step_array = self
-            .instances
-            .column(3)
-            .as_any()
-            .downcast_ref::<Int64Array>()
-            .ok_or_else(|| {
-                crate::Error::Workflow(
-                    "Failed to downcast current_step column to Int64Array".to_string(),
-                )
-            })?;
-        let total_steps_array = self
-            .instances
-            .column(4)
-            .as_any()
-            .downcast_ref::<Int64Array>()
-            .ok_or_else(|| {
-                crate::Error::Workflow(
-                    "Failed to downcast total_steps column to Int64Array".to_string(),
-                )
-            })?;
-        let agent_id_array = self
-            .instances
-            .column(5)
-            .as_any()
-            .downcast_ref::<BinaryArray>()
-            .ok_or_else(|| {
-                crate::Error::Workflow(
-                    "Failed to downcast agent_id column to BinaryArray".to_string(),
-                )
-            })?;
-        let started_at_array = self
-            .instances
-            .column(6)
-            .as_any()
-            .downcast_ref::<Int64Array>()
-            .ok_or_else(|| {
-                crate::Error::Workflow(
-                    "Failed to downcast started_at column to Int64Array".to_string(),
-                )
-            })?;
-        let completed_at_array = self
-            .instances
-            .column(7)
-            .as_any()
-            .downcast_ref::<Int64Array>()
-            .ok_or_else(|| {
-                crate::Error::Workflow(
-                    "Failed to downcast completed_at column to Int64Array".to_string(),
-                )
-            })?;
-        let context_array = self
-            .instances
-            .column(8)
-            .as_any()
-            .downcast_ref::<arrow::array::StringArray>()
-            .ok_or_else(|| {
-                crate::Error::Workflow(
-                    "Failed to downcast context column to StringArray".to_string(),
-                )
-            })?;
-        let metadata_array = self
-            .instances
-            .column(9)
-            .as_any()
-            .downcast_ref::<arrow::array::StringArray>()
-            .ok_or_else(|| {
-                crate::Error::Workflow(
-                    "Failed to downcast metadata column to StringArray".to_string(),
-                )
-            })?;
-
-        // Copy each row
-        for i in 0..num_rows {
-            id_builder.append_value(id_array.value(i));
-            workflow_id_builder.append_value(workflow_id_array.value(i));
-            status_builder.append_value(status_array.value(i));
-            current_step_builder.append_value(current_step_array.value(i));
-            total_steps_builder.append_value(total_steps_array.value(i));
-
-            if agent_id_array.is_null(i) {
-                agent_id_builder.append_null();
-            } else {
-                agent_id_builder.append_value(agent_id_array.value(i));
-            }
-
-            started_at_builder.append_value(started_at_array.value(i));
-
-            if completed_at_array.is_null(i) {
-                completed_at_builder.append_null();
-            } else {
-                completed_at_builder.append_value(completed_at_array.value(i));
-            }
-
-            if context_array.is_null(i) {
-                context_builder.append_null();
-            } else {
-                context_builder.append_value(context_array.value(i));
-            }
-
-            if metadata_array.is_null(i) {
-                metadata_builder.append_null();
-            } else {
-                metadata_builder.append_value(metadata_array.value(i));
-            }
-        }
-
-        Ok(())
-    }
-
     /// Get a workflow instance by ID (O(1) lookup)
     pub fn get_instance(&self, id: WorkflowInstanceId) -> Option<WorkflowInstance> {
-        let row_idx = self.instance_id_to_row.get(&id)?;
-        self.get_instance_at_row(*row_idx)
+        self.instance_table.get_instance(id)
     }
 
-    /// Get workflow instance at specific row index
-    fn get_instance_at_row(&self, row_idx: usize) -> Option<WorkflowInstance> {
-        if row_idx >= self.instances.num_rows() {
-            return None;
-        }
-
-        // Extract data from RecordBatch
-        let id_array = self
-            .instances
-            .column(0)
-            .as_any()
-            .downcast_ref::<BinaryArray>()?;
-        let workflow_id_array = self
-            .instances
-            .column(1)
-            .as_any()
-            .downcast_ref::<BinaryArray>()?;
-        let current_step_array = self
-            .instances
-            .column(3)
-            .as_any()
-            .downcast_ref::<Int64Array>()?;
-        let total_steps_array = self
-            .instances
-            .column(4)
-            .as_any()
-            .downcast_ref::<Int64Array>()?;
-        let status_array = self
-            .instances
-            .column(2)
-            .as_any()
-            .downcast_ref::<arrow::array::StringArray>()?;
-        let metadata_array = self
-            .instances
-            .column(9)
-            .as_any()
-            .downcast_ref::<arrow::array::StringArray>()?;
-
-        let id_bytes = id_array.value(row_idx);
-        let id = WorkflowInstanceId::from_uuid(Uuid::from_slice(id_bytes).ok()?);
-
-        let workflow_id_bytes = workflow_id_array.value(row_idx);
-        let workflow_id = WorkflowId::from_uuid(Uuid::from_slice(workflow_id_bytes).ok()?);
-
-        let current_step = current_step_array.value(row_idx) as usize;
-        let total_steps = total_steps_array.value(row_idx) as usize;
-
-        let status_str = status_array.value(row_idx);
-        let is_complete = status_str == "Complete";
-
-        let metadata = if metadata_array.is_null(row_idx) {
-            HashMap::new()
-        } else {
-            // If parsing fails, use empty metadata rather than failing the whole operation
-            serde_json::from_str(metadata_array.value(row_idx)).unwrap_or_default()
-        };
-
-        Some(WorkflowInstance {
-            id,
-            workflow_id,
-            current_step,
-            total_steps,
-            step_completion_time: None, // Not stored in RecordBatch currently
-            is_complete,
-            metadata,
-        })
-    }
-
-    /// Update instance at specific row
-    async fn update_instance_at_row(
-        &mut self,
-        row_idx: usize,
-        update_fn: impl FnOnce(&mut WorkflowInstanceRowUpdate),
-    ) -> Result<()> {
-        if row_idx >= self.instances.num_rows() {
-            return Err(crate::Error::Workflow("Invalid row index".to_string()));
-        }
-
-        let mut update = WorkflowInstanceRowUpdate::default();
-        update_fn(&mut update);
-
-        // Rebuild RecordBatch with updated row
-        let mut id_builder = BinaryBuilder::new();
-        let mut workflow_id_builder = BinaryBuilder::new();
-        let mut status_builder = StringBuilder::new();
-        let mut current_step_builder = Int64Builder::new();
-        let mut total_steps_builder = Int64Builder::new();
-        let mut agent_id_builder = BinaryBuilder::new();
-        let mut started_at_builder = Int64Builder::new();
-        let mut completed_at_builder = Int64Builder::new();
-        let mut context_builder = StringBuilder::new();
-        let mut metadata_builder = StringBuilder::new();
-
-        // Extract arrays
-        let id_array = self
-            .instances
-            .column(0)
-            .as_any()
-            .downcast_ref::<BinaryArray>()
-            .ok_or_else(|| {
-                crate::Error::Workflow("Failed to downcast id column to BinaryArray".to_string())
-            })?;
-        let workflow_id_array = self
-            .instances
-            .column(1)
-            .as_any()
-            .downcast_ref::<BinaryArray>()
-            .ok_or_else(|| {
-                crate::Error::Workflow(
-                    "Failed to downcast workflow_id column to BinaryArray".to_string(),
-                )
-            })?;
-        let status_array = self
-            .instances
-            .column(2)
-            .as_any()
-            .downcast_ref::<arrow::array::StringArray>()
-            .ok_or_else(|| {
-                crate::Error::Workflow(
-                    "Failed to downcast status column to StringArray".to_string(),
-                )
-            })?;
-        let current_step_array = self
-            .instances
-            .column(3)
-            .as_any()
-            .downcast_ref::<Int64Array>()
-            .ok_or_else(|| {
-                crate::Error::Workflow(
-                    "Failed to downcast current_step column to Int64Array".to_string(),
-                )
-            })?;
-        let total_steps_array = self
-            .instances
-            .column(4)
-            .as_any()
-            .downcast_ref::<Int64Array>()
-            .ok_or_else(|| {
-                crate::Error::Workflow(
-                    "Failed to downcast total_steps column to Int64Array".to_string(),
-                )
-            })?;
-        let agent_id_array = self
-            .instances
-            .column(5)
-            .as_any()
-            .downcast_ref::<BinaryArray>()
-            .ok_or_else(|| {
-                crate::Error::Workflow(
-                    "Failed to downcast agent_id column to BinaryArray".to_string(),
-                )
-            })?;
-        let started_at_array = self
-            .instances
-            .column(6)
-            .as_any()
-            .downcast_ref::<Int64Array>()
-            .ok_or_else(|| {
-                crate::Error::Workflow(
-                    "Failed to downcast started_at column to Int64Array".to_string(),
-                )
-            })?;
-        let completed_at_array = self
-            .instances
-            .column(7)
-            .as_any()
-            .downcast_ref::<Int64Array>()
-            .ok_or_else(|| {
-                crate::Error::Workflow(
-                    "Failed to downcast completed_at column to Int64Array".to_string(),
-                )
-            })?;
-        let context_array = self
-            .instances
-            .column(8)
-            .as_any()
-            .downcast_ref::<arrow::array::StringArray>()
-            .ok_or_else(|| {
-                crate::Error::Workflow(
-                    "Failed to downcast context column to StringArray".to_string(),
-                )
-            })?;
-        let metadata_array = self
-            .instances
-            .column(9)
-            .as_any()
-            .downcast_ref::<arrow::array::StringArray>()
-            .ok_or_else(|| {
-                crate::Error::Workflow(
-                    "Failed to downcast metadata column to StringArray".to_string(),
-                )
-            })?;
-
-        // Rebuild all rows
-        for i in 0..self.instances.num_rows() {
-            if i == row_idx {
-                // Apply updates to this row
-                id_builder.append_value(id_array.value(i));
-                workflow_id_builder.append_value(workflow_id_array.value(i));
-
-                status_builder.append_value(
-                    update
-                        .status
-                        .map(|s| s.as_str())
-                        .unwrap_or(status_array.value(i)),
-                );
-
-                current_step_builder.append_value(
-                    update
-                        .current_step_index
-                        .map(|s| s as i64)
-                        .unwrap_or(current_step_array.value(i)),
-                );
-
-                total_steps_builder.append_value(total_steps_array.value(i));
-
-                if agent_id_array.is_null(i) {
-                    agent_id_builder.append_null();
-                } else {
-                    agent_id_builder.append_value(agent_id_array.value(i));
-                }
-
-                started_at_builder.append_value(started_at_array.value(i));
-
-                if let Some(completed_tick) = update.completed_at {
-                    completed_at_builder.append_value(completed_tick);
-                } else if completed_at_array.is_null(i) {
-                    completed_at_builder.append_null();
-                } else {
-                    completed_at_builder.append_value(completed_at_array.value(i));
-                }
-
-                if context_array.is_null(i) {
-                    context_builder.append_null();
-                } else {
-                    context_builder.append_value(context_array.value(i));
-                }
-
-                if metadata_array.is_null(i) {
-                    metadata_builder.append_null();
-                } else {
-                    metadata_builder.append_value(metadata_array.value(i));
-                }
-            } else {
-                // Copy existing row unchanged
-                id_builder.append_value(id_array.value(i));
-                workflow_id_builder.append_value(workflow_id_array.value(i));
-                status_builder.append_value(status_array.value(i));
-                current_step_builder.append_value(current_step_array.value(i));
-                total_steps_builder.append_value(total_steps_array.value(i));
-
-                if agent_id_array.is_null(i) {
-                    agent_id_builder.append_null();
-                } else {
-                    agent_id_builder.append_value(agent_id_array.value(i));
-                }
-
-                started_at_builder.append_value(started_at_array.value(i));
-
-                if completed_at_array.is_null(i) {
-                    completed_at_builder.append_null();
-                } else {
-                    completed_at_builder.append_value(completed_at_array.value(i));
-                }
-
-                if context_array.is_null(i) {
-                    context_builder.append_null();
-                } else {
-                    context_builder.append_value(context_array.value(i));
-                }
-
-                if metadata_array.is_null(i) {
-                    metadata_builder.append_null();
-                } else {
-                    metadata_builder.append_value(metadata_array.value(i));
-                }
-            }
-        }
-
-        // Build arrays
-        let arrays: Vec<ArrayRef> = vec![
-            Arc::new(id_builder.finish()),
-            Arc::new(workflow_id_builder.finish()),
-            Arc::new(status_builder.finish()),
-            Arc::new(current_step_builder.finish()),
-            Arc::new(total_steps_builder.finish()),
-            Arc::new(agent_id_builder.finish()),
-            Arc::new(started_at_builder.finish()),
-            Arc::new(completed_at_builder.finish()),
-            Arc::new(context_builder.finish()),
-            Arc::new(metadata_builder.finish()),
-        ];
-
-        // Replace RecordBatch
-        self.instances = RecordBatch::try_new(self.instance_schema.clone(), arrays)
-            .map_err(|e| crate::Error::Workflow(format!("Failed to update RecordBatch: {}", e)))?;
-
-        Ok(())
-    }
-
-    /// Advance instance to next step after task completion (sync version)
+    /// Advance instance to next step after task completion
     ///
     /// # Arguments
     ///
@@ -792,13 +166,12 @@ impl<W: Workflow> WorkflowEngine<W> {
         instance_id: WorkflowInstanceId,
         completion_time: DateTime<Utc>,
     ) -> Result<Option<WorkflowStepEvent>> {
-        let row_idx = self.instance_id_to_row.get(&instance_id).ok_or_else(|| {
+        let row_idx = self.instance_table.get_row_index(instance_id).ok_or_else(|| {
             crate::Error::Workflow(format!("Workflow instance {} not found", instance_id))
         })?;
-        let row_idx = *row_idx;
 
         // Get current instance state
-        let instance = self.get_instance_at_row(row_idx).ok_or_else(|| {
+        let instance = self.instance_table.get_instance_at_row(row_idx).ok_or_else(|| {
             crate::Error::Workflow(format!("Failed to read instance {}", instance_id))
         })?;
 
@@ -818,10 +191,11 @@ impl<W: Workflow> WorkflowEngine<W> {
 
         // Update the row
         if is_complete {
-            self.update_instance_at_row_sync(row_idx, |update| {
+            let current_tick = self.instance_table.current_tick();
+            self.instance_table.update_instance_at_row(row_idx, |update| {
                 update.current_step_index = Some(new_step);
                 update.status = Some(InstanceStatus::Complete);
-                update.completed_at = Some(0); // TODO: Use actual simulation tick
+                update.completed_at = Some(current_tick);
             })?;
 
             Ok(Some(WorkflowStepEvent::WorkflowCompleted {
@@ -830,7 +204,7 @@ impl<W: Workflow> WorkflowEngine<W> {
                 completion_time,
             }))
         } else {
-            self.update_instance_at_row_sync(row_idx, |update| {
+            self.instance_table.update_instance_at_row(row_idx, |update| {
                 update.current_step_index = Some(new_step);
                 update.status = Some(InstanceStatus::Running);
             })?;
@@ -843,275 +217,12 @@ impl<W: Workflow> WorkflowEngine<W> {
         }
     }
 
-    /// Synchronous version of update_instance_at_row
-    fn update_instance_at_row_sync(
-        &mut self,
-        row_idx: usize,
-        update_fn: impl FnOnce(&mut WorkflowInstanceRowUpdate),
-    ) -> Result<()> {
-        if row_idx >= self.instances.num_rows() {
-            return Err(crate::Error::Workflow("Invalid row index".to_string()));
-        }
-
-        let mut update = WorkflowInstanceRowUpdate::default();
-        update_fn(&mut update);
-
-        // Rebuild RecordBatch with updated row
-        let mut id_builder = BinaryBuilder::new();
-        let mut workflow_id_builder = BinaryBuilder::new();
-        let mut status_builder = StringBuilder::new();
-        let mut current_step_builder = Int64Builder::new();
-        let mut total_steps_builder = Int64Builder::new();
-        let mut agent_id_builder = BinaryBuilder::new();
-        let mut started_at_builder = Int64Builder::new();
-        let mut completed_at_builder = Int64Builder::new();
-        let mut context_builder = StringBuilder::new();
-        let mut metadata_builder = StringBuilder::new();
-
-        // Extract arrays
-        let id_array = self
-            .instances
-            .column(0)
-            .as_any()
-            .downcast_ref::<BinaryArray>()
-            .ok_or_else(|| {
-                crate::Error::Workflow("Failed to downcast id column to BinaryArray".to_string())
-            })?;
-        let workflow_id_array = self
-            .instances
-            .column(1)
-            .as_any()
-            .downcast_ref::<BinaryArray>()
-            .ok_or_else(|| {
-                crate::Error::Workflow(
-                    "Failed to downcast workflow_id column to BinaryArray".to_string(),
-                )
-            })?;
-        let status_array = self
-            .instances
-            .column(2)
-            .as_any()
-            .downcast_ref::<arrow::array::StringArray>()
-            .ok_or_else(|| {
-                crate::Error::Workflow(
-                    "Failed to downcast status column to StringArray".to_string(),
-                )
-            })?;
-        let current_step_array = self
-            .instances
-            .column(3)
-            .as_any()
-            .downcast_ref::<Int64Array>()
-            .ok_or_else(|| {
-                crate::Error::Workflow(
-                    "Failed to downcast current_step column to Int64Array".to_string(),
-                )
-            })?;
-        let total_steps_array = self
-            .instances
-            .column(4)
-            .as_any()
-            .downcast_ref::<Int64Array>()
-            .ok_or_else(|| {
-                crate::Error::Workflow(
-                    "Failed to downcast total_steps column to Int64Array".to_string(),
-                )
-            })?;
-        let agent_id_array = self
-            .instances
-            .column(5)
-            .as_any()
-            .downcast_ref::<BinaryArray>()
-            .ok_or_else(|| {
-                crate::Error::Workflow(
-                    "Failed to downcast agent_id column to BinaryArray".to_string(),
-                )
-            })?;
-        let started_at_array = self
-            .instances
-            .column(6)
-            .as_any()
-            .downcast_ref::<Int64Array>()
-            .ok_or_else(|| {
-                crate::Error::Workflow(
-                    "Failed to downcast started_at column to Int64Array".to_string(),
-                )
-            })?;
-        let completed_at_array = self
-            .instances
-            .column(7)
-            .as_any()
-            .downcast_ref::<Int64Array>()
-            .ok_or_else(|| {
-                crate::Error::Workflow(
-                    "Failed to downcast completed_at column to Int64Array".to_string(),
-                )
-            })?;
-        let context_array = self
-            .instances
-            .column(8)
-            .as_any()
-            .downcast_ref::<arrow::array::StringArray>()
-            .ok_or_else(|| {
-                crate::Error::Workflow(
-                    "Failed to downcast context column to StringArray".to_string(),
-                )
-            })?;
-        let metadata_array = self
-            .instances
-            .column(9)
-            .as_any()
-            .downcast_ref::<arrow::array::StringArray>()
-            .ok_or_else(|| {
-                crate::Error::Workflow(
-                    "Failed to downcast metadata column to StringArray".to_string(),
-                )
-            })?;
-
-        // Rebuild all rows
-        for i in 0..self.instances.num_rows() {
-            if i == row_idx {
-                // Apply updates to this row
-                id_builder.append_value(id_array.value(i));
-                workflow_id_builder.append_value(workflow_id_array.value(i));
-
-                status_builder.append_value(
-                    update
-                        .status
-                        .map(|s| s.as_str())
-                        .unwrap_or(status_array.value(i)),
-                );
-
-                current_step_builder.append_value(
-                    update
-                        .current_step_index
-                        .map(|s| s as i64)
-                        .unwrap_or(current_step_array.value(i)),
-                );
-
-                total_steps_builder.append_value(total_steps_array.value(i));
-
-                if agent_id_array.is_null(i) {
-                    agent_id_builder.append_null();
-                } else {
-                    agent_id_builder.append_value(agent_id_array.value(i));
-                }
-
-                started_at_builder.append_value(started_at_array.value(i));
-
-                if let Some(completed_tick) = update.completed_at {
-                    completed_at_builder.append_value(completed_tick);
-                } else if completed_at_array.is_null(i) {
-                    completed_at_builder.append_null();
-                } else {
-                    completed_at_builder.append_value(completed_at_array.value(i));
-                }
-
-                if context_array.is_null(i) {
-                    context_builder.append_null();
-                } else {
-                    context_builder.append_value(context_array.value(i));
-                }
-
-                if metadata_array.is_null(i) {
-                    metadata_builder.append_null();
-                } else {
-                    metadata_builder.append_value(metadata_array.value(i));
-                }
-            } else {
-                // Copy existing row unchanged
-                id_builder.append_value(id_array.value(i));
-                workflow_id_builder.append_value(workflow_id_array.value(i));
-                status_builder.append_value(status_array.value(i));
-                current_step_builder.append_value(current_step_array.value(i));
-                total_steps_builder.append_value(total_steps_array.value(i));
-
-                if agent_id_array.is_null(i) {
-                    agent_id_builder.append_null();
-                } else {
-                    agent_id_builder.append_value(agent_id_array.value(i));
-                }
-
-                started_at_builder.append_value(started_at_array.value(i));
-
-                if completed_at_array.is_null(i) {
-                    completed_at_builder.append_null();
-                } else {
-                    completed_at_builder.append_value(completed_at_array.value(i));
-                }
-
-                if context_array.is_null(i) {
-                    context_builder.append_null();
-                } else {
-                    context_builder.append_value(context_array.value(i));
-                }
-
-                if metadata_array.is_null(i) {
-                    metadata_builder.append_null();
-                } else {
-                    metadata_builder.append_value(metadata_array.value(i));
-                }
-            }
-        }
-
-        // Build arrays
-        let arrays: Vec<ArrayRef> = vec![
-            Arc::new(id_builder.finish()),
-            Arc::new(workflow_id_builder.finish()),
-            Arc::new(status_builder.finish()),
-            Arc::new(current_step_builder.finish()),
-            Arc::new(total_steps_builder.finish()),
-            Arc::new(agent_id_builder.finish()),
-            Arc::new(started_at_builder.finish()),
-            Arc::new(completed_at_builder.finish()),
-            Arc::new(context_builder.finish()),
-            Arc::new(metadata_builder.finish()),
-        ];
-
-        // Replace RecordBatch
-        self.instances = RecordBatch::try_new(self.instance_schema.clone(), arrays)
-            .map_err(|e| crate::Error::Workflow(format!("Failed to update RecordBatch: {}", e)))?;
-
-        Ok(())
-    }
-
-    /// Get all instances with a specific status (direct RecordBatch iteration)
+    /// Get all instances with a specific status
     pub fn get_instances_by_status(
         &self,
         status: InstanceStatus,
     ) -> Result<Vec<WorkflowInstanceId>> {
-        let mut ids = Vec::new();
-
-        if self.instances.num_rows() == 0 {
-            return Ok(ids);
-        }
-
-        // Direct iteration over RecordBatch (no async needed)
-        let id_array = self
-            .instances
-            .column(0)
-            .as_any()
-            .downcast_ref::<BinaryArray>()
-            .ok_or_else(|| crate::Error::Workflow("Failed to downcast id column".to_string()))?;
-        let status_array = self
-            .instances
-            .column(2)
-            .as_any()
-            .downcast_ref::<arrow::array::StringArray>()
-            .ok_or_else(|| {
-                crate::Error::Workflow("Failed to downcast status column".to_string())
-            })?;
-
-        for i in 0..self.instances.num_rows() {
-            if status_array.value(i) == status.as_str() {
-                let id_bytes = id_array.value(i);
-                if let Ok(uuid) = Uuid::from_slice(id_bytes) {
-                    ids.push(WorkflowInstanceId::from_uuid(uuid));
-                }
-            }
-        }
-
-        Ok(ids)
+        self.instance_table.get_instances_by_status(status)
     }
 
     /// Get all running instances
@@ -1124,91 +235,54 @@ impl<W: Workflow> WorkflowEngine<W> {
         self.get_instances_by_status(InstanceStatus::Complete)
     }
 
-    /// Get instances by agent ID (direct RecordBatch iteration)
+    /// Get instances by agent ID
     pub fn get_agent_workflows(&self, agent_id: AgentId) -> Result<Vec<WorkflowInstanceId>> {
-        let mut ids = Vec::new();
-
-        if self.instances.num_rows() == 0 {
-            return Ok(ids);
-        }
-
-        let id_array = self
-            .instances
-            .column(0)
-            .as_any()
-            .downcast_ref::<BinaryArray>()
-            .ok_or_else(|| crate::Error::Workflow("Failed to downcast id column".to_string()))?;
-        let agent_array = self
-            .instances
-            .column(5)
-            .as_any()
-            .downcast_ref::<BinaryArray>()
-            .ok_or_else(|| {
-                crate::Error::Workflow("Failed to downcast agent_id column".to_string())
-            })?;
-
-        let agent_bytes = agent_id.as_bytes();
-        for i in 0..self.instances.num_rows() {
-            if !agent_array.is_null(i) && agent_array.value(i) == agent_bytes {
-                let id_bytes = id_array.value(i);
-                if let Ok(uuid) = Uuid::from_slice(id_bytes) {
-                    ids.push(WorkflowInstanceId::from_uuid(uuid));
-                }
-            }
-        }
-
-        Ok(ids)
+        self.instance_table.get_agent_workflows(agent_id)
     }
 
     /// Pause a workflow instance
     pub fn pause_instance(&mut self, instance_id: WorkflowInstanceId) -> Result<()> {
-        let row_idx = *self.instance_id_to_row.get(&instance_id).ok_or_else(|| {
+        let row_idx = self.instance_table.get_row_index(instance_id).ok_or_else(|| {
             crate::Error::Workflow(format!("Workflow instance {} not found", instance_id))
         })?;
 
-        self.update_instance_at_row_sync(row_idx, |update| {
+        self.instance_table.update_instance_at_row(row_idx, |update| {
             update.status = Some(InstanceStatus::Paused);
         })
     }
 
     /// Resume a workflow instance
     pub fn resume_instance(&mut self, instance_id: WorkflowInstanceId) -> Result<()> {
-        let row_idx = *self.instance_id_to_row.get(&instance_id).ok_or_else(|| {
+        let row_idx = self.instance_table.get_row_index(instance_id).ok_or_else(|| {
             crate::Error::Workflow(format!("Workflow instance {} not found", instance_id))
         })?;
 
-        self.update_instance_at_row_sync(row_idx, |update| {
+        self.instance_table.update_instance_at_row(row_idx, |update| {
             update.status = Some(InstanceStatus::Running);
         })
     }
 
     /// Complete a workflow instance
     pub fn complete_instance(&mut self, instance_id: WorkflowInstanceId) -> Result<()> {
-        let row_idx = *self.instance_id_to_row.get(&instance_id).ok_or_else(|| {
+        let row_idx = self.instance_table.get_row_index(instance_id).ok_or_else(|| {
             crate::Error::Workflow(format!("Workflow instance {} not found", instance_id))
         })?;
 
-        self.update_instance_at_row_sync(row_idx, |update| {
+        let current_tick = self.instance_table.current_tick();
+        self.instance_table.update_instance_at_row(row_idx, |update| {
             update.status = Some(InstanceStatus::Complete);
-            update.completed_at = Some(0); // TODO: Use actual simulation tick
+            update.completed_at = Some(current_tick);
         })
     }
 
     /// Get instance status
     pub fn get_instance_status(&self, instance_id: WorkflowInstanceId) -> Option<InstanceStatus> {
-        let row_idx = self.instance_id_to_row.get(&instance_id)?;
-        let status_array = self
-            .instances
-            .column(2)
-            .as_any()
-            .downcast_ref::<arrow::array::StringArray>()?;
-        let status_str = status_array.value(*row_idx);
-        InstanceStatus::from_str(status_str)
+        self.instance_table.get_instance_status(instance_id)
     }
 
     /// Get total instance count
     pub fn instance_count(&self) -> usize {
-        self.instances.num_rows()
+        self.instance_table.instance_count()
     }
 
     /// Get workflow count
@@ -1226,18 +300,7 @@ impl<W: Workflow> WorkflowEngine<W> {
 
     /// Get all instances ready for step assignment
     pub fn get_ready_instances(&self) -> Vec<WorkflowInstance> {
-        let mut instances = Vec::new();
-
-        // Iterate through all rows in RecordBatch
-        for row_idx in 0..self.instances.num_rows() {
-            if let Some(instance) = self.get_instance_at_row(row_idx)
-                && instance.is_ready_for_assignment()
-            {
-                instances.push(instance);
-            }
-        }
-
-        instances
+        self.instance_table.get_ready_instances()
     }
 
     /// Get mutable instance (returns owned instance for modification)
@@ -1263,7 +326,7 @@ impl<W: Workflow> WorkflowEngine<W> {
     /// // Serialize or persist batch...
     /// ```
     pub fn export_batch(&self) -> RecordBatch {
-        self.instances.clone()
+        self.instance_table.export_batch()
     }
 
     /// Import and restore workflow instances from a RecordBatch
@@ -1287,57 +350,8 @@ impl<W: Workflow> WorkflowEngine<W> {
     /// engine.import_batch(batch)?;
     /// ```
     pub fn import_batch(&mut self, batch: RecordBatch) -> Result<()> {
-        // Validate schema
-        Self::validate_instance_schema(&batch)?;
-
-        // Replace instances
-        self.instances = batch;
-
-        // Rebuild instance_id_to_row lookup map
-        self.rebuild_instance_index()?;
-
-        Ok(())
+        self.instance_table.import_batch(batch)
     }
-
-    /// Rebuild the instance_id_to_row lookup map from the current RecordBatch
-    fn rebuild_instance_index(&mut self) -> Result<()> {
-        self.instance_id_to_row.clear();
-
-        if self.instances.num_rows() == 0 {
-            return Ok(());
-        }
-
-        // Extract id column
-        let id_array = self
-            .instances
-            .column(0)
-            .as_any()
-            .downcast_ref::<BinaryArray>()
-            .ok_or_else(|| {
-                crate::Error::Workflow("Failed to downcast id column to BinaryArray".to_string())
-            })?;
-
-        // Build lookup map
-        for row_idx in 0..self.instances.num_rows() {
-            let id_bytes = id_array.value(row_idx);
-            let uuid = Uuid::from_slice(id_bytes).map_err(|e| {
-                crate::Error::Workflow(format!("Invalid UUID in row {}: {}", row_idx, e))
-            })?;
-            let instance_id = WorkflowInstanceId::from_uuid(uuid);
-
-            self.instance_id_to_row.insert(instance_id, row_idx);
-        }
-
-        Ok(())
-    }
-}
-
-/// Helper struct for row updates
-#[derive(Default)]
-struct WorkflowInstanceRowUpdate {
-    status: Option<InstanceStatus>,
-    current_step_index: Option<usize>,
-    completed_at: Option<i64>,
 }
 
 impl<W: Workflow> Default for WorkflowEngine<W> {
@@ -1809,8 +823,9 @@ mod tests {
 
     #[test]
     fn test_import_invalid_schema_fails() {
-        use arrow::array::Int32Array;
+        use arrow::array::{ArrayRef, Int32Array};
         use arrow::datatypes::{DataType, Field, Schema};
+        use std::sync::Arc;
 
         let mut engine = WorkflowEngine::<TestWorkflow>::new();
 

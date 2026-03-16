@@ -388,7 +388,7 @@ impl SnapshotManager {
     /// Helper to write a single RecordBatch to a Parquet file
     async fn write_batch_to_parquet(
         &self,
-        snapshot_dir: &PathBuf,
+        snapshot_dir: &std::path::Path,
         snapshot_id: &str,
         name: &str,
         batch: RecordBatch,
@@ -474,7 +474,7 @@ impl SnapshotManager {
     /// Helper to read a single Parquet file into a RecordBatch
     async fn read_batch_from_parquet(
         &self,
-        snapshot_dir: &PathBuf,
+        snapshot_dir: &std::path::Path,
         snapshot_id: &str,
         name: &str,
     ) -> Result<RecordBatch> {

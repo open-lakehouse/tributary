@@ -8,7 +8,6 @@
 use geo_types::Point;
 use sim_core::{
     Agent, SimulationConfig, SimulationContext, population::PopulationHandler,
-    resources::ResourceAllocator, workflows::WorkflowEngine,
 };
 use sim_kitchen::agents::{Customer, CustomerStatus};
 

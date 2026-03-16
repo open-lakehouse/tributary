@@ -104,6 +104,14 @@ impl MovementHandler {
         let time_step_secs = time_step.num_seconds() as f64;
 
         for journey in self.active_journeys.values_mut() {
+            // Validate distance is positive and non-zero
+            if journey.distance_m <= 0.0 {
+                return Err(crate::Error::Journey(format!(
+                    "Journey {} has invalid distance: {}. Distance must be positive.",
+                    journey.id, journey.distance_m
+                )));
+            }
+
             let velocity = self.velocity_model.velocity_m_s(journey, journey.progress);
             let distance_traveled = velocity * time_step_secs;
             let progress_delta = distance_traveled / journey.distance_m;
@@ -207,5 +215,63 @@ mod tests {
         let completed = handler.get_completed_journeys();
         assert_eq!(completed.len(), 1);
         assert_eq!(completed[0].progress, 1.0);
+    }
+
+    #[test]
+    fn test_zero_distance_journey() {
+        let mut handler = MovementHandler::new();
+
+        let journey = JourneyState {
+            id: JourneyId::new(),
+            agent_id: AgentId::new(),
+            route: LineString::new(vec![
+                Point::new(0.0, 0.0).into(),
+                Point::new(0.0, 0.0).into(),
+            ]),
+            distance_m: 0.0, // Zero distance - should cause error
+            progress: 0.0,
+            start_time: Utc::now(),
+            metadata: HashMap::new(),
+        };
+
+        handler.add_journey(journey);
+
+        // This should fail with Journey error
+        let result = handler.advance_journeys(Duration::seconds(10));
+        assert!(result.is_err());
+        if let Err(crate::Error::Journey(msg)) = result {
+            assert!(msg.contains("invalid distance"));
+        } else {
+            panic!("Expected Journey error for zero distance");
+        }
+    }
+
+    #[test]
+    fn test_negative_distance_journey() {
+        let mut handler = MovementHandler::new();
+
+        let journey = JourneyState {
+            id: JourneyId::new(),
+            agent_id: AgentId::new(),
+            route: LineString::new(vec![
+                Point::new(0.0, 0.0).into(),
+                Point::new(1.0, 1.0).into(),
+            ]),
+            distance_m: -100.0, // Negative distance - should cause error
+            progress: 0.0,
+            start_time: Utc::now(),
+            metadata: HashMap::new(),
+        };
+
+        handler.add_journey(journey);
+
+        // This should fail with Journey error
+        let result = handler.advance_journeys(Duration::seconds(10));
+        assert!(result.is_err());
+        if let Err(crate::Error::Journey(msg)) = result {
+            assert!(msg.contains("invalid distance"));
+        } else {
+            panic!("Expected Journey error for negative distance");
+        }
     }
 }

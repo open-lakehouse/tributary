@@ -1,5 +1,6 @@
 //! Location management and spatial queries
 
+mod array_utils;
 mod handler;
 pub mod schema;
 mod traits;
@@ -8,4 +9,4 @@ mod traits;
 mod arrow_tests;
 
 pub use handler::LocationHandler;
-pub use traits::Location;
+pub use traits::{validate_coordinates, Location};
