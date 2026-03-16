@@ -351,14 +351,14 @@ mod tests {
             "id": "evt-456",
             "data": {
                 "flag": true,
-                "count": 3.14,
+                "count": 3.15,
                 "nested": {"x": 1, "y": 2}
             }
         });
 
         let attrs = generator.extract_attributes(&event);
         assert_eq!(attrs.get("data.flag").unwrap(), "true");
-        assert_eq!(attrs.get("data.count").unwrap(), "3.14");
+        assert_eq!(attrs.get("data.count").unwrap(), "3.15");
         assert!(attrs.get("data.nested").unwrap().contains("\"x\""));
     }
 
@@ -463,7 +463,7 @@ mod tests {
         let val2 = generator.compute_deterministic_random(&event);
 
         assert_eq!(val1, val2);
-        assert!(val1 >= 0.0 && val1 < 1.0);
+        assert!((0.0..1.0).contains(&val1));
     }
 
     #[test]
@@ -517,8 +517,8 @@ mod tests {
 
         // Check rough distribution (with tolerance for randomness)
         // We expect approximately: 10% error, 20% trace, 70% other
-        assert!(error_count >= 5 && error_count <= 15, "Error count: {}", error_count);
-        assert!(trace_count >= 15 && trace_count <= 25, "Trace count: {}", trace_count);
-        assert!(other_count >= 65 && other_count <= 75, "Other count: {}", other_count);
+        assert!((5..=15).contains(&error_count), "Error count: {}", error_count);
+        assert!((15..=25).contains(&trace_count), "Trace count: {}", trace_count);
+        assert!((65..=75).contains(&other_count), "Other count: {}", other_count);
     }
 }

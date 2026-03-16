@@ -44,13 +44,14 @@
 //! - `arrow-batch`: Batch processing with Apache Arrow
 
 pub mod core;
+pub mod formats;
 pub mod generators;
 
 // Re-export commonly used types for convenience
 pub use core::{
     LogLevel, MetricType, TelemetryError, TelemetryGenerator, TelemetryRecord,
 };
-pub use generators::{EventToLogGenerator, EventToTraceGenerator};
+pub use generators::{EventToLogGenerator, EventToMetricGenerator, EventToTraceGenerator};
 
 #[cfg(test)]
 mod integration_tests {

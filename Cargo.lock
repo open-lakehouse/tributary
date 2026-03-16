@@ -4303,6 +4303,7 @@ dependencies = [
  "serde_json",
  "sim-core",
  "sim-events",
+ "tempfile",
  "thiserror 2.0.17",
  "tokio",
  "uuid",

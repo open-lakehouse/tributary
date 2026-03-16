@@ -4,7 +4,9 @@
 //! for different types of telemetry output.
 
 pub mod logs;
+pub mod metrics;
 pub mod traces;
 
 pub use logs::EventToLogGenerator;
+pub use metrics::EventToMetricGenerator;
 pub use traces::EventToTraceGenerator;
