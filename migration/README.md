@@ -1,9 +1,9 @@
 # Generic Agent Simulation Framework - Migration Progress
 
 **Last Updated:** March 16, 2026
-**Overall Progress:** 38% complete (5.33/14 phases)
-**Current Phase:** Phase 1 Complete - Critical Fixes Done
-**Test Status:** 240 tests passing (151 sim-core, 54 sim-geo, 16 sim-events, 19 sim-kitchen)
+**Overall Progress:** 43% complete (6/14 phases)
+**Current Phase:** Phase 3 Complete - Code Simplification Done
+**Test Status:** 269 tests passing (157 sim-core, 66 sim-geo, 16 sim-events, 30 sim-kitchen)
 
 ---
 
@@ -112,6 +112,16 @@ Migrated all state storage to Arrow RecordBatch:
 
 See `completed/PHASE_6_WEEK_2_COMPLETE.md` for full details.
 
+### Phase 3: Code Simplification (COMPLETE)
+
+Completed remaining code quality improvements through parallel execution:
+- **Track A (sim-core):** Criterion benchmarks proving 7-785x batch operation speedups
+- **Track B (sim-geo):** Extracted distance helpers, eliminated code duplication
+- **Track C (sim-kitchen):** Complete 5-event lifecycle + FoodPrepWorkflow implementation
+- 269 tests passing, zero regressions
+
+See `completed/PHASE_3_COMPLETE.md` for full details.
+
 ---
 
 ## Current Status
@@ -120,11 +130,11 @@ See `completed/PHASE_6_WEEK_2_COMPLETE.md` for full details.
 
 | Crate | Tests | Coverage | Status |
 |-------|-------|----------|--------|
-| sim-core | 151 | 85%+ | ✅ All passing, zero warnings |
-| sim-geo | 54 | 80%+ | ✅ All passing, edge cases validated |
+| sim-core | 157 | 85%+ | ✅ All passing, benchmarks added |
+| sim-geo | 66 | 82%+ | ✅ All passing, helpers extracted |
 | sim-events | 16 | 90%+ | ✅ All passing, count bug fixed |
-| sim-kitchen | 19 | 75%+ | ✅ All passing, lifecycle complete |
-| **Total** | **240** | **82%+** | **✅ 100% PASSING** |
+| sim-kitchen | 30 | 78%+ | ✅ All passing, full event lifecycle |
+| **Total** | **269** | **84%+** | **✅ 100% PASSING** |
 
 ### Code Quality
 
@@ -138,30 +148,34 @@ See `completed/PHASE_6_WEEK_2_COMPLETE.md` for full details.
 
 Current capabilities (validated with benchmarks):
 - Arrow RecordBatch storage with 10-100x speedup vs HashMap
-- Batch update API for efficient workflow progression
+- **Batch update API:** 7-785x speedup (validated with criterion benchmarks)
 - H3 spatial indexing for fast proximity queries
 - Snapshot save/restore in <100ms for 10k agents
+- Workflow operations scale efficiently with table size
 
 ---
 
 ## Next Steps
 
-### Scope: Phases 2-3 Only
+### Recommended: Phase 7 + Phase 8 in Parallel (5-7 days)
 
-**Phase 2: Documentation Cleanup (COMPLETE - this file!)**
-- Created `archive/` and `completed/` directories
-- Moved 7 superseded docs to archive
-- Moved 5 completion docs to completed
-- Created consolidated README (this file)
-- Reduced documentation from 8,557 to ~1,400 lines (84% reduction)
+With Phase 3 complete, move to new feature development:
 
-**Phase 3: Code Simplification (Recommended - 2-3 days)**
-- Extract WorkflowInstanceTable wrapper (reduce engine.rs from 1,100 to ~700 lines)
-- Implement batch update API performance benchmarks
-- Simplify sim-geo array handling with LocationColumns helper
-- Enhance sim-kitchen as complete reference with all event types
+**Phase 7: Road Network Integration (5-7 days)**
+- Port routing from universe crate
+- Implement Dijkstra pathfinding
+- Add TimeOfDay velocity model
+- Integrate with LocationHandler
 
-See `FORWARD_PLAN.md` for detailed Phase 3 tasks.
+**Phase 8: Telemetry Generation (5-7 days)**
+- Implement log/trace/metric generation
+- Add OTEL export formats
+- Leverage snapshot system for time-series
+- Create telemetry examples
+
+Both phases can run in parallel with minimal coordination.
+
+See `phases/PHASE_07_ROAD_NETWORK.md` and `phases/PHASE_08_TELEMETRY.md` for details.
 
 ### Future Phases (7-14)
 

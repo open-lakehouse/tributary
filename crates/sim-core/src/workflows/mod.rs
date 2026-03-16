@@ -11,5 +11,8 @@ mod traits;
 mod arrow_tests;
 
 pub use engine::{WorkflowEngine, WorkflowStepEvent};
+pub use instance_table::{
+    BatchUpdateList, WorkflowInstanceRowUpdate, WorkflowInstanceTable, WorkflowInstanceUpdate,
+};
 pub use schema::{InstanceStatus, workflow_instance_schema};
 pub use traits::{Workflow, WorkflowInstance, WorkflowStep};
