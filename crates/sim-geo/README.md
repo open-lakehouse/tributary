@@ -102,8 +102,30 @@ Choose resolution based on your use case:
 cargo test -p sim-geo
 ```
 
-All 13 tests pass with coverage of locations, spatial queries, and journeys.
+All tests pass with coverage of locations, spatial queries, routing, and journeys.
+
+## Dependencies
+
+- `sim-core 0.0.1` - Core simulation abstractions
+- `arrow 57.0` - Columnar data format
+- `geoarrow 0.7.0` - Geospatial Arrow extensions
+- `geo 0.31` - Geospatial algorithms
+- `h3o 0.9.3` - H3 hexagonal indexing
+- `fast_paths 1.0` - Contraction Hierarchies routing
+- `osmpbfreader 0.16` - OSM file parsing
+
+## Version Information
+
+Current version: `0.0.1`
+
+See [CHANGELOG.md](CHANGELOG.md) for detailed version history.
+
+## Documentation
+
+- [Architecture](docs/architecture.md) - Routing performance, spatial indexing, design principles
+- [Patterns](docs/patterns.md) - Common usage patterns and best practices
+- [Troubleshooting](docs/troubleshooting.md) - Common issues, debugging tips, and FAQ
 
 ## License
 
-See the workspace LICENSE file.
+MIT OR Apache-2.0

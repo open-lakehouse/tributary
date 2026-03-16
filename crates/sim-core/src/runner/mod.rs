@@ -23,8 +23,8 @@
 //! runner.run_for_steps(100)?;
 //! ```
 
-pub mod telemetry;
 mod queries;
+pub mod telemetry;
 
 pub use queries::query_simulation;
 
@@ -734,7 +734,8 @@ where
         }
 
         if let Some(wf) = &mut self.workflows {
-            wf.instance_table.import_batch(snapshot_data.workflow_instances.clone())?;
+            wf.instance_table
+                .import_batch(snapshot_data.workflow_instances.clone())?;
         }
 
         // Step 3: Verify state consistency
@@ -1633,6 +1634,9 @@ mod tests {
         // Restore snapshot
         let restore_metadata = runner.restore_snapshot("workflow_test").await.unwrap();
         assert_eq!(restore_metadata.workflow_instance_count, 2);
-        assert_eq!(runner.workflows().unwrap().instance_table.instance_count(), 2);
+        assert_eq!(
+            runner.workflows().unwrap().instance_table.instance_count(),
+            2
+        );
     }
 }

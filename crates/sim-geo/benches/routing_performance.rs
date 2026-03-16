@@ -8,11 +8,11 @@
 //!
 //! Run with: cargo bench -p sim-geo --bench routing_performance
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use chrono::Utc;
+use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
 use geo::Point;
 use sim_geo::graph::{RoadEdge, RoadNetwork, RoadNode, RoadType};
 use sim_geo::movement::velocity::TimeOfDayVelocity;
-use chrono::Utc;
 
 /// Load a medium-sized test network (1024 nodes)
 fn load_network() -> RoadNetwork {
@@ -93,9 +93,7 @@ fn benchmark_routing_single_query(c: &mut Criterion) {
     let goal = node_ids[node_ids.len() / 2]; // Middle node
 
     c.bench_function("route_single_query", |b| {
-        b.iter(|| {
-            network.find_shortest_path(black_box(start), black_box(goal))
-        });
+        b.iter(|| network.find_shortest_path(black_box(start), black_box(goal)));
     });
 }
 
@@ -134,13 +132,17 @@ fn benchmark_routing_batch_queries(c: &mut Criterion) {
 fn benchmark_network_loading(c: &mut Criterion) {
     c.bench_function("network_load_medium", |b| {
         b.iter(|| {
-            black_box(RoadNetwork::load_from_file("test_data/medium_city_graph.json"))
+            black_box(RoadNetwork::load_from_file(
+                "test_data/medium_city_graph.json",
+            ))
         });
     });
 
     c.bench_function("network_load_small", |b| {
         b.iter(|| {
-            black_box(RoadNetwork::load_from_file("test_data/small_city_graph.json"))
+            black_box(RoadNetwork::load_from_file(
+                "test_data/small_city_graph.json",
+            ))
         });
     });
 }
@@ -157,10 +159,7 @@ fn benchmark_velocity_calculation(c: &mut Criterion) {
 
     c.bench_function("velocity_calculation", |b| {
         b.iter(|| {
-            black_box(velocity_model.calculate_velocity(
-                black_box(&road_type),
-                black_box(time),
-            ))
+            black_box(velocity_model.calculate_velocity(black_box(&road_type), black_box(time)))
         });
     });
 }
@@ -175,9 +174,7 @@ fn benchmark_point_to_node_mapping(c: &mut Criterion) {
     let test_point = Point::new(-122.4194, 37.7749);
 
     c.bench_function("find_nearest_node", |b| {
-        b.iter(|| {
-            network.find_nearest_node(black_box(test_point))
-        });
+        b.iter(|| network.find_nearest_node(black_box(test_point)));
     });
 }
 
@@ -189,9 +186,7 @@ fn benchmark_fast_graph_preprocessing(c: &mut Criterion) {
     let network = load_network();
 
     c.bench_function("build_fast_graph", |b| {
-        b.iter(|| {
-            black_box(network.build_fast_graph())
-        });
+        b.iter(|| black_box(network.build_fast_graph()));
     });
 }
 

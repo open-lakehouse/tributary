@@ -9,11 +9,13 @@
 //!
 //! Run with: cargo bench -p sim-telemetry --bench telemetry_performance
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
 use serde_json::json;
 use sim_telemetry::core::{TelemetryCollector, TelemetryGenerator};
-use sim_telemetry::generators::{EventToLogGenerator, EventToMetricGenerator, EventToTraceGenerator};
 use sim_telemetry::formats::otlp::OtlpExporter;
+use sim_telemetry::generators::{
+    EventToLogGenerator, EventToMetricGenerator, EventToTraceGenerator,
+};
 
 /// Create a sample CloudEvents-compliant event for benchmarking
 fn create_sample_event() -> serde_json::Value {
@@ -69,9 +71,7 @@ fn benchmark_log_generation(c: &mut Criterion) {
     let event = create_sample_event();
 
     c.bench_function("generate_log", |b| {
-        b.iter(|| {
-            black_box(generator.generate(black_box(&event)))
-        });
+        b.iter(|| black_box(generator.generate(black_box(&event))));
     });
 }
 
@@ -83,13 +83,14 @@ fn benchmark_log_generation_sampling(c: &mut Criterion) {
 
     for (trace_prob, debug_prob) in [(0.0, 0.0), (0.05, 0.10), (0.20, 0.30)] {
         c.bench_with_input(
-            BenchmarkId::new("log_sampling", format!("{:.2}_{:.2}", trace_prob, debug_prob)),
+            BenchmarkId::new(
+                "log_sampling",
+                format!("{:.2}_{:.2}", trace_prob, debug_prob),
+            ),
             &(trace_prob, debug_prob),
             |b, &(t, d)| {
                 let mut generator = EventToLogGenerator::with_probabilities(t, d);
-                b.iter(|| {
-                    black_box(generator.generate(black_box(&event)))
-                });
+                b.iter(|| black_box(generator.generate(black_box(&event))));
             },
         );
     }
@@ -105,9 +106,7 @@ fn benchmark_trace_generation(c: &mut Criterion) {
     let event = create_sample_event();
 
     c.bench_function("generate_trace", |b| {
-        b.iter(|| {
-            black_box(generator.generate(black_box(&event)))
-        });
+        b.iter(|| black_box(generator.generate(black_box(&event))));
     });
 }
 
@@ -121,9 +120,7 @@ fn benchmark_metric_generation(c: &mut Criterion) {
     let event = create_sample_event();
 
     c.bench_function("generate_metric", |b| {
-        b.iter(|| {
-            black_box(generator.generate(black_box(&event)))
-        });
+        b.iter(|| black_box(generator.generate(black_box(&event))));
     });
 }
 
@@ -196,9 +193,7 @@ fn benchmark_otlp_export(c: &mut Criterion) {
         .collect();
 
     c.bench_function("otlp_export_100_traces", |b| {
-        b.iter(|| {
-            black_box(OtlpExporter::export_traces(black_box(&records)))
-        });
+        b.iter(|| black_box(OtlpExporter::export_traces(black_box(&records))));
     });
 }
 
@@ -215,9 +210,7 @@ fn benchmark_otlp_log_export(c: &mut Criterion) {
         .collect();
 
     c.bench_function("otlp_export_100_logs", |b| {
-        b.iter(|| {
-            black_box(OtlpExporter::export_logs(black_box(&records)))
-        });
+        b.iter(|| black_box(OtlpExporter::export_logs(black_box(&records))));
     });
 }
 
@@ -234,9 +227,7 @@ fn benchmark_otlp_metric_export(c: &mut Criterion) {
         .collect();
 
     c.bench_function("otlp_export_100_metrics", |b| {
-        b.iter(|| {
-            black_box(OtlpExporter::export_metrics(black_box(&records)))
-        });
+        b.iter(|| black_box(OtlpExporter::export_metrics(black_box(&records))));
     });
 }
 
@@ -260,9 +251,21 @@ fn benchmark_end_to_end_pipeline(c: &mut Criterion) {
             let records = collector.flush();
 
             // Separate by type and export (owned records, not references)
-            let logs: Vec<_> = records.iter().filter(|r| matches!(r, sim_telemetry::core::TelemetryRecord::Log { .. })).cloned().collect();
-            let traces: Vec<_> = records.iter().filter(|r| matches!(r, sim_telemetry::core::TelemetryRecord::Trace { .. })).cloned().collect();
-            let metrics: Vec<_> = records.iter().filter(|r| matches!(r, sim_telemetry::core::TelemetryRecord::Metric { .. })).cloned().collect();
+            let logs: Vec<_> = records
+                .iter()
+                .filter(|r| matches!(r, sim_telemetry::core::TelemetryRecord::Log { .. }))
+                .cloned()
+                .collect();
+            let traces: Vec<_> = records
+                .iter()
+                .filter(|r| matches!(r, sim_telemetry::core::TelemetryRecord::Trace { .. }))
+                .cloned()
+                .collect();
+            let metrics: Vec<_> = records
+                .iter()
+                .filter(|r| matches!(r, sim_telemetry::core::TelemetryRecord::Metric { .. }))
+                .cloned()
+                .collect();
 
             black_box(OtlpExporter::export_logs(&logs));
             black_box(OtlpExporter::export_traces(&traces));
@@ -295,9 +298,7 @@ fn benchmark_json_serialization(c: &mut Criterion) {
     let records = generator.generate(&event).unwrap();
 
     c.bench_function("json_serialize_record", |b| {
-        b.iter(|| {
-            black_box(serde_json::to_string(black_box(&records[0])))
-        });
+        b.iter(|| black_box(serde_json::to_string(black_box(&records[0]))));
     });
 }
 

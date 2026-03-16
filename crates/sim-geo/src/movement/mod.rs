@@ -284,9 +284,9 @@ impl MovementHandler {
             let elapsed_seconds = (elapsed_fraction * estimated_total_seconds) as i64;
             let current_time = journey.start_time + Duration::seconds(elapsed_seconds);
 
-            let velocity = self
-                .velocity_model
-                .velocity_m_s_at_time(journey, journey.progress, current_time);
+            let velocity =
+                self.velocity_model
+                    .velocity_m_s_at_time(journey, journey.progress, current_time);
             let distance_traveled = velocity * time_step_secs;
             let progress_delta = distance_traveled / journey.distance_m;
 
@@ -665,7 +665,7 @@ mod tests {
 
     #[test]
     fn test_network_loading_methods() {
-        use crate::graph::{RoadNode};
+        use crate::graph::RoadNode;
 
         let mut network = RoadNetwork::new();
         network.add_node(RoadNode {
@@ -704,7 +704,7 @@ mod tests {
     #[test]
     fn test_integration_with_real_graph() {
         // Load real graph data and plan multiple journeys
-        use crate::graph::{RoadNode};
+        use crate::graph::RoadNode;
 
         let network = match RoadNetwork::load_from_file("test_data/small_city_graph.json") {
             Ok(net) => net,
@@ -782,7 +782,9 @@ mod tests {
         // Advance journey to completion based on actual distance
         // At 5 m/s, time = distance / velocity
         let time_needed = (journey_distance / 5.0).ceil() as i64 + 10; // Add buffer
-        handler.advance_journeys(Duration::seconds(time_needed)).unwrap();
+        handler
+            .advance_journeys(Duration::seconds(time_needed))
+            .unwrap();
 
         let completed = handler.get_completed_journeys();
         assert_eq!(completed.len(), 1, "Journey should be completed");

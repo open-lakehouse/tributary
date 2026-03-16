@@ -3,9 +3,9 @@
 //! This example loads sample events from test_data and generates
 //! telemetry records in JSON format.
 
+use serde_json::Value;
 use sim_telemetry::core::TelemetryGenerator;
 use sim_telemetry::generators::EventToLogGenerator;
-use serde_json::Value;
 use std::fs;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -23,8 +23,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create log generator with custom probabilities
     let mut generator = EventToLogGenerator::with_probabilities(0.08, 0.12);
 
-    println!("Processing {} sample events...\n",
-        events_json["events"].as_array().map(|a| a.len()).unwrap_or(0));
+    println!(
+        "Processing {} sample events...\n",
+        events_json["events"]
+            .as_array()
+            .map(|a| a.len())
+            .unwrap_or(0)
+    );
 
     // Process first 5 events as examples
     if let Some(events) = events_json["events"].as_array() {

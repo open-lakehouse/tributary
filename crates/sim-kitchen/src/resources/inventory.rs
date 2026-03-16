@@ -339,11 +339,12 @@ impl Inventory {
             });
         }
 
-        let new_quantity = self.quantity.checked_add(amount).ok_or_else(|| {
-            InventoryError::InvalidQuantity {
-                reason: "Quantity overflow".to_string(),
-            }
-        })?;
+        let new_quantity =
+            self.quantity
+                .checked_add(amount)
+                .ok_or_else(|| InventoryError::InvalidQuantity {
+                    reason: "Quantity overflow".to_string(),
+                })?;
 
         if new_quantity > self.capacity {
             return Err(InventoryError::CapacityExceeded {
@@ -549,11 +550,11 @@ impl InventoryManager {
     /// ```
     pub fn consume_item(&self, item_type: &str, amount: u32) -> Result<()> {
         let mut items = self.items.lock().unwrap();
-        let item = items.get_mut(item_type).ok_or_else(|| {
-            InventoryError::ItemNotFound {
+        let item = items
+            .get_mut(item_type)
+            .ok_or_else(|| InventoryError::ItemNotFound {
                 item: item_type.to_string(),
-            }
-        })?;
+            })?;
         item.consume(amount)
     }
 
@@ -576,11 +577,11 @@ impl InventoryManager {
     /// ```
     pub fn replenish_item(&self, item_type: &str, amount: u32) -> Result<()> {
         let mut items = self.items.lock().unwrap();
-        let item = items.get_mut(item_type).ok_or_else(|| {
-            InventoryError::ItemNotFound {
+        let item = items
+            .get_mut(item_type)
+            .ok_or_else(|| InventoryError::ItemNotFound {
                 item: item_type.to_string(),
-            }
-        })?;
+            })?;
         item.replenish(amount)
     }
 
@@ -618,11 +619,11 @@ impl InventoryManager {
 
         // First pass: check all items are available
         for (item_type, amount) in items {
-            let item = locked_items.get(item_type).ok_or_else(|| {
-                InventoryError::ItemNotFound {
+            let item = locked_items
+                .get(item_type)
+                .ok_or_else(|| InventoryError::ItemNotFound {
                     item: item_type.clone(),
-                }
-            })?;
+                })?;
 
             if item.quantity() < *amount {
                 return Err(InventoryError::InsufficientQuantity {
@@ -669,11 +670,11 @@ impl InventoryManager {
 
         // First pass: check all items can be replenished
         for (item_type, amount) in items {
-            let item = locked_items.get(item_type).ok_or_else(|| {
-                InventoryError::ItemNotFound {
+            let item = locked_items
+                .get(item_type)
+                .ok_or_else(|| InventoryError::ItemNotFound {
                     item: item_type.clone(),
-                }
-            })?;
+                })?;
 
             let new_quantity = item.quantity().checked_add(*amount).ok_or_else(|| {
                 InventoryError::InvalidQuantity {

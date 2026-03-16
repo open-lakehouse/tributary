@@ -338,12 +338,7 @@ mod tests {
         let source_id = Uuid::new_v4();
         let kitchen_id = Uuid::new_v4();
 
-        let workflow = SupplyChainWorkflow::new(
-            "flour".to_string(),
-            100,
-            source_id,
-            kitchen_id,
-        );
+        let workflow = SupplyChainWorkflow::new("flour".to_string(), 100, source_id, kitchen_id);
 
         assert_eq!(workflow.workflow_type(), "supply_chain");
         assert_eq!(workflow.item_type(), "flour");
@@ -354,12 +349,8 @@ mod tests {
 
     #[test]
     fn test_workflow_steps_in_correct_order() {
-        let workflow = SupplyChainWorkflow::new(
-            "vegetables".to_string(),
-            50,
-            Uuid::new_v4(),
-            Uuid::new_v4(),
-        );
+        let workflow =
+            SupplyChainWorkflow::new("vegetables".to_string(), 50, Uuid::new_v4(), Uuid::new_v4());
 
         let steps = workflow.steps();
         assert_eq!(steps.len(), 5);
@@ -392,19 +383,9 @@ mod tests {
         let kitchen_id = Uuid::new_v4();
         let instance_id = WorkflowInstanceId::new();
 
-        let factory = SupplyChainTaskFactory::new(
-            "meat".to_string(),
-            75,
-            source_id,
-            kitchen_id,
-        );
+        let factory = SupplyChainTaskFactory::new("meat".to_string(), 75, source_id, kitchen_id);
 
-        let workflow = SupplyChainWorkflow::new(
-            "meat".to_string(),
-            75,
-            source_id,
-            kitchen_id,
-        );
+        let workflow = SupplyChainWorkflow::new("meat".to_string(), 75, source_id, kitchen_id);
 
         let steps = workflow.steps();
         let current_time = chrono::Utc::now();
@@ -433,12 +414,8 @@ mod tests {
 
     #[test]
     fn test_workflow_progression() {
-        let workflow = SupplyChainWorkflow::new(
-            "dairy".to_string(),
-            200,
-            Uuid::new_v4(),
-            Uuid::new_v4(),
-        );
+        let workflow =
+            SupplyChainWorkflow::new("dairy".to_string(), 200, Uuid::new_v4(), Uuid::new_v4());
 
         assert_eq!(workflow.step_count(), 5);
 
@@ -465,26 +442,11 @@ mod tests {
         let kitchen_id = Uuid::new_v4();
 
         // Create multiple workflow instances
-        let workflow1 = SupplyChainWorkflow::new(
-            "flour".to_string(),
-            100,
-            source_id,
-            kitchen_id,
-        );
+        let workflow1 = SupplyChainWorkflow::new("flour".to_string(), 100, source_id, kitchen_id);
 
-        let workflow2 = SupplyChainWorkflow::new(
-            "sugar".to_string(),
-            50,
-            source_id,
-            kitchen_id,
-        );
+        let workflow2 = SupplyChainWorkflow::new("sugar".to_string(), 50, source_id, kitchen_id);
 
-        let workflow3 = SupplyChainWorkflow::new(
-            "salt".to_string(),
-            25,
-            source_id,
-            kitchen_id,
-        );
+        let workflow3 = SupplyChainWorkflow::new("salt".to_string(), 25, source_id, kitchen_id);
 
         // Each should have unique workflow IDs
         assert_ne!(workflow1.id(), workflow2.id());
@@ -508,12 +470,7 @@ mod tests {
         let source_id = Uuid::new_v4();
         let kitchen_id = Uuid::new_v4();
 
-        let workflow = SupplyChainWorkflow::new(
-            "eggs".to_string(),
-            144,
-            source_id,
-            kitchen_id,
-        );
+        let workflow = SupplyChainWorkflow::new("eggs".to_string(), 144, source_id, kitchen_id);
 
         // Final step should be "Delivered"
         let final_step = workflow.get_step(4).unwrap();
@@ -532,12 +489,7 @@ mod tests {
         let kitchen_id = Uuid::new_v4();
         let instance_id = WorkflowInstanceId::new();
 
-        let factory = SupplyChainTaskFactory::new(
-            "bread".to_string(),
-            20,
-            source_id,
-            kitchen_id,
-        );
+        let factory = SupplyChainTaskFactory::new("bread".to_string(), 20, source_id, kitchen_id);
 
         let step = WorkflowStep {
             step_index: 1,
@@ -555,12 +507,8 @@ mod tests {
 
     #[test]
     fn test_task_factory_creates_unique_task_ids() {
-        let factory = SupplyChainTaskFactory::new(
-            "milk".to_string(),
-            10,
-            Uuid::new_v4(),
-            Uuid::new_v4(),
-        );
+        let factory =
+            SupplyChainTaskFactory::new("milk".to_string(), 10, Uuid::new_v4(), Uuid::new_v4());
 
         let step = WorkflowStep {
             step_index: 0,

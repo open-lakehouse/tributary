@@ -314,11 +314,7 @@ impl RoadNetwork {
                 road_type: e.road_type.clone().into(),
                 geometry: GeometryJson {
                     geometry_type: "LineString".to_string(),
-                    coordinates: e
-                        .geometry
-                        .coords()
-                        .map(|c| [c.x, c.y])
-                        .collect(),
+                    coordinates: e.geometry.coords().map(|c| [c.x, c.y]).collect(),
                 },
             })
             .collect();
@@ -413,7 +409,10 @@ mod tests {
         }
 
         // Verify adjacency index was rebuilt
-        assert_eq!(loaded.get_neighbors(0).len(), network.get_neighbors(0).len());
+        assert_eq!(
+            loaded.get_neighbors(0).len(),
+            network.get_neighbors(0).len()
+        );
     }
 
     #[test]
@@ -438,8 +437,7 @@ mod tests {
     #[test]
     fn test_load_small_city_graph() {
         let start = Instant::now();
-        let network =
-            RoadNetwork::load_from_file("test_data/small_city_graph.json").unwrap();
+        let network = RoadNetwork::load_from_file("test_data/small_city_graph.json").unwrap();
         let duration = start.elapsed();
 
         println!(
@@ -650,8 +648,7 @@ mod tests {
 
     #[test]
     fn test_adjacency_index_after_load() {
-        let network =
-            RoadNetwork::load_from_file("test_data/small_city_graph.json").unwrap();
+        let network = RoadNetwork::load_from_file("test_data/small_city_graph.json").unwrap();
 
         // Verify adjacency index is not empty
         assert!(!network.adjacency.is_empty());

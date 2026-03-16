@@ -248,12 +248,14 @@ impl<W: Workflow> WorkflowEngine<W> {
 
     /// Get all running instances
     pub fn get_running_instances(&self) -> Result<Vec<WorkflowInstanceId>> {
-        self.instance_table.get_instances_by_status(InstanceStatus::Running)
+        self.instance_table
+            .get_instances_by_status(InstanceStatus::Running)
     }
 
     /// Get all completed instances
     pub fn get_completed_instances(&self) -> Result<Vec<WorkflowInstanceId>> {
-        self.instance_table.get_instances_by_status(InstanceStatus::Complete)
+        self.instance_table
+            .get_instances_by_status(InstanceStatus::Complete)
     }
 
     /// Pause a workflow instance
@@ -364,9 +366,7 @@ impl<W: Workflow> WorkflowEngine<W> {
             .map_err(|e| crate::Error::Workflow(format!("Failed to create MemTable: {}", e)))?;
 
         ctx.register_table("instances", Arc::new(table))
-            .map_err(|e| {
-                crate::Error::Workflow(format!("Failed to register table: {}", e))
-            })?;
+            .map_err(|e| crate::Error::Workflow(format!("Failed to register table: {}", e)))?;
 
         // Execute query
         let df = ctx
@@ -392,8 +392,9 @@ impl<W: Workflow> WorkflowEngine<W> {
         } else {
             // Concatenate multiple batches
             let schema = batches[0].schema();
-            arrow::compute::concat_batches(&schema, &batches)
-                .map_err(|e| crate::Error::Workflow(format!("Failed to concatenate batches: {}", e)))
+            arrow::compute::concat_batches(&schema, &batches).map_err(|e| {
+                crate::Error::Workflow(format!("Failed to concatenate batches: {}", e))
+            })
         }
     }
 
@@ -608,12 +609,18 @@ mod tests {
 
         // Pause
         engine.pause_instance(instance_id).unwrap();
-        let status = engine.instance_table.get_instance_status(instance_id).unwrap();
+        let status = engine
+            .instance_table
+            .get_instance_status(instance_id)
+            .unwrap();
         assert_eq!(status, InstanceStatus::Paused);
 
         // Resume
         engine.resume_instance(instance_id).unwrap();
-        let status = engine.instance_table.get_instance_status(instance_id).unwrap();
+        let status = engine
+            .instance_table
+            .get_instance_status(instance_id)
+            .unwrap();
         assert_eq!(status, InstanceStatus::Running);
     }
 
@@ -866,10 +873,16 @@ mod tests {
         new_engine.instance_table.import_batch(batch).unwrap();
 
         // Verify status queries work
-        let status1 = new_engine.instance_table.get_instance_status(instance1.id).unwrap();
+        let status1 = new_engine
+            .instance_table
+            .get_instance_status(instance1.id)
+            .unwrap();
         assert_eq!(status1, InstanceStatus::Running);
 
-        let status2 = new_engine.instance_table.get_instance_status(instance2.id).unwrap();
+        let status2 = new_engine
+            .instance_table
+            .get_instance_status(instance2.id)
+            .unwrap();
         assert_eq!(status2, InstanceStatus::Paused);
     }
 
@@ -1090,7 +1103,9 @@ mod tests {
 
         // Query count by status
         let result = engine
-            .query("SELECT status, COUNT(*) as count FROM instances GROUP BY status ORDER BY status")
+            .query(
+                "SELECT status, COUNT(*) as count FROM instances GROUP BY status ORDER BY status",
+            )
             .await
             .unwrap();
 
@@ -1135,7 +1150,9 @@ mod tests {
         assert!(result.is_err());
 
         // Test invalid column
-        let result = engine.query("SELECT nonexistent_column FROM instances").await;
+        let result = engine
+            .query("SELECT nonexistent_column FROM instances")
+            .await;
         assert!(result.is_err());
     }
 }

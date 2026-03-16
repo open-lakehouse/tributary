@@ -225,10 +225,7 @@ impl EventToTraceGenerator {
 }
 
 impl TelemetryGenerator for EventToTraceGenerator {
-    fn generate(
-        &mut self,
-        event: &Value,
-    ) -> Result<Vec<TelemetryRecord>, TelemetryError> {
+    fn generate(&mut self, event: &Value) -> Result<Vec<TelemetryRecord>, TelemetryError> {
         // Validate event structure
         if !event.is_object() {
             return Err(TelemetryError::InvalidEvent(
@@ -534,7 +531,10 @@ mod tests {
 
         let result = generator.generate(&event);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), TelemetryError::InvalidEvent(_)));
+        assert!(matches!(
+            result.unwrap_err(),
+            TelemetryError::InvalidEvent(_)
+        ));
 
         // Missing source
         let event = json!({
@@ -778,10 +778,7 @@ mod tests {
 
         // Verify span hierarchy
         // Span 0 (created): root span, no parent
-        assert!(
-            span_info[0].2.is_none(),
-            "First span should have no parent"
-        );
+        assert!(span_info[0].2.is_none(), "First span should have no parent");
 
         // Span 1 (tick 1): parent is span 0
         assert_eq!(

@@ -133,14 +133,20 @@ mod tests {
         let instance_id = instance.id;
 
         // Initially not complete
-        let status = engine.instance_table.get_instance_status(instance_id).unwrap();
+        let status = engine
+            .instance_table
+            .get_instance_status(instance_id)
+            .unwrap();
         assert_eq!(status, crate::workflows::InstanceStatus::Running);
 
         // Complete the workflow
         engine.complete_instance(instance_id).unwrap();
 
         // Verify status changed
-        let status = engine.instance_table.get_instance_status(instance_id).unwrap();
+        let status = engine
+            .instance_table
+            .get_instance_status(instance_id)
+            .unwrap();
         assert_eq!(status, crate::workflows::InstanceStatus::Complete);
 
         let instance = engine.instance_table.get_instance(instance_id).unwrap();
@@ -225,22 +231,34 @@ mod tests {
         let instance_id = instance.id;
 
         // Initially running
-        let status = engine.instance_table.get_instance_status(instance_id).unwrap();
+        let status = engine
+            .instance_table
+            .get_instance_status(instance_id)
+            .unwrap();
         assert_eq!(status, crate::workflows::InstanceStatus::Running);
 
         // Pause
         engine.pause_instance(instance_id).unwrap();
-        let status = engine.instance_table.get_instance_status(instance_id).unwrap();
+        let status = engine
+            .instance_table
+            .get_instance_status(instance_id)
+            .unwrap();
         assert_eq!(status, crate::workflows::InstanceStatus::Paused);
 
         // Resume
         engine.resume_instance(instance_id).unwrap();
-        let status = engine.instance_table.get_instance_status(instance_id).unwrap();
+        let status = engine
+            .instance_table
+            .get_instance_status(instance_id)
+            .unwrap();
         assert_eq!(status, crate::workflows::InstanceStatus::Running);
 
         // Pause again
         engine.pause_instance(instance_id).unwrap();
-        let status = engine.instance_table.get_instance_status(instance_id).unwrap();
+        let status = engine
+            .instance_table
+            .get_instance_status(instance_id)
+            .unwrap();
         assert_eq!(status, crate::workflows::InstanceStatus::Paused);
     }
 

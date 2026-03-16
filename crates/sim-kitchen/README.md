@@ -260,12 +260,26 @@ All modules have comprehensive unit tests:
 
 ## Dependencies
 
-- `sim-core` - Core simulation abstractions
-- `sim-events` - CloudEvents infrastructure
-- `chrono` - Time handling
-- `geo` - Geospatial types
-- `rand` - Random number generation
-- `serde_json` - JSON serialization
+- `sim-core 0.0.1` - Core simulation abstractions
+- `sim-geo 0.0.1` - Geospatial components
+- `sim-events 0.0.1` - CloudEvents infrastructure
+- `chrono 0.4` - Time handling
+- `geo 0.31` - Geospatial types
+- `h3o 0.9` - H3 indexing
+- `rand 0.9` - Random number generation
+- `serde_json 1.0` - JSON serialization
+
+## Version Information
+
+Current version: `0.0.1`
+
+See [CHANGELOG.md](CHANGELOG.md) for detailed version history.
+
+## Documentation
+
+- [Architecture](docs/architecture.md) - Multi-workflow patterns, reference implementation design
+- [Patterns](docs/patterns.md) - Common usage patterns and best practices
+- [Troubleshooting](docs/troubleshooting.md) - Common issues, debugging tips, and FAQ
 
 ## Performance
 
@@ -365,9 +379,10 @@ fn random_items() -> Vec<String> {
 ## Related Crates
 
 - `sim-core` - Core simulation framework
-- `sim-geo` - Geospatial components
+- `sim-geo` - Geospatial components (routing, H3 indexing)
 - `sim-events` - CloudEvents infrastructure
+- `sim-logistics` - Validation implementation (package delivery)
 
 ## License
 
-Apache-2.0
+MIT OR Apache-2.0

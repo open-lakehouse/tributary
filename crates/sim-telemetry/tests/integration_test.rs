@@ -4,7 +4,9 @@ use chrono::Utc;
 use serde_json::json;
 use sim_telemetry::core::{TelemetryGenerator, TelemetryRecord};
 use sim_telemetry::formats::{JsonLogExporter, OtlpExporter, PrometheusExporter};
-use sim_telemetry::generators::{EventToLogGenerator, EventToMetricGenerator, EventToTraceGenerator};
+use sim_telemetry::generators::{
+    EventToLogGenerator, EventToMetricGenerator, EventToTraceGenerator,
+};
 use std::collections::HashMap;
 
 #[test]
@@ -53,7 +55,9 @@ fn test_end_to_end_metric_generation_and_export() {
     assert_eq!(metric_gen.get_counter("events.http_request"), Some(3));
 
     // Check histogram has all latency values
-    let histogram = metric_gen.get_histogram("http_request.latency_ms.histogram").unwrap();
+    let histogram = metric_gen
+        .get_histogram("http_request.latency_ms.histogram")
+        .unwrap();
     assert_eq!(histogram.len(), 3);
     assert_eq!(histogram[0], 120.5);
     assert_eq!(histogram[1], 95.3);
@@ -217,8 +221,8 @@ fn test_prometheus_format_compliance() {
 
 #[test]
 fn test_json_log_export_to_file() {
-    use tempfile::tempdir;
     use std::fs;
+    use tempfile::tempdir;
 
     let mut log_gen = EventToLogGenerator::new();
 
@@ -277,10 +281,14 @@ fn test_metric_aggregation_patterns() {
     assert_eq!(metric_gen.get_counter("events.api_request"), Some(100));
 
     // Verify histogram has all values
-    let latency_histogram = metric_gen.get_histogram("api_request.latency.histogram").unwrap();
+    let latency_histogram = metric_gen
+        .get_histogram("api_request.latency.histogram")
+        .unwrap();
     assert_eq!(latency_histogram.len(), 100);
 
-    let size_histogram = metric_gen.get_histogram("api_request.payload_size.histogram").unwrap();
+    let size_histogram = metric_gen
+        .get_histogram("api_request.payload_size.histogram")
+        .unwrap();
     assert_eq!(size_histogram.len(), 100);
 
     // Calculate some statistics
@@ -300,8 +308,10 @@ fn test_export_empty_records() {
     assert_eq!(json_logs.trim(), "[]");
 
     let otlp_logs = OtlpExporter::export_logs(&empty_records).unwrap();
-    assert!(otlp_logs["resourceLogs"][0]["scopeLogs"][0]["logRecords"]
-        .as_array()
-        .unwrap()
-        .is_empty());
+    assert!(
+        otlp_logs["resourceLogs"][0]["scopeLogs"][0]["logRecords"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
 }

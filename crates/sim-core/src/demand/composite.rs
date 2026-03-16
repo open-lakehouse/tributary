@@ -37,9 +37,7 @@ pub struct CompositeDemandGenerator {
 impl CompositeDemandGenerator {
     /// Create a new empty composite generator
     pub fn new() -> Self {
-        Self {
-            generators: vec![],
-        }
+        Self { generators: vec![] }
     }
 
     /// Add a generator to the pipeline

@@ -29,10 +29,8 @@
 use chrono::Duration;
 use geo::Point;
 use sim_core::{
-    Agent, Resource,
+    Agent, PopulationHandler, Resource, ResourceAllocator, SimulationConfig, SimulationRunner,
     workflows::WorkflowRegistry,
-    PopulationHandler, ResourceAllocator, SimulationConfig,
-    SimulationRunner,
 };
 use sim_kitchen::{
     agents::Customer,
@@ -101,12 +99,18 @@ impl SimulationMetrics {
 
     #[allow(dead_code)]
     fn record_workflow_instance(&mut self, workflow_type: &str) {
-        *self.workflow_instances.entry(workflow_type.to_string()).or_insert(0) += 1;
+        *self
+            .workflow_instances
+            .entry(workflow_type.to_string())
+            .or_insert(0) += 1;
     }
 
     #[allow(dead_code)]
     fn record_workflow_completion(&mut self, workflow_type: &str) {
-        *self._workflow_completions.entry(workflow_type.to_string()).or_insert(0) += 1;
+        *self
+            ._workflow_completions
+            .entry(workflow_type.to_string())
+            .or_insert(0) += 1;
     }
 
     fn generate_report(&self) -> String {
@@ -149,9 +153,15 @@ SUCCESS CRITERIA
             self.total_ticks,
             self.avg_tick_duration_ms,
             self.peak_tick_duration_ms,
-            if self.avg_tick_duration_ms < 100.0 { "✓ PASS" } else { "✗ FAIL" },
+            if self.avg_tick_duration_ms < 100.0 {
+                "✓ PASS"
+            } else {
+                "✗ FAIL"
+            },
             self.workflow_instances.get("food_orders").unwrap_or(&0),
-            self.workflow_instances.get("courier_delivery").unwrap_or(&0),
+            self.workflow_instances
+                .get("courier_delivery")
+                .unwrap_or(&0),
             self.workflow_instances.get("supply_chain").unwrap_or(&0),
             self.food_orders_completed,
             self.courier_deliveries,
@@ -159,18 +169,42 @@ SUCCESS CRITERIA
             self.inventory_consumptions,
             self.low_inventory_events,
             self.inventory_replenishments,
-            if self.inventory_maintained { "✓" } else { "✗" },
+            if self.inventory_maintained {
+                "✓"
+            } else {
+                "✗"
+            },
             self.total_events,
-            if self.has_all_workflows() { "✓" } else { "✗" },
-            if self.avg_tick_duration_ms < 100.0 { "✓" } else { "✗" },
-            if self.inventory_maintained { "✓" } else { "✗" },
-            if self.total_ticks == 1440 { "✓" } else { "✗" },
+            if self.has_all_workflows() {
+                "✓"
+            } else {
+                "✗"
+            },
+            if self.avg_tick_duration_ms < 100.0 {
+                "✓"
+            } else {
+                "✗"
+            },
+            if self.inventory_maintained {
+                "✓"
+            } else {
+                "✗"
+            },
+            if self.total_ticks == 1440 {
+                "✓"
+            } else {
+                "✗"
+            },
         )
     }
 
     fn has_all_workflows(&self) -> bool {
         self.workflow_instances.get("food_orders").unwrap_or(&0) > &0
-            && self.workflow_instances.get("courier_delivery").unwrap_or(&0) > &0
+            && self
+                .workflow_instances
+                .get("courier_delivery")
+                .unwrap_or(&0)
+                > &0
             && self.workflow_instances.get("supply_chain").unwrap_or(&0) > &0
     }
 
@@ -314,16 +348,13 @@ impl MultiWorkflowSimulation {
         let mut population = PopulationHandler::new();
 
         for i in 0..10 {
-            let location = Point::new(
-                -122.4 + (i as f64 * 0.01),
-                37.8 + (i as f64 * 0.01),
-            );
+            let location = Point::new(-122.4 + (i as f64 * 0.01), 37.8 + (i as f64 * 0.01));
 
             // Varied order probabilities to create realistic demand
             let order_probability = match i {
-                0..=3 => 0.3,   // 30% - regular customers
-                4..=7 => 0.15,  // 15% - occasional customers
-                _ => 0.4,       // 40% - frequent customers
+                0..=3 => 0.3,  // 30% - regular customers
+                4..=7 => 0.15, // 15% - occasional customers
+                _ => 0.4,      // 40% - frequent customers
             };
 
             let customer = Customer::with_params(
@@ -358,7 +389,9 @@ impl MultiWorkflowSimulation {
             let start = Instant::now();
 
             // Tick the simulation
-            self.runner.tick().map_err(|e| format!("Tick failed at step {}: {}", step, e))?;
+            self.runner
+                .tick()
+                .map_err(|e| format!("Tick failed at step {}: {}", step, e))?;
 
             let duration = start.elapsed();
             let duration_ms = duration.as_secs_f64() * 1000.0;
@@ -394,9 +427,7 @@ impl MultiWorkflowSimulation {
 
         if let Some(population) = self.runner.population() {
             // Count active customers as potential food orders
-            let active_customers = population.iter()
-                .filter(|c| c.status().is_active())
-                .count();
+            let active_customers = population.iter().filter(|c| c.status().is_active()).count();
 
             if active_customers > 0 {
                 self.metrics.food_orders_placed += active_customers;
@@ -474,9 +505,7 @@ fn test_food_order_triggers_courier_delivery() {
 
     // Verify customers placed orders (indicated by active status)
     let population = sim.runner.population().unwrap();
-    let active_count = population.iter()
-        .filter(|c| c.status().is_active())
-        .count();
+    let active_count = population.iter().filter(|c| c.status().is_active()).count();
 
     // With 10 customers and varied probabilities, we should see some activity
     println!("Active customers after 100 ticks: {}", active_count);
@@ -505,7 +534,10 @@ fn test_inventory_consumption_triggers_supply() {
 
     // Verify item needs reorder
     let low_items = manager.items_needing_reorder();
-    assert!(low_items.contains(&"flour".to_string()), "Flour should need reorder");
+    assert!(
+        low_items.contains(&"flour".to_string()),
+        "Flour should need reorder"
+    );
 }
 
 #[test]
@@ -535,7 +567,8 @@ fn test_concurrent_workflow_execution() {
     let mut sim = MultiWorkflowSimulation::new();
 
     // Run for moderate duration
-    sim.run_for_steps(500).expect("Should handle concurrent workflows");
+    sim.run_for_steps(500)
+        .expect("Should handle concurrent workflows");
 
     // Verify simulation progressed
     assert_eq!(sim.metrics.total_ticks, 500);
@@ -555,10 +588,17 @@ fn test_workflow_coordination_no_deadlocks() {
 
     // Run full 24-hour simulation
     let result = sim.run_for_steps(1440);
-    assert!(result.is_ok(), "Simulation should not deadlock: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Simulation should not deadlock: {:?}",
+        result
+    );
 
     // Verify completed all ticks
-    assert_eq!(sim.metrics.total_ticks, 1440, "Should complete without blocking");
+    assert_eq!(
+        sim.metrics.total_ticks, 1440,
+        "Should complete without blocking"
+    );
 }
 
 // ===== Performance Validation Tests =====
@@ -619,7 +659,11 @@ fn test_simulation_setup_validates() {
     assert_eq!(sim.kitchen_ids.len(), 3, "Should have 3 kitchens");
 
     // Verify distribution sites
-    assert_eq!(sim.distribution_site_ids.len(), 2, "Should have 2 distribution sites");
+    assert_eq!(
+        sim.distribution_site_ids.len(),
+        2,
+        "Should have 2 distribution sites"
+    );
 
     // Verify customers
     let population = sim.runner.population().unwrap();

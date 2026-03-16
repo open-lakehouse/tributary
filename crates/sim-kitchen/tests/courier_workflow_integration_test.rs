@@ -15,10 +15,7 @@ use sim_core::{
     resources::{Task, TaskFactory},
     workflows::WorkflowInstance,
 };
-use sim_kitchen::{
-    Courier,
-    CourierDeliveryTaskFactory, CourierDeliveryWorkflow,
-};
+use sim_kitchen::{Courier, CourierDeliveryTaskFactory, CourierDeliveryWorkflow};
 use uuid::Uuid;
 
 #[test]
@@ -30,12 +27,8 @@ fn test_courier_delivery_workflow_with_agent_integration() {
     let customer_location = Point::new(-122.3, 37.7);
 
     // Create workflow
-    let workflow = CourierDeliveryWorkflow::new(
-        customer_id,
-        kitchen_location,
-        customer_location,
-        order_id,
-    );
+    let workflow =
+        CourierDeliveryWorkflow::new(customer_id, kitchen_location, customer_location, order_id);
 
     // Verify workflow structure
     assert_eq!(workflow.workflow_type(), "courier_delivery");
@@ -50,12 +43,8 @@ fn test_courier_delivery_workflow_with_agent_integration() {
     assert_eq!(courier.agent_type(), "courier");
 
     // Create task factory
-    let factory = CourierDeliveryTaskFactory::new(
-        customer_id,
-        kitchen_location,
-        customer_location,
-        order_id,
-    );
+    let factory =
+        CourierDeliveryTaskFactory::new(customer_id, kitchen_location, customer_location, order_id);
 
     // Verify task generation for each workflow step
     let current_time = Utc::now();
@@ -66,7 +55,10 @@ fn test_courier_delivery_workflow_with_agent_integration() {
 
         assert_eq!(task.workflow_instance_id(), Some(instance_id));
         assert_eq!(task.estimated_duration(), step.expected_duration);
-        assert_eq!(task.required_resource_type(), step.required_resource_type.as_str());
+        assert_eq!(
+            task.required_resource_type(),
+            step.required_resource_type.as_str()
+        );
 
         // Verify task types
         match idx {
@@ -201,19 +193,9 @@ fn test_workflow_task_factory_preserves_metadata() {
     let pickup = Point::new(-122.5, 37.9);
     let delivery = Point::new(-122.3, 37.7);
 
-    let factory = CourierDeliveryTaskFactory::new(
-        customer_id,
-        pickup,
-        delivery,
-        order_id,
-    );
+    let factory = CourierDeliveryTaskFactory::new(customer_id, pickup, delivery, order_id);
 
-    let workflow = CourierDeliveryWorkflow::new(
-        customer_id,
-        pickup,
-        delivery,
-        order_id,
-    );
+    let workflow = CourierDeliveryWorkflow::new(customer_id, pickup, delivery, order_id);
 
     let instance_id = sim_core::utils::idents::WorkflowInstanceId::new();
     let current_time = Utc::now();
@@ -239,12 +221,8 @@ fn test_courier_agent_integrates_with_workflow() {
     let customer_location = Point::new(-122.3, 37.7);
 
     // 1. Create workflow
-    let workflow = CourierDeliveryWorkflow::new(
-        customer_id,
-        kitchen_location,
-        customer_location,
-        order_id,
-    );
+    let workflow =
+        CourierDeliveryWorkflow::new(customer_id, kitchen_location, customer_location, order_id);
 
     // 2. Create courier agent
     let courier_home = Point::new(-122.4, 37.8);

@@ -173,7 +173,9 @@ mod tests {
                 ..
             } = m
             {
-                name == "events.agent_ticked" && *value == 1.0 && *metric_type == MetricType::Counter
+                name == "events.agent_ticked"
+                    && *value == 1.0
+                    && *metric_type == MetricType::Counter
             } else {
                 false
             }
@@ -188,7 +190,9 @@ mod tests {
                 ..
             } = m
             {
-                name == "events.agent_ticked" && *value == 2.0 && *metric_type == MetricType::Counter
+                name == "events.agent_ticked"
+                    && *value == 2.0
+                    && *metric_type == MetricType::Counter
             } else {
                 false
             }
@@ -225,7 +229,9 @@ mod tests {
                 ..
             } = m
             {
-                name == "status_check.temperature" && *value == 72.5 && *metric_type == MetricType::Gauge
+                name == "status_check.temperature"
+                    && *value == 72.5
+                    && *metric_type == MetricType::Gauge
             } else {
                 false
             }
@@ -240,7 +246,9 @@ mod tests {
                 ..
             } = m
             {
-                name == "status_check.pressure" && *value == 14.7 && *metric_type == MetricType::Gauge
+                name == "status_check.pressure"
+                    && *value == 14.7
+                    && *metric_type == MetricType::Gauge
             } else {
                 false
             }
@@ -278,7 +286,9 @@ mod tests {
         }
 
         // Check histogram values
-        let histogram = generator.get_histogram("request.latency.histogram").unwrap();
+        let histogram = generator
+            .get_histogram("request.latency.histogram")
+            .unwrap();
         assert_eq!(histogram.len(), 3);
         assert_eq!(histogram[0], 10.5);
         assert_eq!(histogram[1], 15.2);
@@ -341,7 +351,10 @@ mod tests {
 
         let result = generator.generate(&event);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), TelemetryError::InvalidEvent(_)));
+        assert!(matches!(
+            result.unwrap_err(),
+            TelemetryError::InvalidEvent(_)
+        ));
     }
 
     #[test]

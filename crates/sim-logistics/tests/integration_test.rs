@@ -9,9 +9,12 @@ fn test_basic_package_delivery() {
     let mut sim = LogisticsSimulation::new();
 
     // Create a few packages
-    sim.create_package(0, 0, 1.0, PackagePriority::Standard).unwrap();
-    sim.create_package(0, 1, 2.0, PackagePriority::Express).unwrap();
-    sim.create_package(1, 2, 1.5, PackagePriority::Standard).unwrap();
+    sim.create_package(0, 0, 1.0, PackagePriority::Standard)
+        .unwrap();
+    sim.create_package(0, 1, 2.0, PackagePriority::Express)
+        .unwrap();
+    sim.create_package(1, 2, 1.5, PackagePriority::Standard)
+        .unwrap();
 
     assert_eq!(sim.package_count(), 3);
     assert_eq!(sim.get_metrics().packages_created, 3);
@@ -38,7 +41,8 @@ fn test_24_hour_simulation() {
             PackagePriority::Standard
         };
 
-        sim.create_package(warehouse_idx, destination_idx, weight, priority).unwrap();
+        sim.create_package(warehouse_idx, destination_idx, weight, priority)
+            .unwrap();
     }
 
     assert_eq!(sim.package_count(), 100);
@@ -48,7 +52,10 @@ fn test_24_hour_simulation() {
 
     // Verify metrics
     let metrics = sim.get_metrics();
-    assert!(metrics.packages_created >= 100, "Should have created at least 100 packages");
+    assert!(
+        metrics.packages_created >= 100,
+        "Should have created at least 100 packages"
+    );
 
     // Note: In a full implementation, we would verify:
     // - packages_delivered >= some threshold
@@ -66,7 +73,10 @@ fn test_framework_generality_zero_modifications() {
     let _ctx = SimulationContext::from_now(_config);
 
     // Compilation proves framework is truly generic - no logistics-specific types needed
-    assert!(true, "Framework compiles without domain-specific modifications");
+    assert!(
+        true,
+        "Framework compiles without domain-specific modifications"
+    );
 }
 
 #[test]

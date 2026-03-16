@@ -6,8 +6,8 @@
 
 use geo_types::Point;
 use sim_core::utils::idents::AgentId;
-use sim_geo::graph::{RoadEdge, RoadNetwork, RoadNode, RoadType};
 use sim_geo::MovementHandler;
+use sim_geo::graph::{RoadEdge, RoadNetwork, RoadNode, RoadType};
 
 fn main() {
     println!("=== Network Routing Comparison ===\n");
@@ -23,12 +23,7 @@ fn main() {
 
     let handler_no_network = MovementHandler::new();
     let journey_straight = handler_no_network
-        .plan_journey(
-            AgentId::new(),
-            origin,
-            destination,
-            chrono::Utc::now(),
-        )
+        .plan_journey(AgentId::new(), origin, destination, chrono::Utc::now())
         .unwrap();
 
     println!(
@@ -89,7 +84,8 @@ fn main() {
         speed_limit_mps: 15.0,
     });
 
-    println!("  Network: {} nodes, {} edges",
+    println!(
+        "  Network: {} nodes, {} edges",
         network.node_count(),
         network.edge_count()
     );
@@ -99,10 +95,7 @@ fn main() {
         .plan_journey(AgentId::new(), origin, destination, chrono::Utc::now())
         .unwrap();
 
-    println!(
-        "  Route points: {}",
-        journey_network.route.coords().count()
-    );
+    println!("  Route points: {}", journey_network.route.coords().count());
     println!("  Distance: {:.1} meters", journey_network.distance_m);
     println!("  Path: Follows road network geometry");
 
@@ -120,9 +113,7 @@ fn main() {
 
     println!(
         "Distance increase: {:.1}% ({:.1}m -> {:.1}m)",
-        distance_increase_pct,
-        journey_straight.distance_m,
-        journey_network.distance_m
+        distance_increase_pct, journey_straight.distance_m, journey_network.distance_m
     );
     println!(
         "Route complexity: {} points vs {} points",
@@ -130,9 +121,7 @@ fn main() {
         journey_straight.route.coords().count()
     );
 
-    println!(
-        "\nWith network routing, journeys follow realistic road paths"
-    );
+    println!("\nWith network routing, journeys follow realistic road paths");
     println!("rather than unrealistic straight lines through obstacles.");
 
     // === SCENARIO 3: Disconnected Network (Fallback) ===
@@ -180,8 +169,7 @@ fn main() {
         speed_limit_mps: 8.0,
     });
 
-    let handler_disconnected =
-        MovementHandler::new().with_network(disconnected_network);
+    let handler_disconnected = MovementHandler::new().with_network(disconnected_network);
 
     let journey_fallback = handler_disconnected
         .plan_journey(AgentId::new(), origin, destination, chrono::Utc::now())
@@ -194,11 +182,7 @@ fn main() {
     );
     println!("  Distance: {:.1} meters", journey_fallback.distance_m);
 
-    println!(
-        "\n=== Summary ==="
-    );
-    println!(
-        "MovementHandler intelligently chooses between network routing"
-    );
+    println!("\n=== Summary ===");
+    println!("MovementHandler intelligently chooses between network routing");
     println!("and straight-line fallback based on network connectivity.");
 }

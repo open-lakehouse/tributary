@@ -39,7 +39,12 @@ fn test_full_journey_lifecycle() {
 
     // Phase 1: Plan the journey
     let journey = handler
-        .plan_journey(agent_id, origin_node.position, dest_node.position, start_time)
+        .plan_journey(
+            agent_id,
+            origin_node.position,
+            dest_node.position,
+            start_time,
+        )
         .expect("Journey planning should succeed");
 
     assert_eq!(journey.agent_id, agent_id);
@@ -75,7 +80,10 @@ fn test_full_journey_lifecycle() {
     }
 
     println!("Journey completed in {} steps", step_count);
-    assert!(step_count < max_steps, "Journey should complete within step limit");
+    assert!(
+        step_count < max_steps,
+        "Journey should complete within step limit"
+    );
 
     // Phase 3: Verify completion
     let completed = handler.remove_completed();
@@ -128,8 +136,10 @@ fn test_rush_hour_impact_on_travel_time() {
     }
     let rush_time_seconds = rush_steps * 10;
 
-    println!("Rush hour: {} meters in {} seconds ({} steps)",
-             rush_distance, rush_time_seconds, rush_steps);
+    println!(
+        "Rush hour: {} meters in {} seconds ({} steps)",
+        rush_distance, rush_time_seconds, rush_steps
+    );
 
     // Test 2: Off-peak journey (2 PM)
     let off_peak_time = Utc.with_ymd_and_hms(2024, 1, 15, 14, 0, 0).unwrap();
@@ -158,8 +168,10 @@ fn test_rush_hour_impact_on_travel_time() {
     }
     let off_peak_time_seconds = off_peak_steps * 10;
 
-    println!("Off-peak: {} meters in {} seconds ({} steps)",
-             rush_distance, off_peak_time_seconds, off_peak_steps);
+    println!(
+        "Off-peak: {} meters in {} seconds ({} steps)",
+        rush_distance, off_peak_time_seconds, off_peak_steps
+    );
 
     // Test 3: Night time journey (2 AM)
     let night_time = Utc.with_ymd_and_hms(2024, 1, 15, 2, 0, 0).unwrap();
@@ -188,26 +200,36 @@ fn test_rush_hour_impact_on_travel_time() {
     }
     let night_time_seconds = night_steps * 10;
 
-    println!("Night time: {} meters in {} seconds ({} steps)",
-             rush_distance, night_time_seconds, night_steps);
+    println!(
+        "Night time: {} meters in {} seconds ({} steps)",
+        rush_distance, night_time_seconds, night_steps
+    );
 
     // Verify relationships:
     // Rush hour (0.5x) should take roughly 2x longer than off-peak (1.0x)
     // Night time (1.2x) should be faster or equal to off-peak (due to discrete timesteps)
-    assert!(rush_steps > off_peak_steps,
-            "Rush hour should take more steps than off-peak");
-    assert!(night_steps <= off_peak_steps,
-            "Night time should take fewer or equal steps compared to off-peak");
+    assert!(
+        rush_steps > off_peak_steps,
+        "Rush hour should take more steps than off-peak"
+    );
+    assert!(
+        night_steps <= off_peak_steps,
+        "Night time should take fewer or equal steps compared to off-peak"
+    );
 
     // Check rough multiplier relationship (with some tolerance)
     let rush_off_peak_ratio = rush_steps as f64 / off_peak_steps as f64;
-    assert!(rush_off_peak_ratio > 1.5 && rush_off_peak_ratio < 2.5,
-            "Rush hour should take roughly 2x longer (actual: {:.2}x)",
-            rush_off_peak_ratio);
+    assert!(
+        rush_off_peak_ratio > 1.5 && rush_off_peak_ratio < 2.5,
+        "Rush hour should take roughly 2x longer (actual: {:.2}x)",
+        rush_off_peak_ratio
+    );
 
     // Night should be faster in total time (may have same steps due to discrete timesteps)
-    assert!(night_time_seconds <= off_peak_time_seconds,
-            "Night time should take less or equal time compared to off-peak");
+    assert!(
+        night_time_seconds <= off_peak_time_seconds,
+        "Night time should take less or equal time compared to off-peak"
+    );
 }
 
 /// Test 3: Concurrent journeys on same network
@@ -262,15 +284,21 @@ fn test_concurrent_journeys_on_same_network() {
 
     // Verify all completed
     let completed = handler.remove_completed();
-    assert_eq!(completed.len(), num_journeys,
-               "All journeys should complete");
+    assert_eq!(
+        completed.len(),
+        num_journeys,
+        "All journeys should complete"
+    );
 
     for journey in &completed {
         assert_eq!(journey.progress, 1.0);
         assert!(journey_ids.contains(&journey.id));
     }
 
-    println!("All {} journeys completed in {} steps", num_journeys, step_count);
+    println!(
+        "All {} journeys completed in {} steps",
+        num_journeys, step_count
+    );
 }
 
 /// Test 4: Network vs straight-line routing comparison
@@ -307,24 +335,34 @@ fn test_network_vs_straight_line_routing() {
     let straight_distance = straight_journey.distance_m;
     let straight_coord_count = straight_journey.route.coords().count();
 
-    println!("Network route: {} meters with {} waypoints",
-             network_distance, network_coord_count);
-    println!("Straight line: {} meters with {} waypoints",
-             straight_distance, straight_coord_count);
+    println!(
+        "Network route: {} meters with {} waypoints",
+        network_distance, network_coord_count
+    );
+    println!(
+        "Straight line: {} meters with {} waypoints",
+        straight_distance, straight_coord_count
+    );
 
     // Verifications:
     // 1. Network route should have more waypoints (follows roads)
-    assert!(network_coord_count >= straight_coord_count,
-            "Network route should have at least as many waypoints");
+    assert!(
+        network_coord_count >= straight_coord_count,
+        "Network route should have at least as many waypoints"
+    );
 
     // 2. Network route is typically longer (roads aren't straight)
     // However, in some cases they might be similar if the road is nearly straight
-    assert!(network_distance >= straight_distance * 0.95,
-            "Network distance should be comparable to straight line");
+    assert!(
+        network_distance >= straight_distance * 0.95,
+        "Network distance should be comparable to straight line"
+    );
 
     // 3. Straight line should be exactly 2 points
-    assert_eq!(straight_coord_count, 2,
-               "Straight line should have exactly 2 points");
+    assert_eq!(
+        straight_coord_count, 2,
+        "Straight line should have exactly 2 points"
+    );
 
     // 4. Both should be positive distances
     assert!(network_distance > 0.0);
@@ -354,8 +392,11 @@ fn test_graceful_fallback_when_network_unavailable() {
         .expect("Should plan journey even with distant points");
 
     // Should fallback to straight line (2 points)
-    assert_eq!(far_journey.route.coords().count(), 2,
-               "Distant points should use straight line fallback");
+    assert_eq!(
+        far_journey.route.coords().count(),
+        2,
+        "Distant points should use straight line fallback"
+    );
     assert!(far_journey.distance_m > 0.0);
 
     println!("Far points fallback: {} meters", far_journey.distance_m);
@@ -371,8 +412,11 @@ fn test_graceful_fallback_when_network_unavailable() {
         .plan_journey(agent_id, origin, destination, start_time)
         .expect("Should plan straight line journey");
 
-    assert_eq!(straight_journey.route.coords().count(), 2,
-               "No network should always use straight line");
+    assert_eq!(
+        straight_journey.route.coords().count(),
+        2,
+        "No network should always use straight line"
+    );
     assert!(straight_journey.distance_m > 0.0);
 
     println!("No network: {} meters", straight_journey.distance_m);
@@ -414,7 +458,10 @@ fn test_velocity_model_speeds() {
     let off_peak_time = Utc.with_ymd_and_hms(2024, 1, 15, 14, 0, 0).unwrap();
     let off_peak_speed = model.calculate_velocity(&RoadType::Residential, off_peak_time);
     println!("Off-peak speed (Residential): {} m/s", off_peak_speed);
-    assert_eq!(off_peak_speed, 8.0, "Off-peak should be 8.0 * 1.0 = 8.0 m/s");
+    assert_eq!(
+        off_peak_speed, 8.0,
+        "Off-peak should be 8.0 * 1.0 = 8.0 m/s"
+    );
 
     // Night (2 AM)
     let night_time = Utc.with_ymd_and_hms(2024, 1, 15, 2, 0, 0).unwrap();
@@ -481,7 +528,9 @@ fn test_multiple_road_types_in_journey() {
     // Analyze road types in the network
     let mut road_type_counts = std::collections::HashMap::new();
     for edge in network.edges.values() {
-        *road_type_counts.entry(format!("{}", edge.road_type)).or_insert(0) += 1;
+        *road_type_counts
+            .entry(format!("{}", edge.road_type))
+            .or_insert(0) += 1;
     }
 
     println!("Network road type distribution:");
@@ -494,7 +543,10 @@ fn test_multiple_road_types_in_journey() {
     // Plan a long journey that likely crosses multiple road types
     let node_ids: Vec<_> = network.nodes.keys().copied().collect();
     let origin = network.get_node(node_ids[0]).unwrap().position;
-    let destination = network.get_node(node_ids[node_ids.len() - 1]).unwrap().position;
+    let destination = network
+        .get_node(node_ids[node_ids.len() - 1])
+        .unwrap()
+        .position;
 
     let handler = MovementHandler::new().with_network(network);
     let journey = handler
@@ -504,6 +556,9 @@ fn test_multiple_road_types_in_journey() {
     assert!(journey.route.coords().count() >= 2);
     assert!(journey.distance_m > 0.0);
 
-    println!("Planned journey: {} meters with {} waypoints",
-             journey.distance_m, journey.route.coords().count());
+    println!(
+        "Planned journey: {} meters with {} waypoints",
+        journey.distance_m,
+        journey.route.coords().count()
+    );
 }

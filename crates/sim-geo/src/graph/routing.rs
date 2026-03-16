@@ -132,18 +132,16 @@ impl RoadNetwork {
     /// ```
     pub fn find_shortest_path(&self, start: NodeId, goal: NodeId) -> Option<Route> {
         // Get or build cached fast graph
-        let fast_graph = self.fast_graph_cache.get_or_init(|| self.build_fast_graph());
+        let fast_graph = self
+            .fast_graph_cache
+            .get_or_init(|| self.build_fast_graph());
         let mut calculator = fast_paths::create_calculator(fast_graph);
 
         // Calculate path
         let path = calculator.calc_path(fast_graph, start as usize, goal as usize)?;
 
         // Convert node indices to NodeIds
-        let node_path: Vec<NodeId> = path
-            .get_nodes()
-            .iter()
-            .map(|n| *n as NodeId)
-            .collect();
+        let node_path: Vec<NodeId> = path.get_nodes().iter().map(|n| *n as NodeId).collect();
 
         // Build edge path by finding edges between consecutive nodes
         let mut edge_path = Vec::new();
@@ -203,11 +201,7 @@ impl RoadNetwork {
         let path = calculator.calc_path(fast_graph, start as usize, goal as usize)?;
 
         // Convert node indices to NodeIds
-        let node_path: Vec<NodeId> = path
-            .get_nodes()
-            .iter()
-            .map(|n| *n as NodeId)
-            .collect();
+        let node_path: Vec<NodeId> = path.get_nodes().iter().map(|n| *n as NodeId).collect();
 
         // Build edge path by finding edges between consecutive nodes
         let mut edge_path = Vec::new();
@@ -643,12 +637,11 @@ mod tests {
     #[test]
     fn test_routing_on_real_data() {
         // Load the small_city_graph.json test data
-        let network = RoadNetwork::load_from_file(
-            "test_data/small_city_graph.json",
-        )
-        .expect("Failed to load test data");
+        let network = RoadNetwork::load_from_file("test_data/small_city_graph.json")
+            .expect("Failed to load test data");
 
-        println!("Loaded network: {} nodes, {} edges",
+        println!(
+            "Loaded network: {} nodes, {} edges",
             network.node_count(),
             network.edge_count()
         );
@@ -671,13 +664,11 @@ mod tests {
             println!("Finding path from {} to {}", start, goal);
 
             // Try to find a path
-            if let Some(route) = network.find_shortest_path_with_cache(
-                &mut calculator,
-                &fast_graph,
-                start,
-                goal,
-            ) {
-                println!("Found route with {} nodes, distance: {} m",
+            if let Some(route) =
+                network.find_shortest_path_with_cache(&mut calculator, &fast_graph, start, goal)
+            {
+                println!(
+                    "Found route with {} nodes, distance: {} m",
                     route.node_path.len(),
                     route.total_distance_m
                 );
@@ -702,13 +693,12 @@ mod tests {
         use std::time::Instant;
 
         // Load test data
-        let network = RoadNetwork::load_from_file(
-            "test_data/small_city_graph.json",
-        )
-        .expect("Failed to load test data");
+        let network = RoadNetwork::load_from_file("test_data/small_city_graph.json")
+            .expect("Failed to load test data");
 
         println!("\n=== Routing Benchmark ===");
-        println!("Network size: {} nodes, {} edges",
+        println!(
+            "Network size: {} nodes, {} edges",
             network.node_count(),
             network.edge_count()
         );

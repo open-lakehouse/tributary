@@ -22,7 +22,7 @@ pub struct SortingStation {
     pub capacity: u32,
     pub processing_rate_per_hour: f64,
     pub current_load: u32,
-    pub queue: VecDeque<String>, // Package IDs waiting
+    pub queue: VecDeque<String>,        // Package IDs waiting
     pub processing: Vec<(String, u64)>, // (package_id, completion_tick)
     pub total_processed: u64,
 }
