@@ -16,6 +16,7 @@ pub mod spatial;
 pub use graph::{EdgeId, NodeId, RoadEdge, RoadNetwork, RoadNode, RoadType};
 pub use locations::{Location, LocationHandler};
 pub use movement::{Journey, JourneyState, MovementHandler, VelocityModel};
+pub use movement::velocity::TimeOfDayVelocity;
 pub use spatial::H3Index;
 
 /// Result type used throughout the crate

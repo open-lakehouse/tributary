@@ -4,6 +4,8 @@
 //! When a network is available, routes follow actual roads; otherwise, straight-line
 //! paths are used for backward compatibility.
 
+pub mod velocity;
+
 use crate::graph::RoadNetwork;
 use chrono::{DateTime, Duration, Utc};
 use geo::{Haversine, Length};
@@ -47,6 +49,31 @@ pub trait VelocityModel: Send + Sync {
     ///
     /// Velocity in m/s
     fn velocity_m_s(&self, journey: &JourneyState, progress: f64) -> f64;
+
+    /// Get velocity in meters per second with explicit current time
+    ///
+    /// This method allows velocity models to adjust speeds based on the current
+    /// simulation time (e.g., for rush hour modeling). The default implementation
+    /// delegates to `velocity_m_s` for backward compatibility.
+    ///
+    /// # Arguments
+    ///
+    /// * `journey` - The journey being traveled
+    /// * `progress` - Current progress (0.0 to 1.0)
+    /// * `current_time` - Current simulation time
+    ///
+    /// # Returns
+    ///
+    /// Velocity in m/s
+    fn velocity_m_s_at_time(
+        &self,
+        journey: &JourneyState,
+        progress: f64,
+        _current_time: DateTime<Utc>,
+    ) -> f64 {
+        // Default implementation for backward compatibility
+        self.velocity_m_s(journey, progress)
+    }
 }
 
 /// Constant velocity model
@@ -224,6 +251,18 @@ impl MovementHandler {
     }
 
     /// Advance all journeys by time step
+    ///
+    /// This method updates journey progress based on the velocity model and elapsed time.
+    /// For time-aware velocity models (like TimeOfDayVelocity), the current simulation
+    /// time is computed from each journey's start time and current progress.
+    ///
+    /// # Arguments
+    ///
+    /// * `time_step` - Duration to advance the simulation
+    ///
+    /// # Returns
+    ///
+    /// Result indicating success or an error if any journey has invalid data
     pub fn advance_journeys(&mut self, time_step: Duration) -> crate::Result<()> {
         let time_step_secs = time_step.num_seconds() as f64;
 
@@ -236,7 +275,18 @@ impl MovementHandler {
                 )));
             }
 
-            let velocity = self.velocity_model.velocity_m_s(journey, journey.progress);
+            // Calculate current simulation time based on journey progress
+            // Estimate: elapsed_time = progress * total_time
+            // We use a simple heuristic: current_time = start_time + (progress * estimated_duration)
+            // This isn't perfect but gives us a reasonable approximation for time-aware models
+            let elapsed_fraction = journey.progress;
+            let estimated_total_seconds = journey.distance_m / 5.0; // Assume average 5 m/s
+            let elapsed_seconds = (elapsed_fraction * estimated_total_seconds) as i64;
+            let current_time = journey.start_time + Duration::seconds(elapsed_seconds);
+
+            let velocity = self
+                .velocity_model
+                .velocity_m_s_at_time(journey, journey.progress, current_time);
             let distance_traveled = velocity * time_step_secs;
             let progress_delta = distance_traveled / journey.distance_m;
 

@@ -5,6 +5,7 @@
 //! - Resource allocation
 //! - Workflow execution
 //! - Time advancement
+//! - Telemetry generation (optional)
 //!
 //! # Example
 //!
@@ -21,6 +22,8 @@
 //! // Run simulation
 //! runner.run_for_steps(100)?;
 //! ```
+
+pub mod telemetry;
 
 use crate::Result;
 use crate::context::{SimulationConfig, SimulationContext};

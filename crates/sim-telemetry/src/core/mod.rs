@@ -31,6 +31,10 @@
 //! let records = generator.generate(&event).unwrap();
 //! ```
 
+pub mod collector;
+
+pub use collector::TelemetryCollector;
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

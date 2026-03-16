@@ -49,7 +49,7 @@ pub mod generators;
 
 // Re-export commonly used types for convenience
 pub use core::{
-    LogLevel, MetricType, TelemetryError, TelemetryGenerator, TelemetryRecord,
+    LogLevel, MetricType, TelemetryCollector, TelemetryError, TelemetryGenerator, TelemetryRecord,
 };
 pub use generators::{EventToLogGenerator, EventToMetricGenerator, EventToTraceGenerator};
 

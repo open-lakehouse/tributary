@@ -1,0 +1,37 @@
+{
+  "_comment": "Generated road network with 2 nodes and 1 edges",
+  "nodes": [
+    {
+      "id": 1,
+      "lat": 37.7749,
+      "lon": -122.4194
+    },
+    {
+      "id": 2,
+      "lat": 37.7759,
+      "lon": -122.4184
+    }
+  ],
+  "edges": [
+    {
+      "id": 1,
+      "from_node": 1,
+      "to_node": 2,
+      "distance_m": 150.0,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4194,
+            37.7749
+          ],
+          [
+            -122.4184,
+            37.7759
+          ]
+        ]
+      }
+    }
+  ]
+}

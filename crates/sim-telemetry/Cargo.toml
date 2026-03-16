@@ -7,9 +7,6 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-sim-core = { path = "../sim-core" }
-sim-events = { path = "../sim-events" }
-
 arrow = { workspace = true }
 chrono = { workspace = true }
 serde = { workspace = true }
