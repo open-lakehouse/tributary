@@ -235,7 +235,7 @@ fn test_complete_workflow_lifecycle() {
 
     // Setup resources
     let mut allocator = ResourceAllocator::new();
-    allocator.add_resource(TestResource {
+    let _ = allocator.add_resource(TestResource {
         id: ResourceId::new(),
         capacity: 10,
         load: 0,
@@ -399,7 +399,7 @@ fn test_multiple_concurrent_workflows() {
     // Setup resources (enough capacity for all tasks)
     let mut allocator = ResourceAllocator::new();
     for _ in 0..3 {
-        allocator.add_resource(TestResource {
+        let _ = allocator.add_resource(TestResource {
             id: ResourceId::new(),
             capacity: 10,
             load: 0,

@@ -4,6 +4,7 @@
 
 mod engine;
 mod instance_table;
+mod registry;
 mod schema;
 mod traits;
 
@@ -14,5 +15,6 @@ pub use engine::{WorkflowEngine, WorkflowStepEvent};
 pub use instance_table::{
     BatchUpdateList, WorkflowInstanceRowUpdate, WorkflowInstanceTable, WorkflowInstanceUpdate,
 };
+pub use registry::WorkflowRegistry;
 pub use schema::{InstanceStatus, workflow_instance_schema};
 pub use traits::{Workflow, WorkflowInstance, WorkflowStep};

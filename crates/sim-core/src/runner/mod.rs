@@ -35,7 +35,7 @@ use crate::resources::{
     AllocationStrategy, Assignment, Resource, ResourceAllocator, Task, TaskFactory,
 };
 use crate::snapshot::{SnapshotBackend, SnapshotData, SnapshotManager, SnapshotMetadata};
-use crate::workflows::{Workflow, WorkflowEngine, WorkflowStepEvent};
+use crate::workflows::{Workflow, WorkflowEngine, WorkflowRegistry, WorkflowStepEvent};
 use arrow::array::RecordBatch;
 use std::marker::PhantomData;
 
@@ -134,8 +134,10 @@ where
     population: Option<PopulationHandler<A>>,
     /// Resource allocator (optional)
     resources: Option<ResourceAllocator<R, T>>,
-    /// Workflow engine (optional)
+    /// Workflow engine (optional, legacy single-workflow support)
     workflows: Option<WorkflowEngine<W>>,
+    /// Workflow registry (optional, multi-workflow support)
+    workflow_registry: Option<WorkflowRegistry<W>>,
     /// Task factory for creating tasks from workflow steps (optional)
     task_factory: Option<Box<dyn TaskFactory<T>>>,
     /// Lifecycle hooks
@@ -175,6 +177,7 @@ where
             population: None,
             resources: None,
             workflows: None,
+            workflow_registry: None,
             task_factory: None,
             hooks: Box::new(NoOpHooks),
             stats: SimulationStats::default(),
@@ -193,6 +196,7 @@ where
             population: None,
             resources: None,
             workflows: None,
+            workflow_registry: None,
             task_factory: None,
             hooks: Box::new(NoOpHooks),
             stats: SimulationStats::default(),
@@ -266,6 +270,30 @@ where
         self.workflows.as_mut()
     }
 
+    /// Set the workflow registry for multi-workflow support
+    ///
+    /// # Arguments
+    ///
+    /// * `registry` - WorkflowRegistry instance
+    ///
+    /// # Note
+    ///
+    /// Using workflow_registry is mutually exclusive with the single workflow engine.
+    /// Set either workflow_registry OR workflows, not both.
+    pub fn set_workflow_registry(&mut self, registry: WorkflowRegistry<W>) {
+        self.workflow_registry = Some(registry);
+    }
+
+    /// Get the workflow registry
+    pub fn workflow_registry(&self) -> Option<&WorkflowRegistry<W>> {
+        self.workflow_registry.as_ref()
+    }
+
+    /// Get mutable reference to workflow registry
+    pub fn workflow_registry_mut(&mut self) -> Option<&mut WorkflowRegistry<W>> {
+        self.workflow_registry.as_mut()
+    }
+
     /// Get simulation statistics
     pub fn stats(&self) -> &SimulationStats {
         &self.stats
@@ -287,10 +315,12 @@ where
             self.hooks.on_agents_ticked(&self.context, &results)?;
         }
 
-        // Process workflows if engine exists
-        if let Some(workflows) = &mut self.workflows {
-            let current_time = self.context.current_time();
+        // Process workflows - support both single engine and registry
+        let current_time = self.context.current_time();
+        let mut all_workflow_events = Vec::new();
 
+        // Process single workflow engine (legacy support)
+        if let Some(workflows) = &mut self.workflows {
             // Step 1: Tick workflows (process time-based steps)
             let mut workflow_events = workflows.tick(current_time)?;
 
@@ -336,11 +366,24 @@ where
                 }
             }
 
-            // Step 5: Emit workflow events through hooks
-            for event in workflow_events {
-                self.hooks
-                    .on_workflow_step_completed(&self.context, &event)?;
-            }
+            all_workflow_events.extend(workflow_events);
+        }
+
+        // Process workflow registry (multi-workflow support)
+        if let Some(registry) = &mut self.workflow_registry {
+            // Step 1: Tick all workflow engines in registry
+            let registry_events = registry.tick_all(current_time)?;
+            all_workflow_events.extend(registry_events);
+
+            // Note: Task creation and advancement for registry workflows would require
+            // additional logic to map tasks to specific workflow engines by name.
+            // This is left as future work for Phase 9 implementation.
+        }
+
+        // Emit all workflow events through hooks
+        for event in all_workflow_events {
+            self.hooks
+                .on_workflow_step_completed(&self.context, &event)?;
         }
 
         // Advance time
