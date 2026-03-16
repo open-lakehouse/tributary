@@ -1,5 +1,5 @@
 pub(super) mod results;
-pub(super) mod snapshots;
+pub(crate) mod snapshots;
 pub(super) mod system;
 
 pub(super) use self::results::*;

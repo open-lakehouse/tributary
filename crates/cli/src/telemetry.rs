@@ -55,11 +55,13 @@ pub(crate) fn init_tracer_provider() {
     global::set_tracer_provider(provider);
 }
 
-// Initialize tracing-subscriber and return OtelGuard for opentelemetry-related termination processing
-pub(crate) fn init_tracing_subscriber() -> OtelGuard {
-    // let tracer_provider = global::tracer_provider();
+/// Initialize tracing-subscriber and return OtelGuard for opentelemetry-related termination processing.
+///
+/// When `tui_mode` is true the fmt layer writes to `io::sink()` so that log
+/// output does not corrupt the TUI alternate screen.
+pub(crate) fn init_tracing_subscriber(tui_mode: bool) -> OtelGuard {
     let meter_provider = init_meter_provider();
-    //
+
     let exporter = SpanExporter::builder()
         .with_tonic()
         .build()
@@ -75,28 +77,33 @@ pub(crate) fn init_tracing_subscriber() -> OtelGuard {
 
     let tracer = tracer_provider.tracer("caspers_universe");
 
+    let env_filter = tracing_subscriber::EnvFilter::builder()
+        .with_default_directive(LevelFilter::WARN.into())
+        .parse_lossy(
+            "caspers_universe=debug,caspers::simulation=debug,caspers::server=debug,caspers::universe=debug",
+        );
+
+    // The global level filter prevents the exporter network stack
+    // from reentering the globally installed OpenTelemetryLayer with
+    // its own spans while exporting, as the libraries should not use
+    // tracing levels below DEBUG.
+    let otel_layer = OpenTelemetryLayer::new(tracer)
+        .with_location(false)
+        .with_threads(false);
+
+    let metrics_layer = MetricsLayer::new(meter_provider.clone());
+
+    let fmt_layer = if tui_mode {
+        None
+    } else {
+        Some(tracing_subscriber::fmt::layer())
+    };
+
     tracing_subscriber::registry()
-        // The global level filter prevents the exporter network stack
-        // from reentering the globally installed OpenTelemetryLayer with
-        // its own spans while exporting, as the libraries should not use
-        // tracing levels below DEBUG. If the OpenTelemetry layer needs to
-        // trace spans and events with higher verbosity levels, consider using
-        // per-layer filtering to target the telemetry layer specifically,
-        // e.g. by target matching.
-        .with(
-            tracing_subscriber::EnvFilter::builder()
-                .with_default_directive(LevelFilter::WARN.into())
-                .parse_lossy(
-                    "caspers_universe=debug,caspers::simulation=debug,caspers::server=debug",
-                ),
-        )
-        .with(tracing_subscriber::fmt::layer())
-        .with(MetricsLayer::new(meter_provider.clone()))
-        .with(
-            OpenTelemetryLayer::new(tracer)
-                .with_location(false)
-                .with_threads(false),
-        )
+        .with(env_filter)
+        .with(fmt_layer)
+        .with(metrics_layer)
+        .with(otel_layer)
         .init();
 
     OtelGuard {

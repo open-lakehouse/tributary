@@ -5,18 +5,11 @@ use datafusion::prelude::DataFrame;
 #[cfg(test)]
 use rstest::*;
 
-use crate::{Error, Result, Simulation, Template};
+use crate::{Error, Result};
 #[cfg(test)]
 use crate::{
     SimulationContext, SimulationRunner, SimulationRunnerBuilder, agents::functions::OrderSpec,
 };
-
-pub async fn setup_test_simulation(template: impl Into<Option<Template>>) -> Result<Simulation> {
-    let caspers_root = find_git_root()?.join(".caspers/system/");
-    let system_path = url::Url::from_directory_path(caspers_root)
-        .map_err(|_| Error::internal("invalid directory"))?;
-    Simulation::try_new_with_template(template.into().unwrap_or_default(), &system_path).await
-}
 
 pub fn find_git_root() -> Result<PathBuf> {
     let command = Command::new("git")
@@ -126,22 +119,4 @@ pub(crate) async fn runner_fixed(
     let builder = builder.await?.with_create_orders(create_order);
 
     builder.build().await
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn test_simulation() {
-        let mut simulation = setup_test_simulation(None).await.unwrap();
-
-        let event_stats = simulation.event_stats();
-        assert_eq!(event_stats.num_orders_created, 0);
-
-        simulation.run(100).await.unwrap();
-
-        let event_stats = simulation.event_stats();
-        assert!(event_stats.num_orders_created > 0);
-    }
 }

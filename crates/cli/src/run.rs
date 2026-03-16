@@ -1,34 +1,15 @@
 use arrow::array::AsArray;
-use arrow::datatypes::TimestampMillisecondType;
 use caspers_universe::Error as UniverseError;
-use caspers_universe::{Simulation, SimulationContext, SimulationMode, resolve_url};
-use chrono::{DateTime, Utc};
-use clap::ValueEnum;
+use caspers_universe::{
+    SimulationContext, SimulationMessage, SimulationRunnerBuilder, resolve_url,
+};
+use crossterm::event::{Event, KeyCode, KeyEventKind};
 use dialoguer::Select;
+use tokio::sync::mpsc;
 
+use crate::app::App;
 use crate::error::Result;
-
-/// Execution mode for the simulation.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
-#[value(rename_all = "kebab-case")]
-pub enum SimulationModeCli {
-    /// Run the simulation for the specified time horizon.
-    Backfill,
-    /// Align time passed in simulation with time passed in real time.
-    Realtime,
-    /// Continue simulation from last snapshot up to current time, then switch to real time.
-    Catchup,
-}
-
-impl From<SimulationModeCli> for SimulationMode {
-    fn from(value: SimulationModeCli) -> Self {
-        match value {
-            SimulationModeCli::Backfill => SimulationMode::Backfill,
-            SimulationModeCli::Realtime => SimulationMode::Realtime,
-            SimulationModeCli::Catchup => SimulationMode::Catchup,
-        }
-    }
-}
+use crate::tui::Tui;
 
 #[derive(Debug, Clone, clap::Parser)]
 pub(crate) struct RunArgs {
@@ -38,9 +19,6 @@ pub(crate) struct RunArgs {
     #[arg(short, long)]
     /// Path where basic simulation setup is stored.
     working_directory: Option<String>,
-
-    #[arg(short, long, value_enum, default_value_t = SimulationModeCli::Backfill)]
-    mode: SimulationModeCli,
 
     #[arg(long, default_value_t = false)]
     dry_run: bool,
@@ -80,7 +58,7 @@ pub(super) async fn handle(args: RunArgs) -> Result<()> {
     let snapshots = builder
         .load_snapshots()
         .await?
-        .select_columns(&["id", "simulation_time"])
+        .select_columns(&["id"])
         .map_err(UniverseError::from)?
         .collect()
         .await
@@ -103,20 +81,156 @@ pub(super) async fn handle(args: RunArgs) -> Result<()> {
         uuid::Uuid::try_parse(selections[sn_selection]).map_err(UniverseError::from)?;
     let ctx = builder.with_snapshot_id(snapshot_id).build().await?;
 
-    let start_time = snapshots[sn_selection]
-        .column(1)
-        .as_primitive::<TimestampMillisecondType>()
-        .value(sn_selection);
-    let start_time = DateTime::<Utc>::from_timestamp_millis(start_time).expect("Invalid timestamp");
-
-    let mut simulation = Simulation::builder()
-        .with_context(ctx)
+    let mut runner = SimulationRunnerBuilder::new(ctx)
         .with_dry_run(args.dry_run)
-        .with_start_time(start_time)
         .build()
         .await?;
 
-    simulation.run(args.duration).await?;
+    let duration = args.duration;
+
+    let (event_tx, mut event_rx) = mpsc::unbounded_channel::<SimulationMessage>();
+
+    let sim_handle = std::thread::spawn(move || {
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .expect("failed to create simulation runtime");
+        rt.block_on(async move {
+            if let Err(e) = runner.run_with_channel(duration, event_tx.clone()).await {
+                let _ = event_tx.send(SimulationMessage::Error(e.to_string()));
+            }
+        });
+    });
+
+    let mut tui = Tui::new()?;
+    tui.enter()?;
+
+    let mut app = App::new(duration);
+    let tick_rate = std::time::Duration::from_millis(50);
+
+    loop {
+        tui.draw(|f| app.render(f))?;
+
+        let timeout = tokio::time::sleep(tick_rate);
+        tokio::pin!(timeout);
+
+        tokio::select! {
+            event = tui.next_event() => {
+                if let Some(Event::Key(key)) = event
+                    && key.kind == KeyEventKind::Press {
+                        match key.code {
+                            KeyCode::Char('q') | KeyCode::Esc => {
+                                app.should_quit = true;
+                            }
+                            KeyCode::Char('c')
+                                if key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL) =>
+                            {
+                                app.should_quit = true;
+                            }
+                            _ => {}
+                        }
+                    }
+            }
+            msg = event_rx.recv() => {
+                process_message(&mut app, msg);
+            }
+            _ = &mut timeout => {}
+        }
+
+        while let Ok(msg) = event_rx.try_recv() {
+            process_message(&mut app, Some(msg));
+        }
+
+        if app.should_quit {
+            break;
+        }
+    }
+
+    tui.exit()?;
+
+    // Wait for simulation thread and handle any panics
+    match sim_handle.join() {
+        Ok(_) => {
+            if app.error.is_some() {
+                eprintln!("\n❌ Simulation failed with error:");
+                if let Some(err) = &app.error {
+                    eprintln!("   {}", err);
+                }
+                eprintln!(
+                    "\nSimulation stopped at step {}/{}",
+                    app.current_step, app.total_steps
+                );
+                std::process::exit(1);
+            } else if app.completed {
+                if app.current_step < app.total_steps {
+                    eprintln!("\n⚠️  Warning: Simulation completed early!");
+                    eprintln!(
+                        "   Expected {} steps, but only completed {}",
+                        app.total_steps, app.current_step
+                    );
+                    eprintln!("   This might indicate an issue in the simulation core.");
+                } else {
+                    eprintln!("\n✅ Simulation completed successfully!");
+                    eprintln!("   Completed {} steps", app.current_step);
+                }
+            } else if app.should_quit {
+                eprintln!(
+                    "\n⚠️  Simulation aborted by user at step {}/{}",
+                    app.current_step, app.total_steps
+                );
+            }
+        }
+        Err(panic_info) => {
+            eprintln!("\n💥 FATAL: Simulation thread panicked!");
+            eprintln!(
+                "   Panic occurred at step {}/{}",
+                app.current_step, app.total_steps
+            );
+
+            // Try to extract panic message
+            if let Some(msg) = panic_info.downcast_ref::<&str>() {
+                eprintln!("   Panic message: {}", msg);
+            } else if let Some(msg) = panic_info.downcast_ref::<String>() {
+                eprintln!("   Panic message: {}", msg);
+            } else {
+                eprintln!("   Panic message: <unknown>");
+            }
+
+            eprintln!("\nThis is a critical error. Please check the simulation logs.");
+            std::process::exit(2);
+        }
+    }
 
     Ok(())
+}
+
+fn process_message(app: &mut App, msg: Option<SimulationMessage>) {
+    match msg {
+        Some(SimulationMessage::StepCompleted {
+            step,
+            total_steps: _,
+            sim_time,
+            event_counts,
+        }) => {
+            app.push_step(step, sim_time, event_counts);
+        }
+        Some(SimulationMessage::Completed { steps, final_time }) => {
+            tracing::info!(
+                "Simulation completed successfully: {} steps, final time: {}",
+                steps,
+                final_time
+            );
+            app.mark_completed();
+        }
+        Some(SimulationMessage::Error(err)) => {
+            tracing::error!("simulation error: {err}");
+            app.set_error(err);
+            app.mark_completed();
+        }
+        None => {
+            // Channel closed unexpectedly
+            tracing::warn!("Simulation channel closed unexpectedly");
+            app.mark_completed();
+        }
+    }
 }

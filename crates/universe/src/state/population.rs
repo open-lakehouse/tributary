@@ -4,7 +4,7 @@ use std::sync::Arc;
 use arrow::array::{DictionaryArray, FixedSizeBinaryBuilder, StringBuilder, StringViewBuilder};
 use arrow::array::{RecordBatch, cast::AsArray as _};
 use arrow::compute::concat_batches;
-use arrow::datatypes::{Int8Type, Schema};
+use arrow::datatypes::{Int16Type, Schema};
 use chrono::{DateTime, Utc};
 use datafusion::common::JoinType;
 use datafusion::functions::core::expr_ext::FieldAccessor;
@@ -29,8 +29,8 @@ use crate::{EventPayload, OrderData, OrderStatus};
 use super::movement::Journey;
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default, AsRefStr)]
-#[serde(rename_all = "snake_case")]
-#[strum(serialize_all = "snake_case")]
+#[serde(rename_all = "kebab-case")]
+#[strum(serialize_all = "kebab-case")]
 pub enum PersonStatusFlag {
     #[default]
     Idle,
@@ -369,7 +369,7 @@ impl StatusUpdateBuilder {
     }
 
     fn finish(mut self) -> Result<RecordBatch> {
-        let status: DictionaryArray<Int8Type> = self.status.finish().into_iter().collect();
+        let status: DictionaryArray<Int16Type> = self.status.finish().into_iter().collect();
         Ok(RecordBatch::try_new(
             Arc::new(Schema::new(vec![
                 POPULATION_SCHEMA.field_with_name("id")?.clone(),

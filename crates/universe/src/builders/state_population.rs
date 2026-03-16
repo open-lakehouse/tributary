@@ -2,7 +2,7 @@ use std::sync::{Arc, LazyLock};
 
 use arrow::array::builder::{FixedSizeBinaryBuilder, StringBuilder};
 use arrow::array::{ArrayRef, DictionaryArray, RecordBatch, StringViewBuilder, StructArray};
-use arrow::datatypes::{DataType, Field, Int8Type, Schema, SchemaRef};
+use arrow::datatypes::{DataType, Field, Int16Type, Schema, SchemaRef};
 use arrow_schema::extension::Uuid;
 use fake::Fake;
 use geo::{BoundingRect, Centroid, Contains, Point};
@@ -102,12 +102,12 @@ pub(crate) static POPULATION_SCHEMA: LazyLock<SchemaRef> = LazyLock::new(|| {
         Field::new("id", DataType::FixedSizeBinary(16), false).with_extension_type(Uuid),
         Field::new(
             "role",
-            DataType::Dictionary(Box::new(DataType::Int8), Box::new(DataType::Utf8)),
+            DataType::Dictionary(Box::new(DataType::Int16), Box::new(DataType::Utf8)),
             false,
         ),
         Field::new(
             "status",
-            DataType::Dictionary(Box::new(DataType::Int8), Box::new(DataType::Utf8)),
+            DataType::Dictionary(Box::new(DataType::Int16), Box::new(DataType::Utf8)),
             false,
         ),
         POPULATION_PROPERTIES_FIELD.clone(),
@@ -210,8 +210,8 @@ impl PopulationDataBuilder {
     }
 
     pub fn finish(mut self) -> Result<RecordBatch> {
-        let role: DictionaryArray<Int8Type> = self.role.finish().into_iter().collect();
-        let status: DictionaryArray<Int8Type> = self.status.finish().into_iter().collect();
+        let role: DictionaryArray<Int16Type> = self.role.finish().into_iter().collect();
+        let status: DictionaryArray<Int16Type> = self.status.finish().into_iter().collect();
 
         Ok(RecordBatch::try_new(
             POPULATION_SCHEMA.clone(),

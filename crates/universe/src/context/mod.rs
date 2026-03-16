@@ -1,8 +1,8 @@
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
-use arrow::array::RecordBatch;
-use arrow::datatypes::SchemaRef;
+use arrow::array::{AsArray, RecordBatch};
+use arrow::datatypes::{SchemaRef, TimestampMillisecondType};
 use arrow_schema::{DataType, Field, FieldRef, Schema, SchemaBuilder};
 use chrono::{DateTime, Utc};
 use datafusion::catalog::CatalogProvider;
@@ -15,16 +15,16 @@ use datafusion::sql::TableReference;
 use url::Url;
 use uuid::Uuid;
 
-pub(crate) use self::schemas::system::{ROUTING_EDGES_REF, ROUTING_NODES_REF};
 pub(crate) use self::storage::storage_catalog;
 use crate::context::memory::in_memory_catalog;
 use crate::context::schemas::SystemSchema;
-use crate::{Error, ObjectData, OrderData, PopulationData, Result, State, resolve_url};
+use crate::{Error, ObjectData, Result, resolve_url};
 
-use self::schemas::{SIMULATION_META_REF, SimulationMetaBuilder, create_snapshot};
+use self::schemas::snapshots::create_snapshot_from_batches;
+use self::schemas::{SIMULATION_META_REF, SimulationMetaBuilder};
 
 mod memory;
-mod schemas;
+pub(crate) mod schemas;
 pub(crate) mod storage;
 
 #[derive(Default)]
@@ -150,31 +150,54 @@ impl SimulationContextBuilder {
             Uuid::now_v7()
         };
 
+        let current_time = if let Some(start_time) = self.simulation_start_time {
+            start_time
+        } else if self.snapshot_id.is_some() {
+            let system = SystemSchema::new(&ctx);
+            let snapshot_time = system
+                .snapshots()
+                .await?
+                .filter(col("id").eq(lit(snapshot_id.to_string())))?
+                .select_columns(&["simulation_time"])?
+                .collect()
+                .await?;
+            snapshot_time
+                .first()
+                .filter(|batch| batch.num_rows() > 0)
+                .and_then(|batch| {
+                    let ts = batch
+                        .column(0)
+                        .as_primitive::<TimestampMillisecondType>()
+                        .value(0);
+                    DateTime::<Utc>::from_timestamp_millis(ts)
+                })
+                .unwrap_or_else(Utc::now)
+        } else {
+            Utc::now()
+        };
+
         let mut sim_ctx = SimulationContext {
             ctx,
             simulation_id,
             snapshot_id,
-            current_time: self.simulation_start_time.unwrap_or_else(Utc::now),
+            current_time,
             time_step: self
                 .simulation_time_step
                 .unwrap_or_else(|| Duration::new(60, 0)),
         };
 
-        // TODO: this is a but of a backdoor to allow for initializing a simulation
-        // with some data. Idelly this would move to somewhere more separated.
         match (self.population_data, self.object_data) {
             (None, None) => (),
             (Some(population_data), Some(object_data)) => {
-                let population = sim_ctx.ctx().read_batch(population_data)?;
-                let population_data = PopulationData::try_new(population).await?;
-                let sim_state = State::new(
-                    &Default::default(),
-                    object_data,
-                    population_data,
-                    OrderData::empty(),
-                    Default::default(),
-                );
-                sim_ctx.write_snapshot(&sim_state).await?;
+                let snapshot_id = create_snapshot_from_batches(
+                    &sim_ctx,
+                    Some(object_data.objects()),
+                    &[population_data],
+                    &[],
+                    &[],
+                )
+                .await?;
+                sim_ctx.snapshot_id = snapshot_id;
             }
             _ => {
                 return Err(Error::internal(
@@ -255,6 +278,10 @@ impl SimulationContext {
         self.current_time += self.time_step;
     }
 
+    pub(crate) fn set_snapshot_id(&mut self, id: Uuid) {
+        self.snapshot_id = id;
+    }
+
     pub fn system(&self) -> schemas::SystemSchema<'_> {
         schemas::SystemSchema::new(&self.ctx)
     }
@@ -265,16 +292,6 @@ impl SimulationContext {
 
     pub fn results(&self) -> schemas::ResultsSchema<'_> {
         schemas::ResultsSchema::new(self)
-    }
-
-    /// Write the current simulation state to a snapshot.
-    ///
-    /// This method creates a new snapshot with the current simulation state
-    /// and updates the simulation context to track the new snapshot ID.
-    pub async fn write_snapshot(&mut self, state: &State) -> Result<()> {
-        let snapshot_id = create_snapshot(state, self).await?;
-        self.snapshot_id = snapshot_id;
-        Ok(())
     }
 
     async fn scan(&self, table_ref: &TableReference) -> Result<DataFrame> {

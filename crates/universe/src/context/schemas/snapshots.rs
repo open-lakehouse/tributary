@@ -1,5 +1,6 @@
 use std::sync::LazyLock;
 
+use arrow::array::RecordBatch;
 use datafusion::dataframe::DataFrameWriteOptions;
 use datafusion::logical_expr::dml::InsertOp;
 use datafusion::prelude::{DataFrame, lit};
@@ -8,8 +9,8 @@ use datafusion::sql::TableReference;
 use itertools::Itertools;
 use uuid::Uuid;
 
+use crate::Result;
 use crate::context::SimulationContext;
-use crate::{Result, State};
 
 use super::system::{SNAPSHOT_META_REF, SnapshotMetaBuilder};
 
@@ -51,7 +52,14 @@ impl<'a> SnapshotsSchema<'a> {
     }
 
     pub async fn orders(&self) -> Result<DataFrame> {
-        static COLUMNS: &[&str] = &["id", "site_id", "customer_id", "destination", "status"];
+        static COLUMNS: &[&str] = &[
+            "person_id",
+            "order_id",
+            "site_id",
+            "submitted_at",
+            "destination",
+            "status",
+        ];
         Ok(self
             .ctx
             .scan_scoped(&ORDERS_REF)
@@ -60,7 +68,18 @@ impl<'a> SnapshotsSchema<'a> {
     }
 
     pub async fn order_lines(&self) -> Result<DataFrame> {
-        static COLUMNS: &[&str] = &["id", "order_id", "brand_id", "menu_item_id", "status"];
+        static COLUMNS: &[&str] = &[
+            "order_id",
+            "order_line_id",
+            "menu_item_id",
+            "kitchen_id",
+            "submitted_at",
+            "current_step",
+            "total_steps",
+            "assigned_to",
+            "step_completion_time",
+            "is_complete",
+        ];
         Ok(self
             .ctx
             .scan_scoped(&ORDER_LINES_REF)
@@ -69,10 +88,21 @@ impl<'a> SnapshotsSchema<'a> {
     }
 }
 
-pub(crate) async fn create_snapshot(state: &State, ctx: &SimulationContext) -> Result<Uuid> {
+/// Create a snapshot from handler-owned batches.
+///
+/// When `objects` is `Some`, the provided batch is written directly (used for
+/// initial snapshot creation). When `None`, objects are copied from the current
+/// snapshot (they are immutable during a run).
+pub(crate) async fn create_snapshot_from_batches(
+    ctx: &SimulationContext,
+    objects: Option<&RecordBatch>,
+    population: &[RecordBatch],
+    orders: &[RecordBatch],
+    order_lines: &[RecordBatch],
+) -> Result<Uuid> {
     let snapshot_id = Uuid::now_v7();
     let id_val = ScalarValue::Utf8View(Some(snapshot_id.to_string()));
-    let sim_id_val = ScalarValue::Utf8View(Some(ctx.simulation_id.to_string()));
+    let sim_id_val = ScalarValue::Utf8View(Some(ctx.simulation_id().to_string()));
 
     let append_cols = |df: DataFrame| -> Result<DataFrame> {
         Ok(df
@@ -82,34 +112,44 @@ pub(crate) async fn create_snapshot(state: &State, ctx: &SimulationContext) -> R
 
     let mut tasks_defs = vec![];
 
-    let batch_objects = state.objects().objects();
-    if batch_objects.num_rows() > 0 {
-        let df_objects = ctx.ctx().read_batch(batch_objects.clone())?;
-        tasks_defs.push((OBJECTS_REF.to_string(), append_cols(df_objects)?))
+    // Objects: use provided batch or copy from current snapshot
+    if let Some(batch) = objects {
+        if batch.num_rows() > 0 {
+            let df = ctx.ctx().read_batch(batch.clone())?;
+            tasks_defs.push((OBJECTS_REF.to_string(), append_cols(df)?));
+        }
+    } else {
+        let df_objects = ctx.snapshots().objects().await?;
+        if df_objects.clone().count().await? > 0 {
+            tasks_defs.push((OBJECTS_REF.to_string(), append_cols(df_objects)?));
+        }
     }
 
-    let batch_population = state.population().snapshot();
-    if batch_population.num_rows() > 0 {
-        let df_population = ctx.ctx().read_batch(batch_population.clone())?;
-        tasks_defs.push((POPULATION_REF.to_string(), append_cols(df_population)?))
+    // Population
+    let total_pop: usize = population.iter().map(|b| b.num_rows()).sum();
+    if total_pop > 0 {
+        let df = ctx.ctx().read_batches(population.iter().cloned())?;
+        tasks_defs.push((POPULATION_REF.to_string(), append_cols(df)?));
     }
 
-    let batch_orders = state.orders().batch_orders();
-    if batch_orders.num_rows() > 0 {
-        let df_orders = ctx.ctx().read_batch(batch_orders.clone())?;
-        tasks_defs.push((ORDERS_REF.to_string(), append_cols(df_orders)?))
+    // Orders
+    let total_orders: usize = orders.iter().map(|b| b.num_rows()).sum();
+    if total_orders > 0 {
+        let df = ctx.ctx().read_batches(orders.iter().cloned())?;
+        tasks_defs.push((ORDERS_REF.to_string(), append_cols(df)?));
     }
 
-    let batch_order_lines = state.orders().batch_lines();
-    if batch_order_lines.num_rows() > 0 {
-        let df_order_lines = ctx.ctx().read_batch(batch_order_lines.clone())?;
-        tasks_defs.push((ORDER_LINES_REF.to_string(), append_cols(df_order_lines)?))
+    // Order lines
+    let total_lines: usize = order_lines.iter().map(|b| b.num_rows()).sum();
+    if total_lines > 0 {
+        let df = ctx.ctx().read_batches(order_lines.iter().cloned())?;
+        tasks_defs.push((ORDER_LINES_REF.to_string(), append_cols(df)?));
     }
 
+    // Snapshot metadata
     let mut batch_sn = SnapshotMetaBuilder::new();
-    batch_sn.add_snapshot(&snapshot_id, &ctx.simulation_id, state.current_time(), None);
-    let batch_snapshot = batch_sn.build()?;
-    let df_sn = ctx.ctx().read_batch(batch_snapshot)?;
+    batch_sn.add_snapshot(&snapshot_id, ctx.simulation_id(), *ctx.current_time(), None);
+    let df_sn = ctx.ctx().read_batch(batch_sn.build()?)?;
     tasks_defs.push((SNAPSHOT_META_REF.to_string(), df_sn));
 
     let write_table = async |df: DataFrame, table_name: String| {

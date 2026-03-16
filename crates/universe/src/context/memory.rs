@@ -8,8 +8,7 @@ use datafusion::catalog::{
 };
 
 use crate::builders::{
-    EVENTS_SCHEMA, METRICS_SCHEMA, OBJECTS_SCHEMA, ORDER_LINE_SCHEMA, ORDER_SCHEMA,
-    POPULATION_SCHEMA,
+    EVENTS_SCHEMA, METRICS_SCHEMA, OBJECTS_SCHEMA, ORDER_LINE_STATE, ORDER_STATE, POPULATION_SCHEMA,
 };
 use crate::context::wrap_schema;
 use crate::{Result, RoutingData};
@@ -71,11 +70,11 @@ fn register_snapshots(schema: &dyn SchemaProvider) -> Result<()> {
     )?;
     schema.register_table(
         ORDERS_REF.table().to_string(),
-        mem_table(wrap_schema(&ORDER_SCHEMA))?,
+        mem_table(wrap_schema(&ORDER_STATE))?,
     )?;
     schema.register_table(
         ORDER_LINES_REF.table().to_string(),
-        mem_table(wrap_schema(&ORDER_LINE_SCHEMA))?,
+        mem_table(wrap_schema(&ORDER_LINE_STATE))?,
     )?;
 
     Ok(())

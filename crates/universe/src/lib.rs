@@ -163,12 +163,15 @@ pub async fn run_simulation(
     working_directory: Url,
     dry_run: bool,
 ) -> Result<(), Error> {
-    let mut simulation = SimulationBuilder::new()
+    let ctx = SimulationContext::builder()
         .with_working_directory(working_directory)
+        .build()
+        .await?;
+    let mut runner = SimulationRunnerBuilder::new(ctx)
         .with_dry_run(dry_run)
         .build()
         .await?;
-    simulation.run(duration).await?;
+    runner.run(duration).await?;
     Ok(())
 }
 
