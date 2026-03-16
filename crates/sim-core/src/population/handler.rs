@@ -114,7 +114,13 @@ impl<A: Agent> PopulationHandler<A> {
                 )));
             }
 
-            if field.data_type() != exp_type {
+            // Accept Parquet type optimizations: Utf8↔Utf8View
+            // Note: FixedSizeBinary is not optimized by Parquet
+            let type_matches = field.data_type() == exp_type
+                || (matches!(exp_type, DataType::Utf8)
+                    && matches!(field.data_type(), DataType::Utf8View));
+
+            if !type_matches {
                 return Err(Error::Agent(format!(
                     "Field '{}' has wrong type: expected {:?}, got {:?}",
                     exp_name, exp_type, field.data_type()

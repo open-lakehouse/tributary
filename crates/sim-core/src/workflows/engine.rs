@@ -75,7 +75,10 @@ pub struct WorkflowEngine<W: Workflow> {
     /// Lookup map: WorkflowInstanceId → row index in RecordBatch
     instance_id_to_row: HashMap<WorkflowInstanceId, usize>,
 
-    /// DataFusion context for SQL queries
+    /// DataFusion context for SQL queries (RESERVED FOR PHASE 6 WEEK 3)
+    /// TODO: Implement query methods like get_workflows_by_status()
+    /// Currently unused - will be activated when SQL query interface is added
+    #[allow(dead_code)]
     ctx: SessionContext,
 
     /// Phantom data
@@ -121,7 +124,14 @@ impl<W: Workflow> WorkflowEngine<W> {
                 )));
             }
 
-            if field.data_type() != exp_type {
+            // Accept Parquet type optimizations: Utf8↔Utf8View, Binary↔BinaryView
+            let type_matches = field.data_type() == exp_type
+                || (matches!(exp_type, DataType::Utf8)
+                    && matches!(field.data_type(), DataType::Utf8View))
+                || (matches!(exp_type, DataType::Binary)
+                    && matches!(field.data_type(), DataType::BinaryView));
+
+            if !type_matches {
                 return Err(crate::Error::Workflow(format!(
                     "Field '{}' has wrong type: expected {:?}, got {:?}",
                     exp_name, exp_type, field.data_type()
