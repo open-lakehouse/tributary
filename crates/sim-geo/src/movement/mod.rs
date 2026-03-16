@@ -724,20 +724,20 @@ mod tests {
         let handler = MovementHandler::new().with_network(network.clone());
 
         // Plan a journey using actual network nodes
-        if let Some(first_node) = network.nodes.values().next() {
-            if let Some(last_node) = network.nodes.values().last() {
-                let journey = handler
-                    .plan_journey(
-                        AgentId::new(),
-                        first_node.position,
-                        last_node.position,
-                        Utc::now(),
-                    )
-                    .unwrap();
+        if let Some(first_node) = network.nodes.values().next()
+            && let Some(last_node) = network.nodes.values().last()
+        {
+            let journey = handler
+                .plan_journey(
+                    AgentId::new(),
+                    first_node.position,
+                    last_node.position,
+                    Utc::now(),
+                )
+                .unwrap();
 
-                assert!(journey.distance_m > 0.0);
-                assert!(journey.route.coords().count() >= 2);
-            }
+            assert!(journey.distance_m > 0.0);
+            assert!(journey.route.coords().count() >= 2);
         }
     }
 

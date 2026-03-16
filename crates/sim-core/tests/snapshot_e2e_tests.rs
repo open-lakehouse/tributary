@@ -283,7 +283,7 @@ async fn test_e2e_complete_simulation_workflow() {
     // Verify initial state
     assert_eq!(runner.population().unwrap().count(), 50);
     assert_eq!(runner.resources().unwrap().resource_count(), 20);
-    assert_eq!(runner.workflows().unwrap().instance_count(), 10);
+    assert_eq!(runner.workflows().unwrap().instance_table.instance_count(), 10);
 
     // Run for 100 steps
     runner.run_for_steps(100).unwrap();
@@ -309,7 +309,7 @@ async fn test_e2e_complete_simulation_workflow() {
     // Verify state is back to checkpoint (entity counts)
     assert_eq!(runner.population().unwrap().count(), 50);
     assert_eq!(runner.resources().unwrap().resource_count(), 20);
-    assert_eq!(runner.workflows().unwrap().instance_count(), 10);
+    assert_eq!(runner.workflows().unwrap().instance_table.instance_count(), 10);
 
     println!("E2E Test 1 PASSED: Complete workflow");
     println!("  - Initialized with 50 agents, 20 resources, 5 workflows");
@@ -420,7 +420,7 @@ async fn test_e2e_multi_handler_coordination() {
         expected_resources
     );
     assert_eq!(
-        runner.workflows().unwrap().instance_count(),
+        runner.workflows().unwrap().instance_table.instance_count(),
         expected_workflows
     );
 
@@ -532,7 +532,7 @@ async fn test_e2e_state_consistency_validation() {
         expected_resources
     );
     assert_eq!(
-        runner.workflows().unwrap().instance_count(),
+        runner.workflows().unwrap().instance_table.instance_count(),
         expected_workflows
     );
 
@@ -582,7 +582,7 @@ async fn test_e2e_large_scale_simulation() {
     assert_eq!(restore_metadata.agent_count, 500);
     assert_eq!(runner.population().unwrap().count(), 500);
     assert_eq!(runner.resources().unwrap().resource_count(), 100);
-    assert_eq!(runner.workflows().unwrap().instance_count(), 40);
+    assert_eq!(runner.workflows().unwrap().instance_table.instance_count(), 40);
 
     println!("E2E Test 6 PASSED: Large scale simulation");
     println!("  - Saved 500 agents in {:?}", save_duration);

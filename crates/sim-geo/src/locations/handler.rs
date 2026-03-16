@@ -10,6 +10,7 @@ use super::array_utils::{
 use super::schema::{fields, location_schema};
 use super::traits::Location;
 use arrow::array::{BinaryArray, RecordBatch};
+use arrow::compute::concat_batches;
 use geo::Distance;
 use geo::Haversine;
 use geo_types::Point;
@@ -596,16 +597,8 @@ impl<L: Location> LocationHandler<L> {
         h3_index: u64,
         metadata: &str,
     ) -> crate::Result<RecordBatch> {
-        let current_count = self.locations.num_rows();
+        // Build new single-row batch
         let mut builders = LocationArrayBuilders::new();
-
-        // Copy existing data
-        if current_count > 0 {
-            let arrays = LocationArrays::from_batch(&self.locations);
-            arrays.copy_all_to_builders(&mut builders);
-        }
-
-        // Append new data
         builders.id.append_value(id.as_bytes());
         if let Some(n) = name {
             builders.name.append_value(n);
@@ -619,11 +612,16 @@ impl<L: Location> LocationHandler<L> {
         builders.h3_index.append_value(h3_index);
         builders.metadata.append_value(metadata);
 
-        // Build batch
-        let arrays = builders.finish();
-        let batch = RecordBatch::try_new(self.schema.clone(), arrays)?;
+        let new_row_batch = RecordBatch::try_new(self.schema.clone(), builders.finish())?;
 
-        Ok(batch)
+        // Concatenate existing batch with new row using Arrow's concat_batches
+        let result = if self.locations.num_rows() == 0 {
+            new_row_batch
+        } else {
+            concat_batches(&self.schema, vec![&self.locations, &new_row_batch])?
+        };
+
+        Ok(result)
     }
 
     fn rebuild_batch_without_row(&mut self, skip_row: usize) -> crate::Result<()> {

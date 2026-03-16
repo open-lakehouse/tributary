@@ -225,7 +225,7 @@ fn create_snapshot_data(
         agents: population.export_batch(),
         resources: resources_batch,
         tasks: tasks_batch,
-        workflow_instances: workflow_engine.export_batch(),
+        workflow_instances: workflow_engine.instance_table.export_batch(),
         locations: None,
     }
 }

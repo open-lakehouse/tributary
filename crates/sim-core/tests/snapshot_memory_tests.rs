@@ -345,7 +345,7 @@ async fn test_snapshot_manager_direct_usage() {
     let allocator: ResourceAllocator<TestResource, TestTask> = ResourceAllocator::new();
     let (resources_batch, tasks_batch) = allocator.export_batch();
     let engine: WorkflowEngine<TestWorkflow> = WorkflowEngine::new();
-    let workflow_batch = engine.export_batch();
+    let workflow_batch = engine.instance_table.export_batch();
 
     let snapshot_data = SnapshotData {
         agents: agents_batch,

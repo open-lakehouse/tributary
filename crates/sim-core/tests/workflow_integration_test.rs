@@ -270,14 +270,12 @@ fn test_complete_workflow_lifecycle() {
 
     // 7. Verify workflow advanced to step 2
     let workflows = runner.workflows().unwrap();
-    let instance = workflows.get_instance(instance_id).unwrap();
+    let instance = workflows.instance_table.get_instance(instance_id).unwrap();
     assert_eq!(instance.current_step, 1);
     assert!(!instance.is_complete);
 
     // 8. Verify task created for second step
-    // NOTE: Workflow task creation has 3x multiplication issue (see FOLLOW_UP_ISSUES.md)
-    // Expected 1 task, but getting 3 per workflow step
-    assert_eq!(runner.resources().unwrap().pending_task_count(), 3);
+    assert_eq!(runner.resources().unwrap().pending_task_count(), 1);
 
     // 9. Allocate and complete second step
     // Allocated at T=20s, needs 15s, completes when current_time >= T=35s
@@ -289,7 +287,7 @@ fn test_complete_workflow_lifecycle() {
 
     // Verify workflow advanced to step 3
     let workflows = runner.workflows().unwrap();
-    let instance = workflows.get_instance(instance_id).unwrap();
+    let instance = workflows.instance_table.get_instance(instance_id).unwrap();
     assert_eq!(instance.current_step, 2);
     assert!(!instance.is_complete);
 
@@ -304,7 +302,7 @@ fn test_complete_workflow_lifecycle() {
 
     // 11. Verify workflow marked complete
     let workflows = runner.workflows().unwrap();
-    let instance = workflows.get_instance(instance_id).unwrap();
+    let instance = workflows.instance_table.get_instance(instance_id).unwrap();
     assert_eq!(instance.current_step, 3);
     assert!(instance.is_complete);
 
@@ -434,15 +432,13 @@ fn test_multiple_concurrent_workflows() {
     // All workflows should advance to step 1
     let workflows = runner.workflows().unwrap();
     for instance_id in &instance_ids {
-        let instance = workflows.get_instance(*instance_id).unwrap();
+        let instance = workflows.instance_table.get_instance(*instance_id).unwrap();
         assert_eq!(instance.current_step, 1);
         assert!(!instance.is_complete);
     }
 
     // Should have 3 new tasks (1 per workflow instance)
-    // NOTE: Workflow task creation has 3x multiplication issue (see FOLLOW_UP_ISSUES.md)
-    // Expected 3 tasks, but getting 9 (3 workflows * 3x multiplier)
-    assert_eq!(runner.resources().unwrap().pending_task_count(), 9);
+    assert_eq!(runner.resources().unwrap().pending_task_count(), 3);
 
     // Allocate and complete second step
     // Allocated at T=20s, need 10s, complete when current_time >= T=30s
@@ -454,7 +450,7 @@ fn test_multiple_concurrent_workflows() {
     // All workflows should be complete
     let workflows = runner.workflows().unwrap();
     for instance_id in &instance_ids {
-        let instance = workflows.get_instance(*instance_id).unwrap();
+        let instance = workflows.instance_table.get_instance(*instance_id).unwrap();
         assert_eq!(instance.current_step, 2);
         assert!(instance.is_complete);
     }

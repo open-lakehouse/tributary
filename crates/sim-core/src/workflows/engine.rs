@@ -4,8 +4,7 @@ use super::instance_table::WorkflowInstanceTable;
 use super::schema::InstanceStatus;
 use super::traits::{Workflow, WorkflowInstance};
 use crate::Result;
-use crate::utils::idents::{AgentId, WorkflowId, WorkflowInstanceId};
-use arrow::array::RecordBatch;
+use crate::utils::idents::{WorkflowId, WorkflowInstanceId};
 use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 use std::marker::PhantomData;
@@ -62,8 +61,21 @@ pub struct WorkflowEngine<W: Workflow> {
     /// Registered workflow definitions (templates)
     workflows: HashMap<WorkflowId, W>,
 
-    /// Instance storage and manipulation (delegated to WorkflowInstanceTable)
-    instance_table: WorkflowInstanceTable,
+    /// Instance storage and manipulation
+    ///
+    /// This is publicly accessible to avoid delegation boilerplate.
+    /// Provides direct access to all WorkflowInstanceTable operations:
+    ///
+    /// - `get_instance(id)` - O(1) instance lookup
+    /// - `get_instances_by_status(status)` - Query instances by status
+    /// - `get_agent_workflows(agent_id)` - Query instances by agent
+    /// - `get_instance_status(id)` - Get instance status
+    /// - `instance_count()` - Total instance count
+    /// - `get_ready_instances()` - Get instances ready for assignment
+    /// - `export_batch()` - Export instances as RecordBatch
+    /// - `import_batch(batch)` - Import instances from RecordBatch
+    /// - `set_current_tick(tick)` / `current_tick()` - Simulation time management
+    pub instance_table: WorkflowInstanceTable,
 
     /// Phantom data
     _phantom: PhantomData<W>,
@@ -77,16 +89,6 @@ impl<W: Workflow> WorkflowEngine<W> {
             instance_table: WorkflowInstanceTable::new(),
             _phantom: PhantomData,
         }
-    }
-
-    /// Set the current simulation tick
-    pub fn set_current_tick(&mut self, tick: i64) {
-        self.instance_table.set_current_tick(tick);
-    }
-
-    /// Get the current simulation tick
-    pub fn current_tick(&self) -> i64 {
-        self.instance_table.current_tick()
     }
 
     /// Register a workflow definition
@@ -144,11 +146,6 @@ impl<W: Workflow> WorkflowEngine<W> {
             instances.push(self.start_instance(workflow_id)?);
         }
         Ok(instances)
-    }
-
-    /// Get a workflow instance by ID (O(1) lookup)
-    pub fn get_instance(&self, id: WorkflowInstanceId) -> Option<WorkflowInstance> {
-        self.instance_table.get_instance(id)
     }
 
     /// Advance instance to next step after task completion
@@ -225,27 +222,34 @@ impl<W: Workflow> WorkflowEngine<W> {
         }
     }
 
-    /// Get all instances with a specific status
-    pub fn get_instances_by_status(
-        &self,
-        status: InstanceStatus,
-    ) -> Result<Vec<WorkflowInstanceId>> {
-        self.instance_table.get_instances_by_status(status)
+    /// Mark an instance as having a task assigned
+    ///
+    /// This updates the instance status to `TaskAssigned` to prevent creating duplicate tasks
+    /// for the same workflow step.
+    pub fn mark_task_assigned(&mut self, instance_id: WorkflowInstanceId) -> Result<()> {
+        let row_idx = self
+            .instance_table
+            .get_row_index(instance_id)
+            .ok_or_else(|| {
+                crate::Error::Workflow(format!("Workflow instance {} not found", instance_id))
+            })?;
+
+        self.instance_table
+            .update_instance_at_row(row_idx, |update| {
+                update.status = Some(InstanceStatus::TaskAssigned);
+            })?;
+
+        Ok(())
     }
 
     /// Get all running instances
     pub fn get_running_instances(&self) -> Result<Vec<WorkflowInstanceId>> {
-        self.get_instances_by_status(InstanceStatus::Running)
+        self.instance_table.get_instances_by_status(InstanceStatus::Running)
     }
 
     /// Get all completed instances
     pub fn get_completed_instances(&self) -> Result<Vec<WorkflowInstanceId>> {
-        self.get_instances_by_status(InstanceStatus::Complete)
-    }
-
-    /// Get instances by agent ID
-    pub fn get_agent_workflows(&self, agent_id: AgentId) -> Result<Vec<WorkflowInstanceId>> {
-        self.instance_table.get_agent_workflows(agent_id)
+        self.instance_table.get_instances_by_status(InstanceStatus::Complete)
     }
 
     /// Pause a workflow instance
@@ -295,16 +299,6 @@ impl<W: Workflow> WorkflowEngine<W> {
             })
     }
 
-    /// Get instance status
-    pub fn get_instance_status(&self, instance_id: WorkflowInstanceId) -> Option<InstanceStatus> {
-        self.instance_table.get_instance_status(instance_id)
-    }
-
-    /// Get total instance count
-    pub fn instance_count(&self) -> usize {
-        self.instance_table.instance_count()
-    }
-
     /// Get workflow count
     pub fn workflow_count(&self) -> usize {
         self.workflows.len()
@@ -316,61 +310,6 @@ impl<W: Workflow> WorkflowEngine<W> {
     pub fn tick(&mut self, _current_time: DateTime<Utc>) -> Result<Vec<WorkflowStepEvent>> {
         // Future: Process time-based workflow steps
         Ok(Vec::new())
-    }
-
-    /// Get all instances ready for step assignment
-    pub fn get_ready_instances(&self) -> Vec<WorkflowInstance> {
-        self.instance_table.get_ready_instances()
-    }
-
-    /// Get mutable instance (returns owned instance for modification)
-    pub fn get_instance_mut(&mut self, id: WorkflowInstanceId) -> Option<WorkflowInstance> {
-        // Since RecordBatch is immutable, we return an owned copy
-        // The caller should use update methods to persist changes
-        self.get_instance(id)
-    }
-
-    /// Export the workflow instances RecordBatch
-    ///
-    /// Returns a copy of the internal RecordBatch containing all workflow instances.
-    /// This can be used for persistence, serialization, or state transfer.
-    ///
-    /// # Returns
-    ///
-    /// A RecordBatch containing all workflow instance data
-    ///
-    /// # Example
-    ///
-    /// ```rust,ignore
-    /// let batch = engine.export_batch();
-    /// // Serialize or persist batch...
-    /// ```
-    pub fn export_batch(&self) -> RecordBatch {
-        self.instance_table.export_batch()
-    }
-
-    /// Import and restore workflow instances from a RecordBatch
-    ///
-    /// Replaces the current workflow instances with the provided batch and rebuilds
-    /// all internal indices. The batch must conform to the expected workflow instance
-    /// schema.
-    ///
-    /// # Arguments
-    ///
-    /// * `batch` - RecordBatch containing workflow instance data
-    ///
-    /// # Returns
-    ///
-    /// Ok(()) if successful, Err if the batch has an invalid schema or indices cannot be rebuilt
-    ///
-    /// # Example
-    ///
-    /// ```rust,ignore
-    /// let batch = load_batch_from_disk()?;
-    /// engine.import_batch(batch)?;
-    /// ```
-    pub fn import_batch(&mut self, batch: RecordBatch) -> Result<()> {
-        self.instance_table.import_batch(batch)
     }
 }
 
@@ -430,7 +369,7 @@ mod tests {
     fn test_engine_creation() {
         let engine = WorkflowEngine::<TestWorkflow>::new();
         assert_eq!(engine.workflow_count(), 0);
-        assert_eq!(engine.instance_count(), 0);
+        assert_eq!(engine.instance_table.instance_count(), 0);
     }
 
     #[test]
@@ -459,7 +398,7 @@ mod tests {
         assert_eq!(instance.total_steps, 2);
         assert_eq!(instance.current_step, 0);
         assert!(!instance.is_complete);
-        assert_eq!(engine.instance_count(), 1);
+        assert_eq!(engine.instance_table.instance_count(), 1);
     }
 
     #[test]
@@ -472,7 +411,7 @@ mod tests {
         let instance = engine.start_instance(workflow_id).unwrap();
         let instance_id = instance.id;
 
-        let retrieved = engine.get_instance(instance_id).unwrap();
+        let retrieved = engine.instance_table.get_instance(instance_id).unwrap();
         assert_eq!(retrieved.id, instance_id);
         assert_eq!(retrieved.workflow_id, workflow_id);
     }
@@ -507,7 +446,7 @@ mod tests {
             _ => panic!("Expected StepCompleted event"),
         }
 
-        let instance = engine.get_instance(instance_id).unwrap();
+        let instance = engine.instance_table.get_instance(instance_id).unwrap();
         assert_eq!(instance.current_step, 1);
         assert!(!instance.is_complete);
     }
@@ -545,7 +484,7 @@ mod tests {
             _ => panic!("Expected WorkflowCompleted event"),
         }
 
-        let instance = engine.get_instance(instance_id).unwrap();
+        let instance = engine.instance_table.get_instance(instance_id).unwrap();
         assert_eq!(instance.current_step, 2);
         assert!(instance.is_complete);
     }
@@ -576,12 +515,12 @@ mod tests {
 
         // Pause
         engine.pause_instance(instance_id).unwrap();
-        let status = engine.get_instance_status(instance_id).unwrap();
+        let status = engine.instance_table.get_instance_status(instance_id).unwrap();
         assert_eq!(status, InstanceStatus::Paused);
 
         // Resume
         engine.resume_instance(instance_id).unwrap();
-        let status = engine.get_instance_status(instance_id).unwrap();
+        let status = engine.instance_table.get_instance_status(instance_id).unwrap();
         assert_eq!(status, InstanceStatus::Running);
     }
 
@@ -639,15 +578,15 @@ mod tests {
         let engine = WorkflowEngine::<TestWorkflow>::new();
 
         // Export from empty engine
-        let batch = engine.export_batch();
+        let batch = engine.instance_table.export_batch();
         assert_eq!(batch.num_rows(), 0);
 
         // Import into new engine
         let mut new_engine = WorkflowEngine::<TestWorkflow>::new();
-        new_engine.import_batch(batch).unwrap();
+        new_engine.instance_table.import_batch(batch).unwrap();
 
         // Verify state
-        assert_eq!(new_engine.instance_count(), 0);
+        assert_eq!(new_engine.instance_table.instance_count(), 0);
     }
 
     #[test]
@@ -661,18 +600,18 @@ mod tests {
         let instance_id = instance.id;
 
         // Export
-        let batch = engine.export_batch();
+        let batch = engine.instance_table.export_batch();
         assert_eq!(batch.num_rows(), 1);
 
         // Import into new engine
         let mut new_engine = WorkflowEngine::<TestWorkflow>::new();
-        new_engine.import_batch(batch).unwrap();
+        new_engine.instance_table.import_batch(batch).unwrap();
 
         // Verify instance count
-        assert_eq!(new_engine.instance_count(), 1);
+        assert_eq!(new_engine.instance_table.instance_count(), 1);
 
         // Verify instance can be retrieved
-        let retrieved = new_engine.get_instance(instance_id).unwrap();
+        let retrieved = new_engine.instance_table.get_instance(instance_id).unwrap();
         assert_eq!(retrieved.id, instance_id);
         assert_eq!(retrieved.workflow_id, workflow_id);
         assert_eq!(retrieved.current_step, 0);
@@ -698,20 +637,20 @@ mod tests {
         let id3 = instance3.id;
 
         // Export
-        let batch = engine.export_batch();
+        let batch = engine.instance_table.export_batch();
         assert_eq!(batch.num_rows(), 3);
 
         // Import into new engine
         let mut new_engine = WorkflowEngine::<TestWorkflow>::new();
-        new_engine.import_batch(batch).unwrap();
+        new_engine.instance_table.import_batch(batch).unwrap();
 
         // Verify instance count
-        assert_eq!(new_engine.instance_count(), 3);
+        assert_eq!(new_engine.instance_table.instance_count(), 3);
 
         // Verify all instances can be retrieved
-        assert!(new_engine.get_instance(id1).is_some());
-        assert!(new_engine.get_instance(id2).is_some());
-        assert!(new_engine.get_instance(id3).is_some());
+        assert!(new_engine.instance_table.get_instance(id1).is_some());
+        assert!(new_engine.instance_table.get_instance(id2).is_some());
+        assert!(new_engine.instance_table.get_instance(id3).is_some());
     }
 
     #[test]
@@ -744,24 +683,24 @@ mod tests {
         engine.pause_instance(id3).unwrap();
 
         // Export
-        let batch = engine.export_batch();
+        let batch = engine.instance_table.export_batch();
 
         // Import into new engine
         let mut new_engine = WorkflowEngine::<TestWorkflow>::new();
-        new_engine.import_batch(batch).unwrap();
+        new_engine.instance_table.import_batch(batch).unwrap();
 
         // Verify instance1 state
-        let retrieved1 = new_engine.get_instance(id1).unwrap();
+        let retrieved1 = new_engine.instance_table.get_instance(id1).unwrap();
         assert_eq!(retrieved1.current_step, 1);
         assert!(!retrieved1.is_complete);
 
         // Verify instance2 state (completed)
-        let retrieved2 = new_engine.get_instance(id2).unwrap();
+        let retrieved2 = new_engine.instance_table.get_instance(id2).unwrap();
         assert_eq!(retrieved2.current_step, 2);
         assert!(retrieved2.is_complete);
 
         // Verify instance3 state (paused)
-        let status3 = new_engine.get_instance_status(id3).unwrap();
+        let status3 = new_engine.instance_table.get_instance_status(id3).unwrap();
         assert_eq!(status3, InstanceStatus::Paused);
     }
 
@@ -797,11 +736,11 @@ mod tests {
             .unwrap();
 
         // Export
-        let batch = engine.export_batch();
+        let batch = engine.instance_table.export_batch();
 
         // Import into new engine
         let mut new_engine = WorkflowEngine::<TestWorkflow>::new();
-        new_engine.import_batch(batch).unwrap();
+        new_engine.instance_table.import_batch(batch).unwrap();
 
         // Query running instances
         let running = new_engine.get_running_instances().unwrap();
@@ -827,23 +766,23 @@ mod tests {
         engine.pause_instance(instance2.id).unwrap();
 
         // Export
-        let batch = engine.export_batch();
+        let batch = engine.instance_table.export_batch();
 
         // Import into new engine
         let mut new_engine = WorkflowEngine::<TestWorkflow>::new();
-        new_engine.import_batch(batch).unwrap();
+        new_engine.instance_table.import_batch(batch).unwrap();
 
         // Verify status queries work
-        let status1 = new_engine.get_instance_status(instance1.id).unwrap();
+        let status1 = new_engine.instance_table.get_instance_status(instance1.id).unwrap();
         assert_eq!(status1, InstanceStatus::Running);
 
-        let status2 = new_engine.get_instance_status(instance2.id).unwrap();
+        let status2 = new_engine.instance_table.get_instance_status(instance2.id).unwrap();
         assert_eq!(status2, InstanceStatus::Paused);
     }
 
     #[test]
     fn test_import_invalid_schema_fails() {
-        use arrow::array::{ArrayRef, Int32Array};
+        use arrow::array::{ArrayRef, Int32Array, RecordBatch};
         use arrow::datatypes::{DataType, Field, Schema};
         use std::sync::Arc;
 
@@ -856,7 +795,7 @@ mod tests {
             RecordBatch::try_new(Arc::new(invalid_schema), vec![invalid_array]).unwrap();
 
         // Import should fail
-        let result = engine.import_batch(invalid_batch);
+        let result = engine.instance_table.import_batch(invalid_batch);
         assert!(result.is_err());
     }
 
@@ -876,23 +815,23 @@ mod tests {
         let id2 = instance2.id;
 
         // Export
-        let batch = engine.export_batch();
+        let batch = engine.instance_table.export_batch();
 
         // Create new engine and clear any state
         let mut new_engine = WorkflowEngine::<TestWorkflow>::new();
 
         // Import should rebuild indices
-        new_engine.import_batch(batch).unwrap();
+        new_engine.instance_table.import_batch(batch).unwrap();
 
         // Verify O(1) lookup works
-        assert!(new_engine.get_instance(id1).is_some());
-        assert!(new_engine.get_instance(id2).is_some());
+        assert!(new_engine.instance_table.get_instance(id1).is_some());
+        assert!(new_engine.instance_table.get_instance(id2).is_some());
 
         // Verify lookups return correct instances
-        let retrieved1 = new_engine.get_instance(id1).unwrap();
+        let retrieved1 = new_engine.instance_table.get_instance(id1).unwrap();
         assert_eq!(retrieved1.id, id1);
 
-        let retrieved2 = new_engine.get_instance(id2).unwrap();
+        let retrieved2 = new_engine.instance_table.get_instance(id2).unwrap();
         assert_eq!(retrieved2.id, id2);
     }
 
@@ -919,14 +858,14 @@ mod tests {
         // For this test, we'll export and import to verify the metadata path works
 
         // Export
-        let batch = engine.export_batch();
+        let batch = engine.instance_table.export_batch();
 
         // Import into new engine
         let mut new_engine = WorkflowEngine::<TestWorkflow>::new();
-        new_engine.import_batch(batch).unwrap();
+        new_engine.instance_table.import_batch(batch).unwrap();
 
         // Retrieve and verify (metadata should be empty as we didn't update it in the batch)
-        let retrieved = new_engine.get_instance(instance_id).unwrap();
+        let retrieved = new_engine.instance_table.get_instance(instance_id).unwrap();
         assert_eq!(retrieved.id, instance_id);
         // Note: metadata preservation would require updating the RecordBatch,
         // which is not done in this test. This test verifies the round-trip works.

@@ -209,8 +209,6 @@ pub struct KitchenSimulationHooks {
     completed_orders: Vec<(String, AgentId)>, // (order_id, customer_id)
     /// Track eating customers (customer_id, order_id, finish_time) for event emission
     eating_customers: Vec<(AgentId, String, DateTime<Utc>)>,
-    /// Track customers we've seen as Done to avoid duplicate events
-    done_customers: std::collections::HashSet<AgentId>,
 }
 
 impl KitchenSimulationHooks {
@@ -220,7 +218,6 @@ impl KitchenSimulationHooks {
             orders: HashMap::new(),
             completed_orders: Vec::new(),
             eating_customers: Vec::new(),
-            done_customers: std::collections::HashSet::new(),
         }
     }
 

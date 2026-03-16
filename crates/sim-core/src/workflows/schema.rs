@@ -74,8 +74,10 @@ pub fn workflow_instance_schema() -> SchemaRef {
 /// Workflow instance status values
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InstanceStatus {
-    /// Instance is actively running
+    /// Instance is actively running (ready for task assignment)
     Running,
+    /// Instance has a task assigned and is waiting for completion
+    TaskAssigned,
     /// Instance is paused and not processing
     Paused,
     /// Instance has completed successfully
@@ -89,6 +91,7 @@ impl InstanceStatus {
     pub fn as_str(&self) -> &'static str {
         match self {
             InstanceStatus::Running => "Running",
+            InstanceStatus::TaskAssigned => "TaskAssigned",
             InstanceStatus::Paused => "Paused",
             InstanceStatus::Complete => "Complete",
             InstanceStatus::Failed => "Failed",
@@ -99,6 +102,7 @@ impl InstanceStatus {
     pub fn parse(s: &str) -> Option<Self> {
         match s {
             "Running" => Some(InstanceStatus::Running),
+            "TaskAssigned" => Some(InstanceStatus::TaskAssigned),
             "Paused" => Some(InstanceStatus::Paused),
             "Complete" => Some(InstanceStatus::Complete),
             "Failed" => Some(InstanceStatus::Failed),
@@ -166,6 +170,7 @@ mod tests {
     #[test]
     fn test_instance_status_str_conversion() {
         assert_eq!(InstanceStatus::Running.as_str(), "Running");
+        assert_eq!(InstanceStatus::TaskAssigned.as_str(), "TaskAssigned");
         assert_eq!(InstanceStatus::Paused.as_str(), "Paused");
         assert_eq!(InstanceStatus::Complete.as_str(), "Complete");
         assert_eq!(InstanceStatus::Failed.as_str(), "Failed");
@@ -176,6 +181,10 @@ mod tests {
         assert_eq!(
             InstanceStatus::parse("Running"),
             Some(InstanceStatus::Running)
+        );
+        assert_eq!(
+            InstanceStatus::parse("TaskAssigned"),
+            Some(InstanceStatus::TaskAssigned)
         );
         assert_eq!(
             InstanceStatus::parse("Paused"),
