@@ -261,44 +261,17 @@ impl<L: Location> LocationHandler<L> {
         }
 
         // Find nearest among candidates using RecordBatch coordinates
-        let mut nearest_id = None;
-        let mut min_distance = f64::MAX;
-
-        for row_idx in candidates {
-            if let Ok(loc_point) = self.get_point_from_batch(row_idx) {
-                let distance = Haversine.distance(point, loc_point);
-
-                if distance < min_distance {
-                    min_distance = distance;
-                    if let Ok(id) = self.get_location_id_from_batch(row_idx) {
-                        nearest_id = Some(id);
-                    }
-                }
-            }
-        }
-
-        Ok(nearest_id)
+        Ok(self
+            .find_nearest_in_candidates(candidates, point, None)
+            .map(|(_, id, _)| id))
     }
 
     /// Brute force nearest location (fallback when H3 index is empty)
     fn nearest_brute_force(&self, point: Point<f64>) -> crate::Result<Option<LocationId>> {
-        let mut nearest_id = None;
-        let mut min_distance = f64::MAX;
-
-        for row_idx in 0..self.locations.num_rows() {
-            if let Ok(loc_point) = self.get_point_from_batch(row_idx) {
-                let distance = Haversine.distance(point, loc_point);
-
-                if distance < min_distance {
-                    min_distance = distance;
-                    if let Ok(id) = self.get_location_id_from_batch(row_idx) {
-                        nearest_id = Some(id);
-                    }
-                }
-            }
-        }
-
-        Ok(nearest_id)
+        let candidates: Vec<usize> = (0..self.locations.num_rows()).collect();
+        Ok(self
+            .find_nearest_in_candidates(candidates, point, None)
+            .map(|(_, id, _)| id))
     }
 
     /// Find all locations within a radius using H3 acceleration
@@ -344,20 +317,7 @@ impl<L: Location> LocationHandler<L> {
         }
 
         // Filter by exact distance using RecordBatch coordinates
-        let mut results = Vec::new();
-        for row_idx in candidates {
-            if let Ok(loc_point) = self.get_point_from_batch(row_idx) {
-                let distance = Haversine.distance(point, loc_point);
-
-                if distance <= radius_meters
-                    && let Ok(id) = self.get_location_id_from_batch(row_idx)
-                {
-                    results.push(id);
-                }
-            }
-        }
-
-        Ok(results)
+        Ok(self.filter_candidates_by_distance(candidates, point, radius_meters))
     }
 
     /// Get all locations of a specific type
@@ -401,6 +361,108 @@ impl<L: Location> LocationHandler<L> {
     /// Get reference to the underlying RecordBatch
     pub fn record_batch(&self) -> &RecordBatch {
         &self.locations
+    }
+
+    /// Find the nearest location among candidates using Haversine distance
+    ///
+    /// This private helper encapsulates the common distance calculation loop used by
+    /// nearest() and nearest_brute_force() methods.
+    ///
+    /// # Arguments
+    ///
+    /// * `candidates` - Row indices to search through
+    /// * `query_point` - Point to measure distance from
+    /// * `max_distance` - Optional maximum distance threshold in meters
+    ///
+    /// # Returns
+    ///
+    /// Option<(usize, LocationId, f64)> - Tuple of (row_index, location_id, distance)
+    /// Returns None if no valid candidates found or all exceed max_distance
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// // Find nearest among all rows
+    /// let candidates: Vec<usize> = (0..self.locations.num_rows()).collect();
+    /// if let Some((_row, id, _dist)) = self.find_nearest_in_candidates(candidates, point, None) {
+    ///     println!("Nearest location: {}", id);
+    /// }
+    ///
+    /// // Find nearest within 5km radius
+    /// let candidates = vec![0, 1, 2, 5, 10];
+    /// if let Some((_row, id, dist)) = self.find_nearest_in_candidates(candidates, point, Some(5000.0)) {
+    ///     println!("Found {} at {}m", id, dist);
+    /// }
+    /// ```
+    fn find_nearest_in_candidates(
+        &self,
+        candidates: Vec<usize>,
+        query_point: Point<f64>,
+        max_distance: Option<f64>,
+    ) -> Option<(usize, LocationId, f64)> {
+        let mut best_result = None;
+        let mut min_distance = max_distance.unwrap_or(f64::MAX);
+
+        for row_idx in candidates {
+            if let Ok(loc_point) = self.get_point_from_batch(row_idx) {
+                let distance = Haversine.distance(query_point, loc_point);
+
+                if distance < min_distance {
+                    if let Ok(id) = self.get_location_id_from_batch(row_idx) {
+                        min_distance = distance;
+                        best_result = Some((row_idx, id, distance));
+                    }
+                }
+            }
+        }
+
+        best_result
+    }
+
+    /// Find all locations within a distance threshold among candidates
+    ///
+    /// This private helper encapsulates the distance filtering loop used by
+    /// within_radius() method.
+    ///
+    /// # Arguments
+    ///
+    /// * `candidates` - Row indices to search through
+    /// * `query_point` - Point to measure distance from
+    /// * `max_distance` - Maximum distance threshold in meters
+    ///
+    /// # Returns
+    ///
+    /// Vec<LocationId> - All location IDs within the distance threshold
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// // Find all locations within 5km
+    /// let candidates = vec![0, 1, 2, 5, 10];
+    /// let within = self.filter_candidates_by_distance(candidates, point, 5000.0);
+    /// println!("Found {} locations within 5km", within.len());
+    /// ```
+    fn filter_candidates_by_distance(
+        &self,
+        candidates: Vec<usize>,
+        query_point: Point<f64>,
+        max_distance: f64,
+    ) -> Vec<LocationId> {
+        let mut results = Vec::new();
+
+        for row_idx in candidates {
+            if let Ok(loc_point) = self.get_point_from_batch(row_idx) {
+                let distance = Haversine.distance(query_point, loc_point);
+
+                if distance <= max_distance {
+                    if let Ok(id) = self.get_location_id_from_batch(row_idx) {
+                        results.push(id);
+                    }
+                }
+            }
+        }
+
+        results
     }
 
     /// Export the locations RecordBatch
@@ -1203,5 +1265,216 @@ mod tests {
         } else {
             panic!("Expected Location error for invalid coordinates");
         }
+    }
+
+    #[test]
+    fn test_find_nearest_in_candidates_basic() {
+        let mut handler = LocationHandler::new(Resolution::Nine);
+
+        // Add three locations at different distances
+        let loc1 = TestLocation {
+            id: LocationId::new(),
+            position: Point::new(-122.4194, 37.7749), // San Francisco
+            location_type: "warehouse".to_string(),
+        };
+        let loc2 = TestLocation {
+            id: LocationId::new(),
+            position: Point::new(-122.4, 37.78), // ~2km from SF
+            location_type: "warehouse".to_string(),
+        };
+        let loc3 = TestLocation {
+            id: LocationId::new(),
+            position: Point::new(-122.0842, 37.4224), // Palo Alto, ~40km from SF
+            location_type: "warehouse".to_string(),
+        };
+
+        let id1 = loc1.id();
+        let _id2 = loc2.id();
+        let _id3 = loc3.id();
+
+        handler.add_location(loc1).unwrap();
+        handler.add_location(loc2).unwrap();
+        handler.add_location(loc3).unwrap();
+
+        // Query point very close to loc1
+        let query_point = Point::new(-122.419, 37.775);
+
+        // Test with all candidates
+        let candidates = vec![0, 1, 2];
+        let result = handler
+            .find_nearest_in_candidates(candidates, query_point, None)
+            .unwrap();
+
+        // Should return loc1 (closest)
+        assert_eq!(result.1, id1);
+        assert!(result.2 < 1000.0); // Should be < 1km
+    }
+
+    #[test]
+    fn test_find_nearest_in_candidates_with_max_distance() {
+        let mut handler = LocationHandler::new(Resolution::Nine);
+
+        // Add locations
+        let loc1 = TestLocation {
+            id: LocationId::new(),
+            position: Point::new(-122.4194, 37.7749),
+            location_type: "warehouse".to_string(),
+        };
+        let loc2 = TestLocation {
+            id: LocationId::new(),
+            position: Point::new(-122.0, 37.5), // ~50km away
+            location_type: "warehouse".to_string(),
+        };
+
+        handler.add_location(loc1).unwrap();
+        handler.add_location(loc2).unwrap();
+
+        let query_point = Point::new(-122.42, 37.77);
+
+        // Test with max_distance that excludes the only nearby location
+        let candidates = vec![1]; // Only loc2 (far away)
+        let result = handler.find_nearest_in_candidates(candidates, query_point, Some(1000.0)); // 1km max
+
+        // Should return None because loc2 is too far
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_find_nearest_in_candidates_empty_candidates() {
+        let handler = LocationHandler::<TestLocation>::new(Resolution::Nine);
+        let query_point = Point::new(-122.4194, 37.7749);
+
+        // Test with empty candidates
+        let candidates = vec![];
+        let result = handler.find_nearest_in_candidates(candidates, query_point, None);
+
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_filter_candidates_by_distance_basic() {
+        let mut handler = LocationHandler::new(Resolution::Nine);
+
+        // Add locations at different distances
+        let loc1 = TestLocation {
+            id: LocationId::new(),
+            position: Point::new(-122.4194, 37.7749), // San Francisco
+            location_type: "warehouse".to_string(),
+        };
+        let loc2 = TestLocation {
+            id: LocationId::new(),
+            position: Point::new(-122.4, 37.78), // ~2km from SF
+            location_type: "warehouse".to_string(),
+        };
+        let loc3 = TestLocation {
+            id: LocationId::new(),
+            position: Point::new(-122.0, 37.5), // ~50km from SF
+            location_type: "warehouse".to_string(),
+        };
+
+        let id1 = loc1.id();
+        let id2 = loc2.id();
+        let _id3 = loc3.id();
+
+        handler.add_location(loc1).unwrap();
+        handler.add_location(loc2).unwrap();
+        handler.add_location(loc3).unwrap();
+
+        let query_point = Point::new(-122.4194, 37.7749);
+
+        // Test filtering with 5km radius (should include loc1 and loc2)
+        let candidates = vec![0, 1, 2];
+        let results = handler.filter_candidates_by_distance(candidates, query_point, 5000.0);
+
+        assert_eq!(results.len(), 2);
+        assert!(results.contains(&id1));
+        assert!(results.contains(&id2));
+    }
+
+    #[test]
+    fn test_filter_candidates_by_distance_zero_radius() {
+        let mut handler = LocationHandler::new(Resolution::Nine);
+
+        // Add locations
+        let loc1 = TestLocation {
+            id: LocationId::new(),
+            position: Point::new(-122.4194, 37.7749),
+            location_type: "warehouse".to_string(),
+        };
+        let loc2 = TestLocation {
+            id: LocationId::new(),
+            position: Point::new(-122.4, 37.78),
+            location_type: "warehouse".to_string(),
+        };
+
+        handler.add_location(loc1).unwrap();
+        handler.add_location(loc2).unwrap();
+
+        let query_point = Point::new(-122.4194, 37.7749);
+
+        // Zero radius should return only exact matches (or none due to floating point)
+        let candidates = vec![0, 1];
+        let results = handler.filter_candidates_by_distance(candidates, query_point, 0.0);
+
+        // Should return at most 1 result
+        assert!(results.len() <= 1);
+    }
+
+    #[test]
+    fn test_filter_candidates_by_distance_empty_candidates() {
+        let handler = LocationHandler::<TestLocation>::new(Resolution::Nine);
+        let query_point = Point::new(-122.4194, 37.7749);
+
+        // Test with empty candidates
+        let candidates = vec![];
+        let results = handler.filter_candidates_by_distance(candidates, query_point, 5000.0);
+
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_helper_functions_preserve_behavior() {
+        let mut handler = LocationHandler::new(Resolution::Nine);
+
+        // Add multiple locations
+        let locations = vec![
+            TestLocation {
+                id: LocationId::new(),
+                position: Point::new(-122.4194, 37.7749), // San Francisco
+                location_type: "warehouse".to_string(),
+            },
+            TestLocation {
+                id: LocationId::new(),
+                position: Point::new(-122.4, 37.78), // ~2km
+                location_type: "warehouse".to_string(),
+            },
+            TestLocation {
+                id: LocationId::new(),
+                position: Point::new(-122.45, 37.77), // ~3km
+                location_type: "warehouse".to_string(),
+            },
+            TestLocation {
+                id: LocationId::new(),
+                position: Point::new(-122.0, 37.5), // ~50km
+                location_type: "warehouse".to_string(),
+            },
+        ];
+
+        for loc in locations {
+            handler.add_location(loc).unwrap();
+        }
+
+        let query_point = Point::new(-122.4194, 37.7749);
+
+        // Test that nearest() still works correctly
+        let nearest_result = handler.nearest(query_point).unwrap();
+        assert!(nearest_result.is_some());
+
+        // Test that within_radius() still works correctly
+        let within_5km = handler.within_radius(query_point, 5000.0).unwrap();
+        assert_eq!(within_5km.len(), 3); // Should find 3 locations within 5km
+
+        let within_60km = handler.within_radius(query_point, 60000.0).unwrap();
+        assert_eq!(within_60km.len(), 4); // Should find all 4 locations
     }
 }

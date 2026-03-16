@@ -35,3 +35,7 @@ tokio = { version = "1", features = ["full"] }
 [[bench]]
 name = "batch_operations"
 harness = false
+
+[[bench]]
+name = "workflow_performance"
+harness = false
