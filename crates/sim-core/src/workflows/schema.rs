@@ -96,7 +96,7 @@ impl InstanceStatus {
     }
 
     /// Parse status from string
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse(s: &str) -> Option<Self> {
         match s {
             "Running" => Some(InstanceStatus::Running),
             "Paused" => Some(InstanceStatus::Paused),
@@ -174,21 +174,21 @@ mod tests {
     #[test]
     fn test_instance_status_parsing() {
         assert_eq!(
-            InstanceStatus::from_str("Running"),
+            InstanceStatus::parse("Running"),
             Some(InstanceStatus::Running)
         );
         assert_eq!(
-            InstanceStatus::from_str("Paused"),
+            InstanceStatus::parse("Paused"),
             Some(InstanceStatus::Paused)
         );
         assert_eq!(
-            InstanceStatus::from_str("Complete"),
+            InstanceStatus::parse("Complete"),
             Some(InstanceStatus::Complete)
         );
         assert_eq!(
-            InstanceStatus::from_str("Failed"),
+            InstanceStatus::parse("Failed"),
             Some(InstanceStatus::Failed)
         );
-        assert_eq!(InstanceStatus::from_str("Invalid"), None);
+        assert_eq!(InstanceStatus::parse("Invalid"), None);
     }
 }

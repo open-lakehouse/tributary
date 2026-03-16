@@ -6,10 +6,7 @@
 //! - Domain integration (sim-kitchen)
 
 use geo_types::Point;
-use sim_core::{
-    Agent, SimulationConfig, SimulationContext, population::PopulationHandler,
-    resources::ResourceAllocator, workflows::WorkflowEngine,
-};
+use sim_core::{Agent, SimulationConfig, SimulationContext, population::PopulationHandler};
 use sim_kitchen::agents::{Customer, CustomerStatus};
 
 // Helper to create test customers

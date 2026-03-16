@@ -166,7 +166,7 @@ fn test_3_bulk_allocation_100_tasks_to_100_resources() {
     let mut allocator = ResourceAllocator::<TestResource, TestTask>::new();
 
     // Add 100 resources of type "test"
-    let resource_ids: Vec<ResourceId> = (0..100)
+    let _resource_ids: Vec<ResourceId> = (0..100)
         .map(|_| {
             let resource = TestResource {
                 id: ResourceId::new(),
@@ -337,7 +337,7 @@ fn test_6_query_tasks_by_workflow_instance() {
     let workflow_id_2 = WorkflowInstanceId::new();
 
     // Add tasks for workflow 1
-    let workflow_1_tasks: Vec<TaskId> = (0..5)
+    let _workflow_1_tasks: Vec<TaskId> = (0..5)
         .map(|_| {
             let task = TestTask {
                 id: TaskId::new(),
@@ -353,7 +353,7 @@ fn test_6_query_tasks_by_workflow_instance() {
         .collect();
 
     // Add tasks for workflow 2
-    let workflow_2_tasks: Vec<TaskId> = (0..5)
+    let _workflow_2_tasks: Vec<TaskId> = (0..5)
         .map(|_| {
             let task = TestTask {
                 id: TaskId::new(),
@@ -375,7 +375,7 @@ fn test_6_query_tasks_by_workflow_instance() {
         .as_any()
         .downcast_ref::<BinaryArray>()
         .unwrap();
-    let id_array = allocator
+    let _id_array = allocator
         .tasks
         .column(0)
         .as_any()
@@ -413,7 +413,7 @@ fn test_7_get_completed_tasks_with_workflow_ids() {
     let workflow_id = WorkflowInstanceId::new();
 
     // Add tasks with short duration
-    let task_ids: Vec<TaskId> = (0..5)
+    let _task_ids: Vec<TaskId> = (0..5)
         .map(|_| {
             let task = TestTask {
                 id: TaskId::new(),
@@ -551,7 +551,7 @@ fn test_10_performance_1000_tasks_100_resources() {
     println!("Assignments made: {}", assignments.len());
 
     // Verify allocations
-    assert!(assignments.len() > 0);
+    assert!(!assignments.is_empty());
     assert!(
         allocate_time.as_millis() < 5000,
         "Allocation should be fast"
@@ -648,7 +648,7 @@ fn test_13_mixed_workflow_and_non_workflow_tasks() {
     let workflow_id = WorkflowInstanceId::new();
 
     // Add workflow tasks
-    let workflow_task_ids: Vec<TaskId> = (0..5)
+    let _workflow_task_ids: Vec<TaskId> = (0..5)
         .map(|_| {
             let task = TestTask {
                 id: TaskId::new(),
@@ -664,7 +664,7 @@ fn test_13_mixed_workflow_and_non_workflow_tasks() {
         .collect();
 
     // Add non-workflow tasks
-    let regular_task_ids: Vec<TaskId> = (0..5)
+    let _regular_task_ids: Vec<TaskId> = (0..5)
         .map(|_| {
             let task = TestTask {
                 id: TaskId::new(),

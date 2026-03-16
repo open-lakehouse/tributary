@@ -3,19 +3,19 @@
 //! This module provides efficient location management using Apache Arrow's columnar
 //! storage combined with H3 spatial indexing for fast geospatial queries.
 
+use super::array_utils::{
+    LocationArrayBuilders, LocationArrays, get_f64_value, get_string_value, get_typed_column,
+    get_u64_value,
+};
 use super::schema::{fields, location_schema};
 use super::traits::Location;
-use arrow::array::{
-    Array, ArrayRef, BinaryArray, BinaryBuilder, Float64Array, Float64Builder, RecordBatch,
-    StringArray, StringBuilder, UInt64Array, UInt64Builder,
-};
+use arrow::array::{BinaryArray, RecordBatch};
 use geo::Distance;
 use geo::Haversine;
 use geo_types::Point;
 use h3o::{CellIndex, LatLng, Resolution};
 use sim_core::LocationId;
 use std::collections::HashMap;
-use std::sync::Arc;
 
 /// Manages locations in the simulation using Apache Arrow storage
 ///
@@ -228,6 +228,9 @@ impl<L: Location> LocationHandler<L> {
     ///
     /// The ID of the nearest location, or None if no locations exist
     pub fn nearest(&self, point: Point<f64>) -> crate::Result<Option<LocationId>> {
+        // Validate coordinates first (before checking if handler is empty)
+        super::traits::validate_coordinates(point.y(), point.x())?;
+
         if self.locations.num_rows() == 0 {
             return Ok(None);
         }
@@ -313,6 +316,17 @@ impl<L: Location> LocationHandler<L> {
         point: Point<f64>,
         radius_meters: f64,
     ) -> crate::Result<Vec<LocationId>> {
+        // Validate coordinates
+        super::traits::validate_coordinates(point.y(), point.x())?;
+
+        // Validate radius
+        if radius_meters < 0.0 {
+            return Err(crate::Error::Location(format!(
+                "Invalid radius: {}. Radius must be non-negative.",
+                radius_meters
+            )));
+        }
+
         // Calculate H3 ring size needed for radius
         let ring_size = calculate_h3_ring_for_radius(radius_meters, self.resolution);
 
@@ -454,13 +468,7 @@ impl<L: Location> LocationHandler<L> {
     // ===== Helper methods for RecordBatch access =====
 
     fn get_location_id_from_batch(&self, row_idx: usize) -> crate::Result<LocationId> {
-        let id_array = self
-            .locations
-            .column_by_name(fields::ID)
-            .ok_or_else(|| crate::Error::Location("ID column not found".to_string()))?
-            .as_any()
-            .downcast_ref::<BinaryArray>()
-            .ok_or_else(|| crate::Error::Location("ID column has wrong type".to_string()))?;
+        let id_array = get_typed_column::<BinaryArray>(&self.locations, fields::ID)?;
 
         let uuid_bytes = id_array.value(row_idx);
         if uuid_bytes.len() != 16 {
@@ -475,73 +483,32 @@ impl<L: Location> LocationHandler<L> {
     }
 
     fn get_point_from_batch(&self, row_idx: usize) -> crate::Result<Point<f64>> {
-        let lat = self
-            .get_f64_from_batch(row_idx, fields::LATITUDE)?
+        let lat = get_f64_value(&self.locations, row_idx, fields::LATITUDE)?
             .ok_or_else(|| crate::Error::Location("Latitude is null".to_string()))?;
 
-        let lon = self
-            .get_f64_from_batch(row_idx, fields::LONGITUDE)?
+        let lon = get_f64_value(&self.locations, row_idx, fields::LONGITUDE)?
             .ok_or_else(|| crate::Error::Location("Longitude is null".to_string()))?;
 
         Ok(Point::new(lon, lat))
     }
 
+    #[allow(dead_code)]
     fn get_f64_from_batch(&self, row_idx: usize, field_name: &str) -> crate::Result<Option<f64>> {
-        let array = self
-            .locations
-            .column_by_name(field_name)
-            .ok_or_else(|| crate::Error::Location(format!("{} column not found", field_name)))?
-            .as_any()
-            .downcast_ref::<Float64Array>()
-            .ok_or_else(|| {
-                crate::Error::Location(format!("{} column has wrong type", field_name))
-            })?;
-
-        if array.is_null(row_idx) {
-            Ok(None)
-        } else {
-            Ok(Some(array.value(row_idx)))
-        }
+        get_f64_value(&self.locations, row_idx, field_name)
     }
 
+    #[allow(dead_code)]
     fn get_u64_from_batch(&self, row_idx: usize, field_name: &str) -> crate::Result<Option<u64>> {
-        let array = self
-            .locations
-            .column_by_name(field_name)
-            .ok_or_else(|| crate::Error::Location(format!("{} column not found", field_name)))?
-            .as_any()
-            .downcast_ref::<UInt64Array>()
-            .ok_or_else(|| {
-                crate::Error::Location(format!("{} column has wrong type", field_name))
-            })?;
-
-        if array.is_null(row_idx) {
-            Ok(None)
-        } else {
-            Ok(Some(array.value(row_idx)))
-        }
+        get_u64_value(&self.locations, row_idx, field_name)
     }
 
+    #[allow(dead_code)]
     fn get_string_from_batch(
         &self,
         row_idx: usize,
         field_name: &str,
     ) -> crate::Result<Option<String>> {
-        let array = self
-            .locations
-            .column_by_name(field_name)
-            .ok_or_else(|| crate::Error::Location(format!("{} column not found", field_name)))?
-            .as_any()
-            .downcast_ref::<StringArray>()
-            .ok_or_else(|| {
-                crate::Error::Location(format!("{} column has wrong type", field_name))
-            })?;
-
-        if array.is_null(row_idx) {
-            Ok(None)
-        } else {
-            Ok(Some(array.value(row_idx).to_string()))
-        }
+        get_string_value(&self.locations, row_idx, field_name)
     }
 
     fn get_location_data(&self, row_idx: usize) -> crate::Result<LocationData> {
@@ -555,6 +522,7 @@ impl<L: Location> LocationHandler<L> {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn append_to_batch(
         &self,
         id: &LocationId,
@@ -566,121 +534,32 @@ impl<L: Location> LocationHandler<L> {
         h3_index: u64,
         metadata: &str,
     ) -> crate::Result<RecordBatch> {
-        // Get current arrays
         let current_count = self.locations.num_rows();
-
-        // Build new arrays with appended data
-        let mut id_builder = BinaryBuilder::new();
-        let mut name_builder = StringBuilder::new();
-        let mut type_builder = StringBuilder::new();
-        let mut geom_builder = BinaryBuilder::new();
-        let mut lat_builder = Float64Builder::new();
-        let mut lon_builder = Float64Builder::new();
-        let mut h3_builder = UInt64Builder::new();
-        let mut meta_builder = StringBuilder::new();
+        let mut builders = LocationArrayBuilders::new();
 
         // Copy existing data
         if current_count > 0 {
-            let id_array = self
-                .locations
-                .column(0)
-                .as_any()
-                .downcast_ref::<BinaryArray>()
-                .unwrap();
-            let name_array = self
-                .locations
-                .column(1)
-                .as_any()
-                .downcast_ref::<StringArray>()
-                .unwrap();
-            let type_array = self
-                .locations
-                .column(2)
-                .as_any()
-                .downcast_ref::<StringArray>()
-                .unwrap();
-            let geom_array = self
-                .locations
-                .column(3)
-                .as_any()
-                .downcast_ref::<BinaryArray>()
-                .unwrap();
-            let lat_array = self
-                .locations
-                .column(4)
-                .as_any()
-                .downcast_ref::<Float64Array>()
-                .unwrap();
-            let lon_array = self
-                .locations
-                .column(5)
-                .as_any()
-                .downcast_ref::<Float64Array>()
-                .unwrap();
-            let h3_array = self
-                .locations
-                .column(6)
-                .as_any()
-                .downcast_ref::<UInt64Array>()
-                .unwrap();
-            let meta_array = self
-                .locations
-                .column(7)
-                .as_any()
-                .downcast_ref::<StringArray>()
-                .unwrap();
-
-            for i in 0..current_count {
-                id_builder.append_value(id_array.value(i));
-                if name_array.is_null(i) {
-                    name_builder.append_null();
-                } else {
-                    name_builder.append_value(name_array.value(i));
-                }
-                type_builder.append_value(type_array.value(i));
-                geom_builder.append_value(geom_array.value(i));
-                lat_builder.append_value(lat_array.value(i));
-                lon_builder.append_value(lon_array.value(i));
-                h3_builder.append_value(h3_array.value(i));
-                if meta_array.is_null(i) {
-                    meta_builder.append_null();
-                } else {
-                    meta_builder.append_value(meta_array.value(i));
-                }
-            }
+            let arrays = LocationArrays::from_batch(&self.locations);
+            arrays.copy_all_to_builders(&mut builders);
         }
 
         // Append new data
-        id_builder.append_value(id.as_bytes());
+        builders.id.append_value(id.as_bytes());
         if let Some(n) = name {
-            name_builder.append_value(n);
+            builders.name.append_value(n);
         } else {
-            name_builder.append_null();
+            builders.name.append_null();
         }
-        type_builder.append_value(location_type);
-        geom_builder.append_value(geometry);
-        lat_builder.append_value(latitude);
-        lon_builder.append_value(longitude);
-        h3_builder.append_value(h3_index);
-        meta_builder.append_value(metadata);
+        builders.location_type.append_value(location_type);
+        builders.geometry.append_value(geometry);
+        builders.latitude.append_value(latitude);
+        builders.longitude.append_value(longitude);
+        builders.h3_index.append_value(h3_index);
+        builders.metadata.append_value(metadata);
 
-        // Build arrays
-        let id_array: ArrayRef = Arc::new(id_builder.finish());
-        let name_array: ArrayRef = Arc::new(name_builder.finish());
-        let type_array: ArrayRef = Arc::new(type_builder.finish());
-        let geom_array: ArrayRef = Arc::new(geom_builder.finish());
-        let lat_array: ArrayRef = Arc::new(lat_builder.finish());
-        let lon_array: ArrayRef = Arc::new(lon_builder.finish());
-        let h3_array: ArrayRef = Arc::new(h3_builder.finish());
-        let meta_array: ArrayRef = Arc::new(meta_builder.finish());
-
-        let batch = RecordBatch::try_new(
-            self.schema.clone(),
-            vec![
-                id_array, name_array, type_array, geom_array, lat_array, lon_array, h3_array,
-                meta_array,
-            ],
-        )?;
+        // Build batch
+        let arrays = builders.finish();
+        let batch = RecordBatch::try_new(self.schema.clone(), arrays)?;
 
         Ok(batch)
     }
@@ -693,104 +572,13 @@ impl<L: Location> LocationHandler<L> {
         }
 
         // Build new arrays without the skipped row
-        let mut id_builder = BinaryBuilder::new();
-        let mut name_builder = StringBuilder::new();
-        let mut type_builder = StringBuilder::new();
-        let mut geom_builder = BinaryBuilder::new();
-        let mut lat_builder = Float64Builder::new();
-        let mut lon_builder = Float64Builder::new();
-        let mut h3_builder = UInt64Builder::new();
-        let mut meta_builder = StringBuilder::new();
-
-        let id_array = self
-            .locations
-            .column(0)
-            .as_any()
-            .downcast_ref::<BinaryArray>()
-            .unwrap();
-        let name_array = self
-            .locations
-            .column(1)
-            .as_any()
-            .downcast_ref::<StringArray>()
-            .unwrap();
-        let type_array = self
-            .locations
-            .column(2)
-            .as_any()
-            .downcast_ref::<StringArray>()
-            .unwrap();
-        let geom_array = self
-            .locations
-            .column(3)
-            .as_any()
-            .downcast_ref::<BinaryArray>()
-            .unwrap();
-        let lat_array = self
-            .locations
-            .column(4)
-            .as_any()
-            .downcast_ref::<Float64Array>()
-            .unwrap();
-        let lon_array = self
-            .locations
-            .column(5)
-            .as_any()
-            .downcast_ref::<Float64Array>()
-            .unwrap();
-        let h3_array = self
-            .locations
-            .column(6)
-            .as_any()
-            .downcast_ref::<UInt64Array>()
-            .unwrap();
-        let meta_array = self
-            .locations
-            .column(7)
-            .as_any()
-            .downcast_ref::<StringArray>()
-            .unwrap();
-
-        for i in 0..current_count {
-            if i == skip_row {
-                continue;
-            }
-
-            id_builder.append_value(id_array.value(i));
-            if name_array.is_null(i) {
-                name_builder.append_null();
-            } else {
-                name_builder.append_value(name_array.value(i));
-            }
-            type_builder.append_value(type_array.value(i));
-            geom_builder.append_value(geom_array.value(i));
-            lat_builder.append_value(lat_array.value(i));
-            lon_builder.append_value(lon_array.value(i));
-            h3_builder.append_value(h3_array.value(i));
-            if meta_array.is_null(i) {
-                meta_builder.append_null();
-            } else {
-                meta_builder.append_value(meta_array.value(i));
-            }
-        }
+        let mut builders = LocationArrayBuilders::new();
+        let arrays = LocationArrays::from_batch(&self.locations);
+        arrays.copy_all_except_to_builders(skip_row, &mut builders);
 
         // Build new batch
-        let id_array: ArrayRef = Arc::new(id_builder.finish());
-        let name_array: ArrayRef = Arc::new(name_builder.finish());
-        let type_array: ArrayRef = Arc::new(type_builder.finish());
-        let geom_array: ArrayRef = Arc::new(geom_builder.finish());
-        let lat_array: ArrayRef = Arc::new(lat_builder.finish());
-        let lon_array: ArrayRef = Arc::new(lon_builder.finish());
-        let h3_array: ArrayRef = Arc::new(h3_builder.finish());
-        let meta_array: ArrayRef = Arc::new(meta_builder.finish());
-
-        self.locations = RecordBatch::try_new(
-            self.schema.clone(),
-            vec![
-                id_array, name_array, type_array, geom_array, lat_array, lon_array, h3_array,
-                meta_array,
-            ],
-        )?;
+        let array_refs = builders.finish();
+        self.locations = RecordBatch::try_new(self.schema.clone(), array_refs)?;
 
         Ok(())
     }
@@ -1176,8 +964,8 @@ mod tests {
         let mut handler1 = LocationHandler::new(Resolution::Nine);
 
         // Add location with specific coordinates
-        let precise_lon = -122.41941234567890;
-        let precise_lat = 37.77491234567890;
+        let precise_lon = -122.419_412_345_678_9;
+        let precise_lat = 37.774_912_345_678_9;
 
         let loc = TestLocation {
             id: LocationId::new(),
@@ -1215,6 +1003,7 @@ mod tests {
     fn test_import_batch_schema_validation() {
         // Create a batch with wrong schema
         use arrow::datatypes::{DataType, Field, Schema};
+        use std::sync::Arc;
 
         let wrong_schema = Arc::new(Schema::new(vec![
             Field::new("id", DataType::Binary, false),
@@ -1292,5 +1081,127 @@ mod tests {
 
         let depots = handler2.get_by_type("depot").unwrap();
         assert_eq!(depots.len(), 1);
+    }
+
+    #[test]
+    fn test_invalid_coordinates_in_nearest() {
+        let handler = LocationHandler::<TestLocation>::new(Resolution::Nine);
+
+        // Test invalid latitude
+        let invalid_point = Point::new(0.0, 200.0); // lat = 200
+        let result = handler.nearest(invalid_point);
+        assert!(result.is_err());
+        if let Err(crate::Error::Location(msg)) = result {
+            assert!(msg.contains("Invalid latitude"));
+        } else {
+            panic!("Expected Location error for invalid latitude");
+        }
+
+        // Test invalid longitude
+        let invalid_point = Point::new(400.0, 0.0); // lon = 400
+        let result = handler.nearest(invalid_point);
+        assert!(result.is_err());
+        if let Err(crate::Error::Location(msg)) = result {
+            assert!(msg.contains("Invalid longitude"));
+        } else {
+            panic!("Expected Location error for invalid longitude");
+        }
+    }
+
+    #[test]
+    fn test_invalid_coordinates_in_within_radius() {
+        let handler = LocationHandler::<TestLocation>::new(Resolution::Nine);
+
+        // Test invalid latitude
+        let invalid_point = Point::new(0.0, 200.0); // lat = 200
+        let result = handler.within_radius(invalid_point, 1000.0);
+        assert!(result.is_err());
+        if let Err(crate::Error::Location(msg)) = result {
+            assert!(msg.contains("Invalid latitude"));
+        } else {
+            panic!("Expected Location error for invalid latitude");
+        }
+
+        // Test invalid longitude
+        let invalid_point = Point::new(400.0, 0.0); // lon = 400
+        let result = handler.within_radius(invalid_point, 1000.0);
+        assert!(result.is_err());
+        if let Err(crate::Error::Location(msg)) = result {
+            assert!(msg.contains("Invalid longitude"));
+        } else {
+            panic!("Expected Location error for invalid longitude");
+        }
+    }
+
+    #[test]
+    fn test_negative_radius_in_within_radius() {
+        let mut handler = LocationHandler::new(Resolution::Nine);
+
+        // Add a location
+        let loc = TestLocation {
+            id: LocationId::new(),
+            position: Point::new(-122.4194, 37.7749),
+            location_type: "warehouse".to_string(),
+        };
+        handler.add_location(loc).unwrap();
+
+        // Test negative radius
+        let center = Point::new(-122.4194, 37.7749);
+        let result = handler.within_radius(center, -100.0);
+        assert!(result.is_err());
+        if let Err(crate::Error::Location(msg)) = result {
+            assert!(msg.contains("Invalid radius"));
+            assert!(msg.contains("-100"));
+        } else {
+            panic!("Expected Location error for negative radius");
+        }
+    }
+
+    #[test]
+    fn test_zero_radius_within_radius() {
+        let mut handler = LocationHandler::new(Resolution::Nine);
+
+        // Add locations
+        let loc1 = TestLocation {
+            id: LocationId::new(),
+            position: Point::new(-122.4194, 37.7749),
+            location_type: "warehouse".to_string(),
+        };
+        let loc2 = TestLocation {
+            id: LocationId::new(),
+            position: Point::new(-122.4, 37.78), // ~2km away
+            location_type: "warehouse".to_string(),
+        };
+
+        handler.add_location(loc1).unwrap();
+        handler.add_location(loc2).unwrap();
+
+        // Zero radius should be valid but return no results (or only exact matches)
+        let center = Point::new(-122.4194, 37.7749);
+        let result = handler.within_radius(center, 0.0);
+        assert!(result.is_ok());
+        // Should return at most 1 result (the exact location if there is one)
+        let within = result.unwrap();
+        assert!(within.len() <= 1);
+    }
+
+    #[test]
+    fn test_add_location_with_invalid_coordinates() {
+        let mut handler = LocationHandler::new(Resolution::Nine);
+
+        // Try to add location with invalid coordinates
+        let invalid_loc = TestLocation {
+            id: LocationId::new(),
+            position: Point::new(400.0, 200.0), // Invalid coordinates
+            location_type: "warehouse".to_string(),
+        };
+
+        let result = handler.add_location(invalid_loc);
+        assert!(result.is_err());
+        if let Err(crate::Error::Location(msg)) = result {
+            assert!(msg.contains("Invalid latitude") || msg.contains("Invalid longitude"));
+        } else {
+            panic!("Expected Location error for invalid coordinates");
+        }
     }
 }

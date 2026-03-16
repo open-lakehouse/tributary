@@ -3,6 +3,7 @@
 //! This module provides abstractions for workflows that consist of multiple sequential steps.
 
 mod engine;
+mod instance_table;
 mod schema;
 mod traits;
 

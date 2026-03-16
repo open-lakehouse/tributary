@@ -5,6 +5,32 @@ use h3o::{CellIndex, LatLng, Resolution};
 use sim_core::LocationId;
 use std::fmt;
 
+/// Validate geographic coordinates
+///
+/// # Arguments
+///
+/// * `lat` - Latitude in degrees
+/// * `lon` - Longitude in degrees
+///
+/// # Returns
+///
+/// Ok(()) if valid, or an error if coordinates are out of bounds
+pub fn validate_coordinates(lat: f64, lon: f64) -> crate::Result<()> {
+    if !(-90.0..=90.0).contains(&lat) {
+        return Err(crate::Error::Location(format!(
+            "Invalid latitude: {}. Must be between -90 and 90 degrees.",
+            lat
+        )));
+    }
+    if !(-180.0..=180.0).contains(&lon) {
+        return Err(crate::Error::Location(format!(
+            "Invalid longitude: {}. Must be between -180 and 180 degrees.",
+            lon
+        )));
+    }
+    Ok(())
+}
+
 /// A location in the simulation world
 ///
 /// Locations represent places where agents can be or travel to/from.
@@ -60,6 +86,10 @@ pub trait Location: Send + Sync + fmt::Debug {
     /// - 11: ~4,250 m² (building-level)
     fn h3_cell(&self, resolution: Resolution) -> crate::Result<CellIndex> {
         let pos = self.position();
+
+        // Validate coordinates first
+        validate_coordinates(pos.y(), pos.x())?;
+
         let latlng = LatLng::new(pos.y(), pos.x())
             .map_err(|e| crate::Error::H3(format!("Invalid coordinates: {}", e)))?;
 
@@ -128,5 +158,74 @@ mod tests {
         assert_eq!(location.location_type(), "test");
         assert_eq!(location.capacity(), None);
         assert!(location.properties().is_object());
+    }
+
+    #[test]
+    fn test_validate_coordinates_valid() {
+        // Valid coordinates
+        assert!(validate_coordinates(0.0, 0.0).is_ok());
+        assert!(validate_coordinates(37.7749, -122.4194).is_ok()); // San Francisco
+        assert!(validate_coordinates(-33.8688, 151.2093).is_ok()); // Sydney
+        assert!(validate_coordinates(90.0, 180.0).is_ok()); // Edge cases (valid)
+        assert!(validate_coordinates(-90.0, -180.0).is_ok()); // Edge cases (valid)
+    }
+
+    #[test]
+    fn test_validate_coordinates_invalid_latitude() {
+        // Latitude out of bounds
+        let result = validate_coordinates(200.0, 0.0);
+        assert!(result.is_err());
+        if let Err(crate::Error::Location(msg)) = result {
+            assert!(msg.contains("Invalid latitude"));
+            assert!(msg.contains("200"));
+        } else {
+            panic!("Expected Location error for invalid latitude");
+        }
+
+        let result = validate_coordinates(-100.0, 0.0);
+        assert!(result.is_err());
+        if let Err(crate::Error::Location(msg)) = result {
+            assert!(msg.contains("Invalid latitude"));
+        } else {
+            panic!("Expected Location error for invalid latitude");
+        }
+    }
+
+    #[test]
+    fn test_validate_coordinates_invalid_longitude() {
+        // Longitude out of bounds
+        let result = validate_coordinates(0.0, 400.0);
+        assert!(result.is_err());
+        if let Err(crate::Error::Location(msg)) = result {
+            assert!(msg.contains("Invalid longitude"));
+            assert!(msg.contains("400"));
+        } else {
+            panic!("Expected Location error for invalid longitude");
+        }
+
+        let result = validate_coordinates(0.0, -200.0);
+        assert!(result.is_err());
+        if let Err(crate::Error::Location(msg)) = result {
+            assert!(msg.contains("Invalid longitude"));
+        } else {
+            panic!("Expected Location error for invalid longitude");
+        }
+    }
+
+    #[test]
+    fn test_location_h3_cell_invalid_coordinates() {
+        // Test that h3_cell properly validates coordinates
+        let location = TestLocation {
+            id: LocationId::new(),
+            position: Point::new(400.0, 200.0), // Invalid coordinates
+        };
+
+        let result = location.h3_cell(Resolution::Nine);
+        assert!(result.is_err());
+        if let Err(crate::Error::Location(msg)) = result {
+            assert!(msg.contains("Invalid latitude") || msg.contains("Invalid longitude"));
+        } else {
+            panic!("Expected Location error for invalid coordinates");
+        }
     }
 }

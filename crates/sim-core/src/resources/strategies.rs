@@ -118,7 +118,7 @@ mod tests {
     #[test]
     fn test_round_robin() {
         let strategy = RoundRobin::new();
-        let resources = vec![
+        let resources = [
             TestResource {
                 id: ResourceId::new(),
                 load: 0,
@@ -143,7 +143,7 @@ mod tests {
     #[test]
     fn test_least_loaded() {
         let strategy = LeastLoaded;
-        let resources = vec![
+        let resources = [
             TestResource {
                 id: ResourceId::new(),
                 load: 5,
@@ -170,7 +170,7 @@ mod tests {
     #[test]
     fn test_random() {
         let strategy = Random;
-        let resources = vec![
+        let resources = [
             TestResource {
                 id: ResourceId::new(),
                 load: 0,
