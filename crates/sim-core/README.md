@@ -458,19 +458,37 @@ sim-core
 
 ## Dependencies
 
-- `chrono` - Time handling
-- `geo` - Geospatial types (Point)
-- `uuid` - Unique identifiers
-- `serde_json` - Metadata serialization
-- `indexmap` - Ordered maps
-- `rand` - Random number generation
+- `arrow 57.0` - Columnar data format
+- `arrow-schema 57.0` - Arrow schema definitions
+- `datafusion 51.0` - Query engine
+- `chrono 0.4` - Time handling
+- `geo 0.31` - Geospatial types (Point)
+- `h3o 0.9.3` - H3 hexagonal indexing
+- `uuid 1.0` - Unique identifiers (v5, v7)
+- `serde_json 1.0` - Metadata serialization
+- `indexmap 2.9` - Ordered maps
+- `rand 0.8` - Random number generation
+
+## Version Information
+
+Current version: `0.0.1`
+
+See [CHANGELOG.md](CHANGELOG.md) for detailed version history.
+
+## Documentation
+
+- [Architecture](docs/architecture.md) - Design principles, module organization, and key abstractions
+- [Patterns](docs/patterns.md) - Common usage patterns, best practices, and anti-patterns
+- [Troubleshooting](docs/troubleshooting.md) - Common issues, debugging tips, and FAQ
 
 ## Related Crates
 
-- `sim-geo` - Geospatial components (locations, movement, H3)
+- `sim-geo` - Geospatial components (locations, movement, routing, H3 indexing)
 - `sim-events` - CloudEvents-compliant event infrastructure
-- `sim-telemetry` - Metrics and tracing (planned)
+- `sim-telemetry` - OpenTelemetry-compatible telemetry generation
+- `sim-kitchen` - Reference implementation (ghost kitchen simulation)
+- `sim-logistics` - Validation implementation (package delivery)
 
 ## License
 
-Apache-2.0
+MIT OR Apache-2.0

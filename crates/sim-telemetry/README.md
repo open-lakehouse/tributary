@@ -323,14 +323,40 @@ Profile telemetry overhead:
 cargo flamegraph --example telemetry_demo
 ```
 
+## Dependencies
+
+- `arrow 57.0` - Columnar format
+- `chrono 0.4` - Timestamp handling
+- `serde_json 1.0` - JSON serialization
+- `uuid 1.0` - Identifiers
+- `opentelemetry 0.31.0` - OTLP types
+- `opentelemetry-otlp 0.31.0` - OTLP export
+
+## Version Information
+
+Current version: `0.0.1`
+
+See [CHANGELOG.md](CHANGELOG.md) for detailed version history.
+
+## Documentation
+
+- [Architecture](docs/architecture.md) - OTLP compliance, minimal overhead, design principles
+- [Patterns](docs/patterns.md) - Common usage patterns and best practices
+- [Troubleshooting](docs/troubleshooting.md) - Common issues, debugging tips, and FAQ
+
 ## Future Enhancements
 
-- [ ] Arrow-based batch processing
-- [ ] Automatic sampling strategies
-- [ ] Built-in aggregation functions
-- [ ] Real-time streaming export
-- [ ] Schema validation for events
+- Arrow-based batch processing
+- Automatic sampling strategies
+- Built-in aggregation functions
+- Real-time streaming export
+- Schema validation for events
+
+## Related Crates
+
+- `sim-core` - Core simulation abstractions
+- `sim-events` - CloudEvents infrastructure
 
 ## License
 
-See workspace LICENSE file.
+MIT OR Apache-2.0

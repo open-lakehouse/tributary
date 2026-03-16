@@ -266,18 +266,31 @@ See the tests in each module for complete examples:
 
 ## Dependencies
 
-- `sim-core` - Core simulation types
-- `arrow` - Columnar data format
-- `parquet` - Parquet file format
-- `chrono` - Timestamp handling
-- `serde_json` - JSON serialization
+- `sim-core 0.0.1` - Core simulation types
+- `arrow 57.0` - Columnar data format
+- `parquet 57.0` - Parquet file format
+- `chrono 0.4` - Timestamp handling
+- `uuid 1.0` - Event identifiers (v7)
+- `serde_json 1.0` - JSON serialization
 
-## License
+## Version Information
 
-Apache-2.0
+Current version: `0.0.1`
+
+See [CHANGELOG.md](CHANGELOG.md) for detailed version history.
+
+## Documentation
+
+- [Architecture](docs/architecture.md) - CloudEvents compliance, storage formats, design principles
+- [Patterns](docs/patterns.md) - Common usage patterns and best practices
+- [Troubleshooting](docs/troubleshooting.md) - Common issues, debugging tips, and FAQ
 
 ## Related Crates
 
 - `sim-core` - Core simulation abstractions
 - `sim-geo` - Geospatial components
-- `sim-telemetry` - Metrics and tracing (planned)
+- `sim-telemetry` - OpenTelemetry-compatible telemetry generation
+
+## License
+
+MIT OR Apache-2.0
