@@ -4293,6 +4293,20 @@ dependencies = [
 [[package]]
 name = "sim-telemetry"
 version = "0.0.1"
+dependencies = [
+ "arrow",
+ "chrono",
+ "opentelemetry",
+ "opentelemetry-otlp",
+ "rstest",
+ "serde",
+ "serde_json",
+ "sim-core",
+ "sim-events",
+ "thiserror 2.0.17",
+ "tokio",
+ "uuid",
+]
 
 [[package]]
 name = "simd-adler32"

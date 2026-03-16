@@ -1,0 +1,4271 @@
+{
+  "_comment": "Generated 10x10 grid graph with 100 nodes and 188 edges",
+  "_schema": {
+    "nodes": "Array of graph nodes with id, lat, lon",
+    "edges": "Array of directed edges with id, from_node, to_node, distance_m, road_type, geometry (GeoJSON LineString)"
+  },
+  "nodes": [
+    {
+      "id": 0,
+      "lat": 37.7749,
+      "lon": -122.4194
+    },
+    {
+      "id": 1,
+      "lat": 37.7749,
+      "lon": -122.4184
+    },
+    {
+      "id": 2,
+      "lat": 37.7749,
+      "lon": -122.4174
+    },
+    {
+      "id": 3,
+      "lat": 37.7749,
+      "lon": -122.4164
+    },
+    {
+      "id": 4,
+      "lat": 37.7749,
+      "lon": -122.4154
+    },
+    {
+      "id": 5,
+      "lat": 37.7749,
+      "lon": -122.4144
+    },
+    {
+      "id": 6,
+      "lat": 37.7749,
+      "lon": -122.4134
+    },
+    {
+      "id": 7,
+      "lat": 37.7749,
+      "lon": -122.4124
+    },
+    {
+      "id": 8,
+      "lat": 37.7749,
+      "lon": -122.4114
+    },
+    {
+      "id": 9,
+      "lat": 37.7749,
+      "lon": -122.4104
+    },
+    {
+      "id": 10,
+      "lat": 37.7759,
+      "lon": -122.4194
+    },
+    {
+      "id": 11,
+      "lat": 37.7759,
+      "lon": -122.4184
+    },
+    {
+      "id": 12,
+      "lat": 37.7759,
+      "lon": -122.4174
+    },
+    {
+      "id": 13,
+      "lat": 37.7759,
+      "lon": -122.4164
+    },
+    {
+      "id": 14,
+      "lat": 37.7759,
+      "lon": -122.4154
+    },
+    {
+      "id": 15,
+      "lat": 37.7759,
+      "lon": -122.4144
+    },
+    {
+      "id": 16,
+      "lat": 37.7759,
+      "lon": -122.4134
+    },
+    {
+      "id": 17,
+      "lat": 37.7759,
+      "lon": -122.4124
+    },
+    {
+      "id": 18,
+      "lat": 37.7759,
+      "lon": -122.4114
+    },
+    {
+      "id": 19,
+      "lat": 37.7759,
+      "lon": -122.4104
+    },
+    {
+      "id": 20,
+      "lat": 37.7769,
+      "lon": -122.4194
+    },
+    {
+      "id": 21,
+      "lat": 37.7769,
+      "lon": -122.4184
+    },
+    {
+      "id": 22,
+      "lat": 37.7769,
+      "lon": -122.4174
+    },
+    {
+      "id": 23,
+      "lat": 37.7769,
+      "lon": -122.4164
+    },
+    {
+      "id": 24,
+      "lat": 37.7769,
+      "lon": -122.4154
+    },
+    {
+      "id": 25,
+      "lat": 37.7769,
+      "lon": -122.4144
+    },
+    {
+      "id": 26,
+      "lat": 37.7769,
+      "lon": -122.4134
+    },
+    {
+      "id": 27,
+      "lat": 37.7769,
+      "lon": -122.4124
+    },
+    {
+      "id": 28,
+      "lat": 37.7769,
+      "lon": -122.4114
+    },
+    {
+      "id": 29,
+      "lat": 37.7769,
+      "lon": -122.4104
+    },
+    {
+      "id": 30,
+      "lat": 37.7779,
+      "lon": -122.4194
+    },
+    {
+      "id": 31,
+      "lat": 37.7779,
+      "lon": -122.4184
+    },
+    {
+      "id": 32,
+      "lat": 37.7779,
+      "lon": -122.4174
+    },
+    {
+      "id": 33,
+      "lat": 37.7779,
+      "lon": -122.4164
+    },
+    {
+      "id": 34,
+      "lat": 37.7779,
+      "lon": -122.4154
+    },
+    {
+      "id": 35,
+      "lat": 37.7779,
+      "lon": -122.4144
+    },
+    {
+      "id": 36,
+      "lat": 37.7779,
+      "lon": -122.4134
+    },
+    {
+      "id": 37,
+      "lat": 37.7779,
+      "lon": -122.4124
+    },
+    {
+      "id": 38,
+      "lat": 37.7779,
+      "lon": -122.4114
+    },
+    {
+      "id": 39,
+      "lat": 37.7779,
+      "lon": -122.4104
+    },
+    {
+      "id": 40,
+      "lat": 37.7789,
+      "lon": -122.4194
+    },
+    {
+      "id": 41,
+      "lat": 37.7789,
+      "lon": -122.4184
+    },
+    {
+      "id": 42,
+      "lat": 37.7789,
+      "lon": -122.4174
+    },
+    {
+      "id": 43,
+      "lat": 37.7789,
+      "lon": -122.4164
+    },
+    {
+      "id": 44,
+      "lat": 37.7789,
+      "lon": -122.4154
+    },
+    {
+      "id": 45,
+      "lat": 37.7789,
+      "lon": -122.4144
+    },
+    {
+      "id": 46,
+      "lat": 37.7789,
+      "lon": -122.4134
+    },
+    {
+      "id": 47,
+      "lat": 37.7789,
+      "lon": -122.4124
+    },
+    {
+      "id": 48,
+      "lat": 37.7789,
+      "lon": -122.4114
+    },
+    {
+      "id": 49,
+      "lat": 37.7789,
+      "lon": -122.4104
+    },
+    {
+      "id": 50,
+      "lat": 37.7799,
+      "lon": -122.4194
+    },
+    {
+      "id": 51,
+      "lat": 37.7799,
+      "lon": -122.4184
+    },
+    {
+      "id": 52,
+      "lat": 37.7799,
+      "lon": -122.4174
+    },
+    {
+      "id": 53,
+      "lat": 37.7799,
+      "lon": -122.4164
+    },
+    {
+      "id": 54,
+      "lat": 37.7799,
+      "lon": -122.4154
+    },
+    {
+      "id": 55,
+      "lat": 37.7799,
+      "lon": -122.4144
+    },
+    {
+      "id": 56,
+      "lat": 37.7799,
+      "lon": -122.4134
+    },
+    {
+      "id": 57,
+      "lat": 37.7799,
+      "lon": -122.4124
+    },
+    {
+      "id": 58,
+      "lat": 37.7799,
+      "lon": -122.4114
+    },
+    {
+      "id": 59,
+      "lat": 37.7799,
+      "lon": -122.4104
+    },
+    {
+      "id": 60,
+      "lat": 37.7809,
+      "lon": -122.4194
+    },
+    {
+      "id": 61,
+      "lat": 37.7809,
+      "lon": -122.4184
+    },
+    {
+      "id": 62,
+      "lat": 37.7809,
+      "lon": -122.4174
+    },
+    {
+      "id": 63,
+      "lat": 37.7809,
+      "lon": -122.4164
+    },
+    {
+      "id": 64,
+      "lat": 37.7809,
+      "lon": -122.4154
+    },
+    {
+      "id": 65,
+      "lat": 37.7809,
+      "lon": -122.4144
+    },
+    {
+      "id": 66,
+      "lat": 37.7809,
+      "lon": -122.4134
+    },
+    {
+      "id": 67,
+      "lat": 37.7809,
+      "lon": -122.4124
+    },
+    {
+      "id": 68,
+      "lat": 37.7809,
+      "lon": -122.4114
+    },
+    {
+      "id": 69,
+      "lat": 37.7809,
+      "lon": -122.4104
+    },
+    {
+      "id": 70,
+      "lat": 37.7819,
+      "lon": -122.4194
+    },
+    {
+      "id": 71,
+      "lat": 37.7819,
+      "lon": -122.4184
+    },
+    {
+      "id": 72,
+      "lat": 37.7819,
+      "lon": -122.4174
+    },
+    {
+      "id": 73,
+      "lat": 37.7819,
+      "lon": -122.4164
+    },
+    {
+      "id": 74,
+      "lat": 37.7819,
+      "lon": -122.4154
+    },
+    {
+      "id": 75,
+      "lat": 37.7819,
+      "lon": -122.4144
+    },
+    {
+      "id": 76,
+      "lat": 37.7819,
+      "lon": -122.4134
+    },
+    {
+      "id": 77,
+      "lat": 37.7819,
+      "lon": -122.4124
+    },
+    {
+      "id": 78,
+      "lat": 37.7819,
+      "lon": -122.4114
+    },
+    {
+      "id": 79,
+      "lat": 37.7819,
+      "lon": -122.4104
+    },
+    {
+      "id": 80,
+      "lat": 37.7829,
+      "lon": -122.4194
+    },
+    {
+      "id": 81,
+      "lat": 37.7829,
+      "lon": -122.4184
+    },
+    {
+      "id": 82,
+      "lat": 37.7829,
+      "lon": -122.4174
+    },
+    {
+      "id": 83,
+      "lat": 37.7829,
+      "lon": -122.4164
+    },
+    {
+      "id": 84,
+      "lat": 37.7829,
+      "lon": -122.4154
+    },
+    {
+      "id": 85,
+      "lat": 37.7829,
+      "lon": -122.4144
+    },
+    {
+      "id": 86,
+      "lat": 37.7829,
+      "lon": -122.4134
+    },
+    {
+      "id": 87,
+      "lat": 37.7829,
+      "lon": -122.4124
+    },
+    {
+      "id": 88,
+      "lat": 37.7829,
+      "lon": -122.4114
+    },
+    {
+      "id": 89,
+      "lat": 37.7829,
+      "lon": -122.4104
+    },
+    {
+      "id": 90,
+      "lat": 37.7839,
+      "lon": -122.4194
+    },
+    {
+      "id": 91,
+      "lat": 37.7839,
+      "lon": -122.4184
+    },
+    {
+      "id": 92,
+      "lat": 37.7839,
+      "lon": -122.4174
+    },
+    {
+      "id": 93,
+      "lat": 37.7839,
+      "lon": -122.4164
+    },
+    {
+      "id": 94,
+      "lat": 37.7839,
+      "lon": -122.4154
+    },
+    {
+      "id": 95,
+      "lat": 37.7839,
+      "lon": -122.4144
+    },
+    {
+      "id": 96,
+      "lat": 37.7839,
+      "lon": -122.4134
+    },
+    {
+      "id": 97,
+      "lat": 37.7839,
+      "lon": -122.4124
+    },
+    {
+      "id": 98,
+      "lat": 37.7839,
+      "lon": -122.4114
+    },
+    {
+      "id": 99,
+      "lat": 37.7839,
+      "lon": -122.4104
+    }
+  ],
+  "edges": [
+    {
+      "id": 0,
+      "from_node": 0,
+      "to_node": 1,
+      "distance_m": 87.89,
+      "road_type": "Highway",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4194,
+            37.7749
+          ],
+          [
+            -122.4184,
+            37.7749
+          ]
+        ]
+      }
+    },
+    {
+      "id": 1,
+      "from_node": 0,
+      "to_node": 10,
+      "distance_m": 111.19,
+      "road_type": "Highway",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4194,
+            37.7749
+          ],
+          [
+            -122.4194,
+            37.7759
+          ]
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "from_node": 1,
+      "to_node": 2,
+      "distance_m": 87.89,
+      "road_type": "Highway",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4184,
+            37.7749
+          ],
+          [
+            -122.4174,
+            37.7749
+          ]
+        ]
+      }
+    },
+    {
+      "id": 3,
+      "from_node": 1,
+      "to_node": 11,
+      "distance_m": 111.19,
+      "road_type": "Highway",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4184,
+            37.7749
+          ],
+          [
+            -122.4184,
+            37.7759
+          ]
+        ]
+      }
+    },
+    {
+      "id": 4,
+      "from_node": 2,
+      "to_node": 3,
+      "distance_m": 87.89,
+      "road_type": "Highway",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4174,
+            37.7749
+          ],
+          [
+            -122.4164,
+            37.7749
+          ]
+        ]
+      }
+    },
+    {
+      "id": 5,
+      "from_node": 2,
+      "to_node": 12,
+      "distance_m": 111.19,
+      "road_type": "Highway",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4174,
+            37.7749
+          ],
+          [
+            -122.4174,
+            37.7759
+          ]
+        ]
+      }
+    },
+    {
+      "id": 6,
+      "from_node": 3,
+      "to_node": 4,
+      "distance_m": 87.89,
+      "road_type": "Highway",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4164,
+            37.7749
+          ],
+          [
+            -122.4154,
+            37.7749
+          ]
+        ]
+      }
+    },
+    {
+      "id": 7,
+      "from_node": 3,
+      "to_node": 13,
+      "distance_m": 111.19,
+      "road_type": "Highway",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4164,
+            37.7749
+          ],
+          [
+            -122.4164,
+            37.7759
+          ]
+        ]
+      }
+    },
+    {
+      "id": 8,
+      "from_node": 4,
+      "to_node": 5,
+      "distance_m": 87.89,
+      "road_type": "Highway",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4154,
+            37.7749
+          ],
+          [
+            -122.4144,
+            37.7749
+          ]
+        ]
+      }
+    },
+    {
+      "id": 9,
+      "from_node": 4,
+      "to_node": 14,
+      "distance_m": 111.19,
+      "road_type": "Highway",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4154,
+            37.7749
+          ],
+          [
+            -122.4154,
+            37.7759
+          ]
+        ]
+      }
+    },
+    {
+      "id": 10,
+      "from_node": 5,
+      "to_node": 6,
+      "distance_m": 87.89,
+      "road_type": "Highway",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4144,
+            37.7749
+          ],
+          [
+            -122.4134,
+            37.7749
+          ]
+        ]
+      }
+    },
+    {
+      "id": 11,
+      "from_node": 5,
+      "to_node": 15,
+      "distance_m": 111.19,
+      "road_type": "Highway",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4144,
+            37.7749
+          ],
+          [
+            -122.4144,
+            37.7759
+          ]
+        ]
+      }
+    },
+    {
+      "id": 12,
+      "from_node": 6,
+      "to_node": 7,
+      "distance_m": 87.89,
+      "road_type": "Highway",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4134,
+            37.7749
+          ],
+          [
+            -122.4124,
+            37.7749
+          ]
+        ]
+      }
+    },
+    {
+      "id": 13,
+      "from_node": 6,
+      "to_node": 16,
+      "distance_m": 111.19,
+      "road_type": "Highway",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4134,
+            37.7749
+          ],
+          [
+            -122.4134,
+            37.7759
+          ]
+        ]
+      }
+    },
+    {
+      "id": 14,
+      "from_node": 7,
+      "to_node": 8,
+      "distance_m": 87.89,
+      "road_type": "Highway",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4124,
+            37.7749
+          ],
+          [
+            -122.4114,
+            37.7749
+          ]
+        ]
+      }
+    },
+    {
+      "id": 15,
+      "from_node": 7,
+      "to_node": 17,
+      "distance_m": 111.19,
+      "road_type": "Highway",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4124,
+            37.7749
+          ],
+          [
+            -122.4124,
+            37.7759
+          ]
+        ]
+      }
+    },
+    {
+      "id": 16,
+      "from_node": 8,
+      "to_node": 9,
+      "distance_m": 87.89,
+      "road_type": "Highway",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4114,
+            37.7749
+          ],
+          [
+            -122.4104,
+            37.7749
+          ]
+        ]
+      }
+    },
+    {
+      "id": 17,
+      "from_node": 8,
+      "to_node": 18,
+      "distance_m": 111.19,
+      "road_type": "Highway",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4114,
+            37.7749
+          ],
+          [
+            -122.4114,
+            37.7759
+          ]
+        ]
+      }
+    },
+    {
+      "id": 18,
+      "from_node": 9,
+      "to_node": 19,
+      "distance_m": 111.19,
+      "road_type": "Highway",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4104,
+            37.7749
+          ],
+          [
+            -122.4104,
+            37.7759
+          ]
+        ]
+      }
+    },
+    {
+      "id": 19,
+      "from_node": 10,
+      "to_node": 11,
+      "distance_m": 87.89,
+      "road_type": "Highway",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4194,
+            37.7759
+          ],
+          [
+            -122.4184,
+            37.7759
+          ]
+        ]
+      }
+    },
+    {
+      "id": 20,
+      "from_node": 10,
+      "to_node": 20,
+      "distance_m": 111.19,
+      "road_type": "Highway",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4194,
+            37.7759
+          ],
+          [
+            -122.4194,
+            37.7769
+          ]
+        ]
+      }
+    },
+    {
+      "id": 21,
+      "from_node": 10,
+      "to_node": 21,
+      "distance_m": 141.74,
+      "road_type": "ServiceRoad",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4194,
+            37.7759
+          ],
+          [
+            -122.4184,
+            37.7769
+          ]
+        ]
+      }
+    },
+    {
+      "id": 22,
+      "from_node": 11,
+      "to_node": 12,
+      "distance_m": 87.89,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4184,
+            37.7759
+          ],
+          [
+            -122.4174,
+            37.7759
+          ]
+        ]
+      }
+    },
+    {
+      "id": 23,
+      "from_node": 11,
+      "to_node": 21,
+      "distance_m": 111.19,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4184,
+            37.7759
+          ],
+          [
+            -122.4184,
+            37.7769
+          ]
+        ]
+      }
+    },
+    {
+      "id": 24,
+      "from_node": 12,
+      "to_node": 13,
+      "distance_m": 87.89,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4174,
+            37.7759
+          ],
+          [
+            -122.4164,
+            37.7759
+          ]
+        ]
+      }
+    },
+    {
+      "id": 25,
+      "from_node": 12,
+      "to_node": 22,
+      "distance_m": 111.19,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4174,
+            37.7759
+          ],
+          [
+            -122.4174,
+            37.7769
+          ]
+        ]
+      }
+    },
+    {
+      "id": 26,
+      "from_node": 13,
+      "to_node": 14,
+      "distance_m": 87.89,
+      "road_type": "ServiceRoad",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4164,
+            37.7759
+          ],
+          [
+            -122.4154,
+            37.7759
+          ]
+        ]
+      }
+    },
+    {
+      "id": 27,
+      "from_node": 13,
+      "to_node": 23,
+      "distance_m": 111.19,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4164,
+            37.7759
+          ],
+          [
+            -122.4164,
+            37.7769
+          ]
+        ]
+      }
+    },
+    {
+      "id": 28,
+      "from_node": 14,
+      "to_node": 15,
+      "distance_m": 87.89,
+      "road_type": "ServiceRoad",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4154,
+            37.7759
+          ],
+          [
+            -122.4144,
+            37.7759
+          ]
+        ]
+      }
+    },
+    {
+      "id": 29,
+      "from_node": 14,
+      "to_node": 24,
+      "distance_m": 111.19,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4154,
+            37.7759
+          ],
+          [
+            -122.4154,
+            37.7769
+          ]
+        ]
+      }
+    },
+    {
+      "id": 30,
+      "from_node": 14,
+      "to_node": 25,
+      "distance_m": 141.74,
+      "road_type": "ServiceRoad",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4154,
+            37.7759
+          ],
+          [
+            -122.4144,
+            37.7769
+          ]
+        ]
+      }
+    },
+    {
+      "id": 31,
+      "from_node": 15,
+      "to_node": 16,
+      "distance_m": 87.89,
+      "road_type": "Arterial",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4144,
+            37.7759
+          ],
+          [
+            -122.4134,
+            37.7759
+          ]
+        ]
+      }
+    },
+    {
+      "id": 32,
+      "from_node": 15,
+      "to_node": 25,
+      "distance_m": 111.19,
+      "road_type": "Arterial",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4144,
+            37.7759
+          ],
+          [
+            -122.4144,
+            37.7769
+          ]
+        ]
+      }
+    },
+    {
+      "id": 33,
+      "from_node": 16,
+      "to_node": 17,
+      "distance_m": 87.89,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4134,
+            37.7759
+          ],
+          [
+            -122.4124,
+            37.7759
+          ]
+        ]
+      }
+    },
+    {
+      "id": 34,
+      "from_node": 16,
+      "to_node": 26,
+      "distance_m": 111.19,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4134,
+            37.7759
+          ],
+          [
+            -122.4134,
+            37.7769
+          ]
+        ]
+      }
+    },
+    {
+      "id": 35,
+      "from_node": 17,
+      "to_node": 18,
+      "distance_m": 87.89,
+      "road_type": "ServiceRoad",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4124,
+            37.7759
+          ],
+          [
+            -122.4114,
+            37.7759
+          ]
+        ]
+      }
+    },
+    {
+      "id": 36,
+      "from_node": 17,
+      "to_node": 27,
+      "distance_m": 111.19,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4124,
+            37.7759
+          ],
+          [
+            -122.4124,
+            37.7769
+          ]
+        ]
+      }
+    },
+    {
+      "id": 37,
+      "from_node": 17,
+      "to_node": 28,
+      "distance_m": 141.74,
+      "road_type": "ServiceRoad",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4124,
+            37.7759
+          ],
+          [
+            -122.4114,
+            37.7769
+          ]
+        ]
+      }
+    },
+    {
+      "id": 38,
+      "from_node": 18,
+      "to_node": 19,
+      "distance_m": 87.89,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4114,
+            37.7759
+          ],
+          [
+            -122.4104,
+            37.7759
+          ]
+        ]
+      }
+    },
+    {
+      "id": 39,
+      "from_node": 18,
+      "to_node": 28,
+      "distance_m": 111.19,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4114,
+            37.7759
+          ],
+          [
+            -122.4114,
+            37.7769
+          ]
+        ]
+      }
+    },
+    {
+      "id": 40,
+      "from_node": 19,
+      "to_node": 29,
+      "distance_m": 111.19,
+      "road_type": "Highway",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4104,
+            37.7759
+          ],
+          [
+            -122.4104,
+            37.7769
+          ]
+        ]
+      }
+    },
+    {
+      "id": 41,
+      "from_node": 20,
+      "to_node": 21,
+      "distance_m": 87.89,
+      "road_type": "Highway",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4194,
+            37.7769
+          ],
+          [
+            -122.4184,
+            37.7769
+          ]
+        ]
+      }
+    },
+    {
+      "id": 42,
+      "from_node": 20,
+      "to_node": 30,
+      "distance_m": 111.19,
+      "road_type": "Highway",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4194,
+            37.7769
+          ],
+          [
+            -122.4194,
+            37.7779
+          ]
+        ]
+      }
+    },
+    {
+      "id": 43,
+      "from_node": 21,
+      "to_node": 22,
+      "distance_m": 87.89,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4184,
+            37.7769
+          ],
+          [
+            -122.4174,
+            37.7769
+          ]
+        ]
+      }
+    },
+    {
+      "id": 44,
+      "from_node": 21,
+      "to_node": 31,
+      "distance_m": 111.19,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4184,
+            37.7769
+          ],
+          [
+            -122.4184,
+            37.7779
+          ]
+        ]
+      }
+    },
+    {
+      "id": 45,
+      "from_node": 22,
+      "to_node": 23,
+      "distance_m": 87.89,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4174,
+            37.7769
+          ],
+          [
+            -122.4164,
+            37.7769
+          ]
+        ]
+      }
+    },
+    {
+      "id": 46,
+      "from_node": 22,
+      "to_node": 32,
+      "distance_m": 111.19,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4174,
+            37.7769
+          ],
+          [
+            -122.4174,
+            37.7779
+          ]
+        ]
+      }
+    },
+    {
+      "id": 47,
+      "from_node": 23,
+      "to_node": 24,
+      "distance_m": 87.89,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4164,
+            37.7769
+          ],
+          [
+            -122.4154,
+            37.7769
+          ]
+        ]
+      }
+    },
+    {
+      "id": 48,
+      "from_node": 23,
+      "to_node": 33,
+      "distance_m": 111.19,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4164,
+            37.7769
+          ],
+          [
+            -122.4164,
+            37.7779
+          ]
+        ]
+      }
+    },
+    {
+      "id": 49,
+      "from_node": 24,
+      "to_node": 25,
+      "distance_m": 87.89,
+      "road_type": "ServiceRoad",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4154,
+            37.7769
+          ],
+          [
+            -122.4144,
+            37.7769
+          ]
+        ]
+      }
+    },
+    {
+      "id": 50,
+      "from_node": 24,
+      "to_node": 34,
+      "distance_m": 111.19,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4154,
+            37.7769
+          ],
+          [
+            -122.4154,
+            37.7779
+          ]
+        ]
+      }
+    },
+    {
+      "id": 51,
+      "from_node": 25,
+      "to_node": 26,
+      "distance_m": 87.89,
+      "road_type": "Arterial",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4144,
+            37.7769
+          ],
+          [
+            -122.4134,
+            37.7769
+          ]
+        ]
+      }
+    },
+    {
+      "id": 52,
+      "from_node": 25,
+      "to_node": 35,
+      "distance_m": 111.19,
+      "road_type": "Arterial",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4144,
+            37.7769
+          ],
+          [
+            -122.4144,
+            37.7779
+          ]
+        ]
+      }
+    },
+    {
+      "id": 53,
+      "from_node": 26,
+      "to_node": 27,
+      "distance_m": 87.89,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4134,
+            37.7769
+          ],
+          [
+            -122.4124,
+            37.7769
+          ]
+        ]
+      }
+    },
+    {
+      "id": 54,
+      "from_node": 26,
+      "to_node": 36,
+      "distance_m": 111.19,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4134,
+            37.7769
+          ],
+          [
+            -122.4134,
+            37.7779
+          ]
+        ]
+      }
+    },
+    {
+      "id": 55,
+      "from_node": 27,
+      "to_node": 28,
+      "distance_m": 87.89,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4124,
+            37.7769
+          ],
+          [
+            -122.4114,
+            37.7769
+          ]
+        ]
+      }
+    },
+    {
+      "id": 56,
+      "from_node": 27,
+      "to_node": 37,
+      "distance_m": 111.19,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4124,
+            37.7769
+          ],
+          [
+            -122.4124,
+            37.7779
+          ]
+        ]
+      }
+    },
+    {
+      "id": 57,
+      "from_node": 28,
+      "to_node": 29,
+      "distance_m": 87.89,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4114,
+            37.7769
+          ],
+          [
+            -122.4104,
+            37.7769
+          ]
+        ]
+      }
+    },
+    {
+      "id": 58,
+      "from_node": 28,
+      "to_node": 38,
+      "distance_m": 111.19,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4114,
+            37.7769
+          ],
+          [
+            -122.4114,
+            37.7779
+          ]
+        ]
+      }
+    },
+    {
+      "id": 59,
+      "from_node": 29,
+      "to_node": 39,
+      "distance_m": 111.19,
+      "road_type": "Highway",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4104,
+            37.7769
+          ],
+          [
+            -122.4104,
+            37.7779
+          ]
+        ]
+      }
+    },
+    {
+      "id": 60,
+      "from_node": 30,
+      "to_node": 31,
+      "distance_m": 87.89,
+      "road_type": "Highway",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4194,
+            37.7779
+          ],
+          [
+            -122.4184,
+            37.7779
+          ]
+        ]
+      }
+    },
+    {
+      "id": 61,
+      "from_node": 30,
+      "to_node": 40,
+      "distance_m": 111.19,
+      "road_type": "Highway",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4194,
+            37.7779
+          ],
+          [
+            -122.4194,
+            37.7789
+          ]
+        ]
+      }
+    },
+    {
+      "id": 62,
+      "from_node": 31,
+      "to_node": 32,
+      "distance_m": 87.89,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4184,
+            37.7779
+          ],
+          [
+            -122.4174,
+            37.7779
+          ]
+        ]
+      }
+    },
+    {
+      "id": 63,
+      "from_node": 31,
+      "to_node": 41,
+      "distance_m": 111.19,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4184,
+            37.7779
+          ],
+          [
+            -122.4184,
+            37.7789
+          ]
+        ]
+      }
+    },
+    {
+      "id": 64,
+      "from_node": 32,
+      "to_node": 33,
+      "distance_m": 87.89,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4174,
+            37.7779
+          ],
+          [
+            -122.4164,
+            37.7779
+          ]
+        ]
+      }
+    },
+    {
+      "id": 65,
+      "from_node": 32,
+      "to_node": 42,
+      "distance_m": 111.19,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4174,
+            37.7779
+          ],
+          [
+            -122.4174,
+            37.7789
+          ]
+        ]
+      }
+    },
+    {
+      "id": 66,
+      "from_node": 33,
+      "to_node": 34,
+      "distance_m": 87.89,
+      "road_type": "ServiceRoad",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4164,
+            37.7779
+          ],
+          [
+            -122.4154,
+            37.7779
+          ]
+        ]
+      }
+    },
+    {
+      "id": 67,
+      "from_node": 33,
+      "to_node": 43,
+      "distance_m": 111.19,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4164,
+            37.7779
+          ],
+          [
+            -122.4164,
+            37.7789
+          ]
+        ]
+      }
+    },
+    {
+      "id": 68,
+      "from_node": 34,
+      "to_node": 35,
+      "distance_m": 87.89,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4154,
+            37.7779
+          ],
+          [
+            -122.4144,
+            37.7779
+          ]
+        ]
+      }
+    },
+    {
+      "id": 69,
+      "from_node": 34,
+      "to_node": 44,
+      "distance_m": 111.19,
+      "road_type": "ServiceRoad",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4154,
+            37.7779
+          ],
+          [
+            -122.4154,
+            37.7789
+          ]
+        ]
+      }
+    },
+    {
+      "id": 70,
+      "from_node": 35,
+      "to_node": 36,
+      "distance_m": 87.89,
+      "road_type": "Arterial",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4144,
+            37.7779
+          ],
+          [
+            -122.4134,
+            37.7779
+          ]
+        ]
+      }
+    },
+    {
+      "id": 71,
+      "from_node": 35,
+      "to_node": 45,
+      "distance_m": 111.19,
+      "road_type": "Arterial",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4144,
+            37.7779
+          ],
+          [
+            -122.4144,
+            37.7789
+          ]
+        ]
+      }
+    },
+    {
+      "id": 72,
+      "from_node": 36,
+      "to_node": 37,
+      "distance_m": 87.89,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4134,
+            37.7779
+          ],
+          [
+            -122.4124,
+            37.7779
+          ]
+        ]
+      }
+    },
+    {
+      "id": 73,
+      "from_node": 36,
+      "to_node": 46,
+      "distance_m": 111.19,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4134,
+            37.7779
+          ],
+          [
+            -122.4134,
+            37.7789
+          ]
+        ]
+      }
+    },
+    {
+      "id": 74,
+      "from_node": 37,
+      "to_node": 38,
+      "distance_m": 87.89,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4124,
+            37.7779
+          ],
+          [
+            -122.4114,
+            37.7779
+          ]
+        ]
+      }
+    },
+    {
+      "id": 75,
+      "from_node": 37,
+      "to_node": 47,
+      "distance_m": 111.19,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4124,
+            37.7779
+          ],
+          [
+            -122.4124,
+            37.7789
+          ]
+        ]
+      }
+    },
+    {
+      "id": 76,
+      "from_node": 38,
+      "to_node": 39,
+      "distance_m": 87.89,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4114,
+            37.7779
+          ],
+          [
+            -122.4104,
+            37.7779
+          ]
+        ]
+      }
+    },
+    {
+      "id": 77,
+      "from_node": 38,
+      "to_node": 48,
+      "distance_m": 111.19,
+      "road_type": "ServiceRoad",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4114,
+            37.7779
+          ],
+          [
+            -122.4114,
+            37.7789
+          ]
+        ]
+      }
+    },
+    {
+      "id": 78,
+      "from_node": 39,
+      "to_node": 49,
+      "distance_m": 111.19,
+      "road_type": "Highway",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4104,
+            37.7779
+          ],
+          [
+            -122.4104,
+            37.7789
+          ]
+        ]
+      }
+    },
+    {
+      "id": 79,
+      "from_node": 40,
+      "to_node": 41,
+      "distance_m": 87.89,
+      "road_type": "Highway",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4194,
+            37.7789
+          ],
+          [
+            -122.4184,
+            37.7789
+          ]
+        ]
+      }
+    },
+    {
+      "id": 80,
+      "from_node": 40,
+      "to_node": 50,
+      "distance_m": 111.19,
+      "road_type": "Highway",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4194,
+            37.7789
+          ],
+          [
+            -122.4194,
+            37.7799
+          ]
+        ]
+      }
+    },
+    {
+      "id": 81,
+      "from_node": 41,
+      "to_node": 42,
+      "distance_m": 87.89,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4184,
+            37.7789
+          ],
+          [
+            -122.4174,
+            37.7789
+          ]
+        ]
+      }
+    },
+    {
+      "id": 82,
+      "from_node": 41,
+      "to_node": 51,
+      "distance_m": 111.19,
+      "road_type": "ServiceRoad",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4184,
+            37.7789
+          ],
+          [
+            -122.4184,
+            37.7799
+          ]
+        ]
+      }
+    },
+    {
+      "id": 83,
+      "from_node": 42,
+      "to_node": 43,
+      "distance_m": 87.89,
+      "road_type": "ServiceRoad",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4174,
+            37.7789
+          ],
+          [
+            -122.4164,
+            37.7789
+          ]
+        ]
+      }
+    },
+    {
+      "id": 84,
+      "from_node": 42,
+      "to_node": 52,
+      "distance_m": 111.19,
+      "road_type": "ServiceRoad",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4174,
+            37.7789
+          ],
+          [
+            -122.4174,
+            37.7799
+          ]
+        ]
+      }
+    },
+    {
+      "id": 85,
+      "from_node": 43,
+      "to_node": 44,
+      "distance_m": 87.89,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4164,
+            37.7789
+          ],
+          [
+            -122.4154,
+            37.7789
+          ]
+        ]
+      }
+    },
+    {
+      "id": 86,
+      "from_node": 43,
+      "to_node": 53,
+      "distance_m": 111.19,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4164,
+            37.7789
+          ],
+          [
+            -122.4164,
+            37.7799
+          ]
+        ]
+      }
+    },
+    {
+      "id": 87,
+      "from_node": 44,
+      "to_node": 45,
+      "distance_m": 87.89,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4154,
+            37.7789
+          ],
+          [
+            -122.4144,
+            37.7789
+          ]
+        ]
+      }
+    },
+    {
+      "id": 88,
+      "from_node": 44,
+      "to_node": 54,
+      "distance_m": 111.19,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4154,
+            37.7789
+          ],
+          [
+            -122.4154,
+            37.7799
+          ]
+        ]
+      }
+    },
+    {
+      "id": 89,
+      "from_node": 45,
+      "to_node": 46,
+      "distance_m": 87.89,
+      "road_type": "Arterial",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4144,
+            37.7789
+          ],
+          [
+            -122.4134,
+            37.7789
+          ]
+        ]
+      }
+    },
+    {
+      "id": 90,
+      "from_node": 45,
+      "to_node": 55,
+      "distance_m": 111.19,
+      "road_type": "Arterial",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4144,
+            37.7789
+          ],
+          [
+            -122.4144,
+            37.7799
+          ]
+        ]
+      }
+    },
+    {
+      "id": 91,
+      "from_node": 46,
+      "to_node": 47,
+      "distance_m": 87.89,
+      "road_type": "ServiceRoad",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4134,
+            37.7789
+          ],
+          [
+            -122.4124,
+            37.7789
+          ]
+        ]
+      }
+    },
+    {
+      "id": 92,
+      "from_node": 46,
+      "to_node": 56,
+      "distance_m": 111.19,
+      "road_type": "ServiceRoad",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4134,
+            37.7789
+          ],
+          [
+            -122.4134,
+            37.7799
+          ]
+        ]
+      }
+    },
+    {
+      "id": 93,
+      "from_node": 47,
+      "to_node": 48,
+      "distance_m": 87.89,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4124,
+            37.7789
+          ],
+          [
+            -122.4114,
+            37.7789
+          ]
+        ]
+      }
+    },
+    {
+      "id": 94,
+      "from_node": 47,
+      "to_node": 57,
+      "distance_m": 111.19,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4124,
+            37.7789
+          ],
+          [
+            -122.4124,
+            37.7799
+          ]
+        ]
+      }
+    },
+    {
+      "id": 95,
+      "from_node": 47,
+      "to_node": 58,
+      "distance_m": 141.73,
+      "road_type": "ServiceRoad",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4124,
+            37.7789
+          ],
+          [
+            -122.4114,
+            37.7799
+          ]
+        ]
+      }
+    },
+    {
+      "id": 96,
+      "from_node": 48,
+      "to_node": 49,
+      "distance_m": 87.89,
+      "road_type": "ServiceRoad",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4114,
+            37.7789
+          ],
+          [
+            -122.4104,
+            37.7789
+          ]
+        ]
+      }
+    },
+    {
+      "id": 97,
+      "from_node": 48,
+      "to_node": 58,
+      "distance_m": 111.19,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4114,
+            37.7789
+          ],
+          [
+            -122.4114,
+            37.7799
+          ]
+        ]
+      }
+    },
+    {
+      "id": 98,
+      "from_node": 49,
+      "to_node": 59,
+      "distance_m": 111.19,
+      "road_type": "Highway",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4104,
+            37.7789
+          ],
+          [
+            -122.4104,
+            37.7799
+          ]
+        ]
+      }
+    },
+    {
+      "id": 99,
+      "from_node": 50,
+      "to_node": 51,
+      "distance_m": 87.89,
+      "road_type": "Highway",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4194,
+            37.7799
+          ],
+          [
+            -122.4184,
+            37.7799
+          ]
+        ]
+      }
+    },
+    {
+      "id": 100,
+      "from_node": 50,
+      "to_node": 60,
+      "distance_m": 111.19,
+      "road_type": "Highway",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4194,
+            37.7799
+          ],
+          [
+            -122.4194,
+            37.7809
+          ]
+        ]
+      }
+    },
+    {
+      "id": 101,
+      "from_node": 51,
+      "to_node": 52,
+      "distance_m": 87.89,
+      "road_type": "Arterial",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4184,
+            37.7799
+          ],
+          [
+            -122.4174,
+            37.7799
+          ]
+        ]
+      }
+    },
+    {
+      "id": 102,
+      "from_node": 51,
+      "to_node": 61,
+      "distance_m": 111.19,
+      "road_type": "Arterial",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4184,
+            37.7799
+          ],
+          [
+            -122.4184,
+            37.7809
+          ]
+        ]
+      }
+    },
+    {
+      "id": 103,
+      "from_node": 51,
+      "to_node": 62,
+      "distance_m": 141.73,
+      "road_type": "ServiceRoad",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4184,
+            37.7799
+          ],
+          [
+            -122.4174,
+            37.7809
+          ]
+        ]
+      }
+    },
+    {
+      "id": 104,
+      "from_node": 52,
+      "to_node": 53,
+      "distance_m": 87.89,
+      "road_type": "Arterial",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4174,
+            37.7799
+          ],
+          [
+            -122.4164,
+            37.7799
+          ]
+        ]
+      }
+    },
+    {
+      "id": 105,
+      "from_node": 52,
+      "to_node": 62,
+      "distance_m": 111.19,
+      "road_type": "Arterial",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4174,
+            37.7799
+          ],
+          [
+            -122.4174,
+            37.7809
+          ]
+        ]
+      }
+    },
+    {
+      "id": 106,
+      "from_node": 52,
+      "to_node": 63,
+      "distance_m": 141.73,
+      "road_type": "ServiceRoad",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4174,
+            37.7799
+          ],
+          [
+            -122.4164,
+            37.7809
+          ]
+        ]
+      }
+    },
+    {
+      "id": 107,
+      "from_node": 53,
+      "to_node": 54,
+      "distance_m": 87.89,
+      "road_type": "Arterial",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4164,
+            37.7799
+          ],
+          [
+            -122.4154,
+            37.7799
+          ]
+        ]
+      }
+    },
+    {
+      "id": 108,
+      "from_node": 53,
+      "to_node": 63,
+      "distance_m": 111.19,
+      "road_type": "Arterial",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4164,
+            37.7799
+          ],
+          [
+            -122.4164,
+            37.7809
+          ]
+        ]
+      }
+    },
+    {
+      "id": 109,
+      "from_node": 54,
+      "to_node": 55,
+      "distance_m": 87.89,
+      "road_type": "Arterial",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4154,
+            37.7799
+          ],
+          [
+            -122.4144,
+            37.7799
+          ]
+        ]
+      }
+    },
+    {
+      "id": 110,
+      "from_node": 54,
+      "to_node": 64,
+      "distance_m": 111.19,
+      "road_type": "Arterial",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4154,
+            37.7799
+          ],
+          [
+            -122.4154,
+            37.7809
+          ]
+        ]
+      }
+    },
+    {
+      "id": 111,
+      "from_node": 55,
+      "to_node": 56,
+      "distance_m": 87.89,
+      "road_type": "Arterial",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4144,
+            37.7799
+          ],
+          [
+            -122.4134,
+            37.7799
+          ]
+        ]
+      }
+    },
+    {
+      "id": 112,
+      "from_node": 55,
+      "to_node": 65,
+      "distance_m": 111.19,
+      "road_type": "Arterial",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4144,
+            37.7799
+          ],
+          [
+            -122.4144,
+            37.7809
+          ]
+        ]
+      }
+    },
+    {
+      "id": 113,
+      "from_node": 56,
+      "to_node": 57,
+      "distance_m": 87.89,
+      "road_type": "Arterial",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4134,
+            37.7799
+          ],
+          [
+            -122.4124,
+            37.7799
+          ]
+        ]
+      }
+    },
+    {
+      "id": 114,
+      "from_node": 56,
+      "to_node": 66,
+      "distance_m": 111.19,
+      "road_type": "Arterial",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4134,
+            37.7799
+          ],
+          [
+            -122.4134,
+            37.7809
+          ]
+        ]
+      }
+    },
+    {
+      "id": 115,
+      "from_node": 57,
+      "to_node": 58,
+      "distance_m": 87.89,
+      "road_type": "Arterial",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4124,
+            37.7799
+          ],
+          [
+            -122.4114,
+            37.7799
+          ]
+        ]
+      }
+    },
+    {
+      "id": 116,
+      "from_node": 57,
+      "to_node": 67,
+      "distance_m": 111.19,
+      "road_type": "Arterial",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4124,
+            37.7799
+          ],
+          [
+            -122.4124,
+            37.7809
+          ]
+        ]
+      }
+    },
+    {
+      "id": 117,
+      "from_node": 58,
+      "to_node": 59,
+      "distance_m": 87.89,
+      "road_type": "Arterial",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4114,
+            37.7799
+          ],
+          [
+            -122.4104,
+            37.7799
+          ]
+        ]
+      }
+    },
+    {
+      "id": 118,
+      "from_node": 58,
+      "to_node": 68,
+      "distance_m": 111.19,
+      "road_type": "Arterial",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4114,
+            37.7799
+          ],
+          [
+            -122.4114,
+            37.7809
+          ]
+        ]
+      }
+    },
+    {
+      "id": 119,
+      "from_node": 59,
+      "to_node": 69,
+      "distance_m": 111.19,
+      "road_type": "Highway",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4104,
+            37.7799
+          ],
+          [
+            -122.4104,
+            37.7809
+          ]
+        ]
+      }
+    },
+    {
+      "id": 120,
+      "from_node": 60,
+      "to_node": 61,
+      "distance_m": 87.88,
+      "road_type": "Highway",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4194,
+            37.7809
+          ],
+          [
+            -122.4184,
+            37.7809
+          ]
+        ]
+      }
+    },
+    {
+      "id": 121,
+      "from_node": 60,
+      "to_node": 70,
+      "distance_m": 111.19,
+      "road_type": "Highway",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4194,
+            37.7809
+          ],
+          [
+            -122.4194,
+            37.7819
+          ]
+        ]
+      }
+    },
+    {
+      "id": 122,
+      "from_node": 61,
+      "to_node": 62,
+      "distance_m": 87.88,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4184,
+            37.7809
+          ],
+          [
+            -122.4174,
+            37.7809
+          ]
+        ]
+      }
+    },
+    {
+      "id": 123,
+      "from_node": 61,
+      "to_node": 71,
+      "distance_m": 111.19,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4184,
+            37.7809
+          ],
+          [
+            -122.4184,
+            37.7819
+          ]
+        ]
+      }
+    },
+    {
+      "id": 124,
+      "from_node": 62,
+      "to_node": 63,
+      "distance_m": 87.88,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4174,
+            37.7809
+          ],
+          [
+            -122.4164,
+            37.7809
+          ]
+        ]
+      }
+    },
+    {
+      "id": 125,
+      "from_node": 62,
+      "to_node": 72,
+      "distance_m": 111.19,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4174,
+            37.7809
+          ],
+          [
+            -122.4174,
+            37.7819
+          ]
+        ]
+      }
+    },
+    {
+      "id": 126,
+      "from_node": 63,
+      "to_node": 64,
+      "distance_m": 87.88,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4164,
+            37.7809
+          ],
+          [
+            -122.4154,
+            37.7809
+          ]
+        ]
+      }
+    },
+    {
+      "id": 127,
+      "from_node": 63,
+      "to_node": 73,
+      "distance_m": 111.19,
+      "road_type": "ServiceRoad",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4164,
+            37.7809
+          ],
+          [
+            -122.4164,
+            37.7819
+          ]
+        ]
+      }
+    },
+    {
+      "id": 128,
+      "from_node": 64,
+      "to_node": 65,
+      "distance_m": 87.88,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4154,
+            37.7809
+          ],
+          [
+            -122.4144,
+            37.7809
+          ]
+        ]
+      }
+    },
+    {
+      "id": 129,
+      "from_node": 64,
+      "to_node": 74,
+      "distance_m": 111.19,
+      "road_type": "ServiceRoad",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4154,
+            37.7809
+          ],
+          [
+            -122.4154,
+            37.7819
+          ]
+        ]
+      }
+    },
+    {
+      "id": 130,
+      "from_node": 65,
+      "to_node": 66,
+      "distance_m": 87.88,
+      "road_type": "Arterial",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4144,
+            37.7809
+          ],
+          [
+            -122.4134,
+            37.7809
+          ]
+        ]
+      }
+    },
+    {
+      "id": 131,
+      "from_node": 65,
+      "to_node": 75,
+      "distance_m": 111.19,
+      "road_type": "Arterial",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4144,
+            37.7809
+          ],
+          [
+            -122.4144,
+            37.7819
+          ]
+        ]
+      }
+    },
+    {
+      "id": 132,
+      "from_node": 66,
+      "to_node": 67,
+      "distance_m": 87.88,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4134,
+            37.7809
+          ],
+          [
+            -122.4124,
+            37.7809
+          ]
+        ]
+      }
+    },
+    {
+      "id": 133,
+      "from_node": 66,
+      "to_node": 76,
+      "distance_m": 111.19,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4134,
+            37.7809
+          ],
+          [
+            -122.4134,
+            37.7819
+          ]
+        ]
+      }
+    },
+    {
+      "id": 134,
+      "from_node": 67,
+      "to_node": 68,
+      "distance_m": 87.88,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4124,
+            37.7809
+          ],
+          [
+            -122.4114,
+            37.7809
+          ]
+        ]
+      }
+    },
+    {
+      "id": 135,
+      "from_node": 67,
+      "to_node": 77,
+      "distance_m": 111.19,
+      "road_type": "ServiceRoad",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4124,
+            37.7809
+          ],
+          [
+            -122.4124,
+            37.7819
+          ]
+        ]
+      }
+    },
+    {
+      "id": 136,
+      "from_node": 68,
+      "to_node": 69,
+      "distance_m": 87.88,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4114,
+            37.7809
+          ],
+          [
+            -122.4104,
+            37.7809
+          ]
+        ]
+      }
+    },
+    {
+      "id": 137,
+      "from_node": 68,
+      "to_node": 78,
+      "distance_m": 111.19,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4114,
+            37.7809
+          ],
+          [
+            -122.4114,
+            37.7819
+          ]
+        ]
+      }
+    },
+    {
+      "id": 138,
+      "from_node": 69,
+      "to_node": 79,
+      "distance_m": 111.19,
+      "road_type": "Highway",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4104,
+            37.7809
+          ],
+          [
+            -122.4104,
+            37.7819
+          ]
+        ]
+      }
+    },
+    {
+      "id": 139,
+      "from_node": 70,
+      "to_node": 71,
+      "distance_m": 87.88,
+      "road_type": "Highway",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4194,
+            37.7819
+          ],
+          [
+            -122.4184,
+            37.7819
+          ]
+        ]
+      }
+    },
+    {
+      "id": 140,
+      "from_node": 70,
+      "to_node": 80,
+      "distance_m": 111.19,
+      "road_type": "Highway",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4194,
+            37.7819
+          ],
+          [
+            -122.4194,
+            37.7829
+          ]
+        ]
+      }
+    },
+    {
+      "id": 141,
+      "from_node": 71,
+      "to_node": 72,
+      "distance_m": 87.88,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4184,
+            37.7819
+          ],
+          [
+            -122.4174,
+            37.7819
+          ]
+        ]
+      }
+    },
+    {
+      "id": 142,
+      "from_node": 71,
+      "to_node": 81,
+      "distance_m": 111.19,
+      "road_type": "ServiceRoad",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4184,
+            37.7819
+          ],
+          [
+            -122.4184,
+            37.7829
+          ]
+        ]
+      }
+    },
+    {
+      "id": 143,
+      "from_node": 72,
+      "to_node": 73,
+      "distance_m": 87.88,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4174,
+            37.7819
+          ],
+          [
+            -122.4164,
+            37.7819
+          ]
+        ]
+      }
+    },
+    {
+      "id": 144,
+      "from_node": 72,
+      "to_node": 82,
+      "distance_m": 111.19,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4174,
+            37.7819
+          ],
+          [
+            -122.4174,
+            37.7829
+          ]
+        ]
+      }
+    },
+    {
+      "id": 145,
+      "from_node": 73,
+      "to_node": 74,
+      "distance_m": 87.88,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4164,
+            37.7819
+          ],
+          [
+            -122.4154,
+            37.7819
+          ]
+        ]
+      }
+    },
+    {
+      "id": 146,
+      "from_node": 73,
+      "to_node": 83,
+      "distance_m": 111.19,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4164,
+            37.7819
+          ],
+          [
+            -122.4164,
+            37.7829
+          ]
+        ]
+      }
+    },
+    {
+      "id": 147,
+      "from_node": 74,
+      "to_node": 75,
+      "distance_m": 87.88,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4154,
+            37.7819
+          ],
+          [
+            -122.4144,
+            37.7819
+          ]
+        ]
+      }
+    },
+    {
+      "id": 148,
+      "from_node": 74,
+      "to_node": 84,
+      "distance_m": 111.19,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4154,
+            37.7819
+          ],
+          [
+            -122.4154,
+            37.7829
+          ]
+        ]
+      }
+    },
+    {
+      "id": 149,
+      "from_node": 75,
+      "to_node": 76,
+      "distance_m": 87.88,
+      "road_type": "Arterial",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4144,
+            37.7819
+          ],
+          [
+            -122.4134,
+            37.7819
+          ]
+        ]
+      }
+    },
+    {
+      "id": 150,
+      "from_node": 75,
+      "to_node": 85,
+      "distance_m": 111.19,
+      "road_type": "Arterial",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4144,
+            37.7819
+          ],
+          [
+            -122.4144,
+            37.7829
+          ]
+        ]
+      }
+    },
+    {
+      "id": 151,
+      "from_node": 76,
+      "to_node": 77,
+      "distance_m": 87.88,
+      "road_type": "ServiceRoad",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4134,
+            37.7819
+          ],
+          [
+            -122.4124,
+            37.7819
+          ]
+        ]
+      }
+    },
+    {
+      "id": 152,
+      "from_node": 76,
+      "to_node": 86,
+      "distance_m": 111.19,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4134,
+            37.7819
+          ],
+          [
+            -122.4134,
+            37.7829
+          ]
+        ]
+      }
+    },
+    {
+      "id": 153,
+      "from_node": 76,
+      "to_node": 87,
+      "distance_m": 141.73,
+      "road_type": "ServiceRoad",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4134,
+            37.7819
+          ],
+          [
+            -122.4124,
+            37.7829
+          ]
+        ]
+      }
+    },
+    {
+      "id": 154,
+      "from_node": 77,
+      "to_node": 78,
+      "distance_m": 87.88,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4124,
+            37.7819
+          ],
+          [
+            -122.4114,
+            37.7819
+          ]
+        ]
+      }
+    },
+    {
+      "id": 155,
+      "from_node": 77,
+      "to_node": 87,
+      "distance_m": 111.19,
+      "road_type": "ServiceRoad",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4124,
+            37.7819
+          ],
+          [
+            -122.4124,
+            37.7829
+          ]
+        ]
+      }
+    },
+    {
+      "id": 156,
+      "from_node": 78,
+      "to_node": 79,
+      "distance_m": 87.88,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4114,
+            37.7819
+          ],
+          [
+            -122.4104,
+            37.7819
+          ]
+        ]
+      }
+    },
+    {
+      "id": 157,
+      "from_node": 78,
+      "to_node": 88,
+      "distance_m": 111.19,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4114,
+            37.7819
+          ],
+          [
+            -122.4114,
+            37.7829
+          ]
+        ]
+      }
+    },
+    {
+      "id": 158,
+      "from_node": 79,
+      "to_node": 89,
+      "distance_m": 111.19,
+      "road_type": "Highway",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4104,
+            37.7819
+          ],
+          [
+            -122.4104,
+            37.7829
+          ]
+        ]
+      }
+    },
+    {
+      "id": 159,
+      "from_node": 80,
+      "to_node": 81,
+      "distance_m": 87.88,
+      "road_type": "Highway",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4194,
+            37.7829
+          ],
+          [
+            -122.4184,
+            37.7829
+          ]
+        ]
+      }
+    },
+    {
+      "id": 160,
+      "from_node": 80,
+      "to_node": 90,
+      "distance_m": 111.19,
+      "road_type": "Highway",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4194,
+            37.7829
+          ],
+          [
+            -122.4194,
+            37.7839
+          ]
+        ]
+      }
+    },
+    {
+      "id": 161,
+      "from_node": 81,
+      "to_node": 82,
+      "distance_m": 87.88,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4184,
+            37.7829
+          ],
+          [
+            -122.4174,
+            37.7829
+          ]
+        ]
+      }
+    },
+    {
+      "id": 162,
+      "from_node": 81,
+      "to_node": 91,
+      "distance_m": 111.19,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4184,
+            37.7829
+          ],
+          [
+            -122.4184,
+            37.7839
+          ]
+        ]
+      }
+    },
+    {
+      "id": 163,
+      "from_node": 82,
+      "to_node": 83,
+      "distance_m": 87.88,
+      "road_type": "ServiceRoad",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4174,
+            37.7829
+          ],
+          [
+            -122.4164,
+            37.7829
+          ]
+        ]
+      }
+    },
+    {
+      "id": 164,
+      "from_node": 82,
+      "to_node": 92,
+      "distance_m": 111.19,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4174,
+            37.7829
+          ],
+          [
+            -122.4174,
+            37.7839
+          ]
+        ]
+      }
+    },
+    {
+      "id": 165,
+      "from_node": 83,
+      "to_node": 84,
+      "distance_m": 87.88,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4164,
+            37.7829
+          ],
+          [
+            -122.4154,
+            37.7829
+          ]
+        ]
+      }
+    },
+    {
+      "id": 166,
+      "from_node": 83,
+      "to_node": 93,
+      "distance_m": 111.19,
+      "road_type": "ServiceRoad",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4164,
+            37.7829
+          ],
+          [
+            -122.4164,
+            37.7839
+          ]
+        ]
+      }
+    },
+    {
+      "id": 167,
+      "from_node": 84,
+      "to_node": 85,
+      "distance_m": 87.88,
+      "road_type": "ServiceRoad",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4154,
+            37.7829
+          ],
+          [
+            -122.4144,
+            37.7829
+          ]
+        ]
+      }
+    },
+    {
+      "id": 168,
+      "from_node": 84,
+      "to_node": 94,
+      "distance_m": 111.19,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4154,
+            37.7829
+          ],
+          [
+            -122.4154,
+            37.7839
+          ]
+        ]
+      }
+    },
+    {
+      "id": 169,
+      "from_node": 85,
+      "to_node": 86,
+      "distance_m": 87.88,
+      "road_type": "Arterial",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4144,
+            37.7829
+          ],
+          [
+            -122.4134,
+            37.7829
+          ]
+        ]
+      }
+    },
+    {
+      "id": 170,
+      "from_node": 85,
+      "to_node": 95,
+      "distance_m": 111.19,
+      "road_type": "Arterial",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4144,
+            37.7829
+          ],
+          [
+            -122.4144,
+            37.7839
+          ]
+        ]
+      }
+    },
+    {
+      "id": 171,
+      "from_node": 85,
+      "to_node": 96,
+      "distance_m": 141.73,
+      "road_type": "ServiceRoad",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4144,
+            37.7829
+          ],
+          [
+            -122.4134,
+            37.7839
+          ]
+        ]
+      }
+    },
+    {
+      "id": 172,
+      "from_node": 86,
+      "to_node": 87,
+      "distance_m": 87.88,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4134,
+            37.7829
+          ],
+          [
+            -122.4124,
+            37.7829
+          ]
+        ]
+      }
+    },
+    {
+      "id": 173,
+      "from_node": 86,
+      "to_node": 96,
+      "distance_m": 111.19,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4134,
+            37.7829
+          ],
+          [
+            -122.4134,
+            37.7839
+          ]
+        ]
+      }
+    },
+    {
+      "id": 174,
+      "from_node": 87,
+      "to_node": 88,
+      "distance_m": 87.88,
+      "road_type": "ServiceRoad",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4124,
+            37.7829
+          ],
+          [
+            -122.4114,
+            37.7829
+          ]
+        ]
+      }
+    },
+    {
+      "id": 175,
+      "from_node": 87,
+      "to_node": 97,
+      "distance_m": 111.19,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4124,
+            37.7829
+          ],
+          [
+            -122.4124,
+            37.7839
+          ]
+        ]
+      }
+    },
+    {
+      "id": 176,
+      "from_node": 88,
+      "to_node": 89,
+      "distance_m": 87.88,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4114,
+            37.7829
+          ],
+          [
+            -122.4104,
+            37.7829
+          ]
+        ]
+      }
+    },
+    {
+      "id": 177,
+      "from_node": 88,
+      "to_node": 98,
+      "distance_m": 111.19,
+      "road_type": "Residential",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4114,
+            37.7829
+          ],
+          [
+            -122.4114,
+            37.7839
+          ]
+        ]
+      }
+    },
+    {
+      "id": 178,
+      "from_node": 89,
+      "to_node": 99,
+      "distance_m": 111.19,
+      "road_type": "Highway",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4104,
+            37.7829
+          ],
+          [
+            -122.4104,
+            37.7839
+          ]
+        ]
+      }
+    },
+    {
+      "id": 179,
+      "from_node": 90,
+      "to_node": 91,
+      "distance_m": 87.88,
+      "road_type": "Highway",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4194,
+            37.7839
+          ],
+          [
+            -122.4184,
+            37.7839
+          ]
+        ]
+      }
+    },
+    {
+      "id": 180,
+      "from_node": 91,
+      "to_node": 92,
+      "distance_m": 87.88,
+      "road_type": "Highway",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4184,
+            37.7839
+          ],
+          [
+            -122.4174,
+            37.7839
+          ]
+        ]
+      }
+    },
+    {
+      "id": 181,
+      "from_node": 92,
+      "to_node": 93,
+      "distance_m": 87.88,
+      "road_type": "Highway",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4174,
+            37.7839
+          ],
+          [
+            -122.4164,
+            37.7839
+          ]
+        ]
+      }
+    },
+    {
+      "id": 182,
+      "from_node": 93,
+      "to_node": 94,
+      "distance_m": 87.88,
+      "road_type": "Highway",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4164,
+            37.7839
+          ],
+          [
+            -122.4154,
+            37.7839
+          ]
+        ]
+      }
+    },
+    {
+      "id": 183,
+      "from_node": 94,
+      "to_node": 95,
+      "distance_m": 87.88,
+      "road_type": "Highway",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4154,
+            37.7839
+          ],
+          [
+            -122.4144,
+            37.7839
+          ]
+        ]
+      }
+    },
+    {
+      "id": 184,
+      "from_node": 95,
+      "to_node": 96,
+      "distance_m": 87.88,
+      "road_type": "Highway",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4144,
+            37.7839
+          ],
+          [
+            -122.4134,
+            37.7839
+          ]
+        ]
+      }
+    },
+    {
+      "id": 185,
+      "from_node": 96,
+      "to_node": 97,
+      "distance_m": 87.88,
+      "road_type": "Highway",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4134,
+            37.7839
+          ],
+          [
+            -122.4124,
+            37.7839
+          ]
+        ]
+      }
+    },
+    {
+      "id": 186,
+      "from_node": 97,
+      "to_node": 98,
+      "distance_m": 87.88,
+      "road_type": "Highway",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4124,
+            37.7839
+          ],
+          [
+            -122.4114,
+            37.7839
+          ]
+        ]
+      }
+    },
+    {
+      "id": 187,
+      "from_node": 98,
+      "to_node": 99,
+      "distance_m": 87.88,
+      "road_type": "Highway",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -122.4114,
+            37.7839
+          ],
+          [
+            -122.4104,
+            37.7839
+          ]
+        ]
+      }
+    }
+  ]
+}

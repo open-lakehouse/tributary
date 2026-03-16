@@ -13,6 +13,7 @@ pub mod movement;
 pub mod spatial;
 
 // Re-export commonly used types
+pub use graph::{EdgeId, NodeId, RoadEdge, RoadNetwork, RoadNode, RoadType};
 pub use locations::{Location, LocationHandler};
 pub use movement::{Journey, JourneyState, MovementHandler, VelocityModel};
 pub use spatial::H3Index;
