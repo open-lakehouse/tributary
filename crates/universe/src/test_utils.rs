@@ -36,8 +36,9 @@ pub async fn print_frame(frame: &DataFrame) -> Result<()> {
 #[fixture]
 pub async fn simulation_context() -> Result<SimulationContext> {
     use crate::{
-        EntityView, ObjectData, PopulationData, ROUTING_EDGES_REF, ROUTING_NODES_REF,
+        EntityView, ObjectData, PopulationData,
         context::storage::register_system,
+        context::schemas::{ROUTING_EDGES_REF, ROUTING_NODES_REF},
     };
     use chrono::{Timelike as _, Utc};
     use datafusion::catalog::{MemorySchemaProvider, SchemaProvider};

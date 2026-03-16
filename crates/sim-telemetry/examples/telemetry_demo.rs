@@ -11,7 +11,6 @@ use serde_json::json;
 use sim_telemetry::{
     EventToLogGenerator, EventToMetricGenerator, EventToTraceGenerator, TelemetryCollector,
 };
-use std::collections::HashMap;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== Comprehensive Telemetry Demo ===\n");

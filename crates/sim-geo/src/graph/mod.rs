@@ -66,10 +66,12 @@ pub mod routing;
 pub use io::GraphError;
 pub use routing::Route;
 
+use fast_paths::FastGraph;
 use geo::{LineString, Point};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
+use std::sync::OnceLock;
 
 /// Unique identifier for a road network node (intersection/junction)
 pub type NodeId = u64;
@@ -83,6 +85,7 @@ pub type EdgeId = u64;
 /// - `nodes`: Map of node IDs to node data (positions)
 /// - `edges`: Map of edge IDs to edge data (geometry, properties)
 /// - `adjacency`: Map of node IDs to outgoing edge IDs for efficient traversal
+/// - `fast_graph_cache`: Cached preprocessed graph for fast routing queries
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RoadNetwork {
     /// All nodes in the network indexed by ID
@@ -91,6 +94,9 @@ pub struct RoadNetwork {
     pub edges: HashMap<EdgeId, RoadEdge>,
     /// Adjacency list mapping each node to its outgoing edges
     pub adjacency: HashMap<NodeId, Vec<EdgeId>>,
+    /// Cached FastGraph for efficient routing (not serialized)
+    #[serde(skip)]
+    fast_graph_cache: OnceLock<FastGraph>,
 }
 
 /// A node in the road network representing an intersection or junction point
@@ -154,6 +160,7 @@ impl RoadNetwork {
             nodes: HashMap::new(),
             edges: HashMap::new(),
             adjacency: HashMap::new(),
+            fast_graph_cache: OnceLock::new(),
         }
     }
 

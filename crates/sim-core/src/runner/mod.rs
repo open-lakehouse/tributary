@@ -731,7 +731,6 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Error;
     use crate::population::AgentStatus;
     use crate::utils::idents::{AgentId, ResourceId, TaskId, WorkflowId};
     use crate::workflows::WorkflowStep;

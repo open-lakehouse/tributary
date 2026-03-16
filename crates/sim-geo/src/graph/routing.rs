@@ -95,9 +95,8 @@ impl RoadNetwork {
     /// Find shortest path between two nodes
     ///
     /// Computes the shortest path from start to goal using Dijkstra's algorithm
-    /// via the fast_paths library. This method builds a new FastGraph on each call,
-    /// which is inefficient for repeated queries. For better performance, use
-    /// `build_fast_graph()` once and create a PathCalculator for multiple queries.
+    /// via the fast_paths library. This method uses a cached FastGraph that is
+    /// built once on first query and reused for all subsequent queries.
     ///
     /// # Arguments
     ///
@@ -132,12 +131,12 @@ impl RoadNetwork {
     /// assert_eq!(route.total_distance_m, 150.0);
     /// ```
     pub fn find_shortest_path(&self, start: NodeId, goal: NodeId) -> Option<Route> {
-        // Build fast graph (in production, cache this!)
-        let fast_graph = self.build_fast_graph();
-        let mut calculator = fast_paths::create_calculator(&fast_graph);
+        // Get or build cached fast graph
+        let fast_graph = self.fast_graph_cache.get_or_init(|| self.build_fast_graph());
+        let mut calculator = fast_paths::create_calculator(fast_graph);
 
         // Calculate path
-        let path = calculator.calc_path(&fast_graph, start as usize, goal as usize)?;
+        let path = calculator.calc_path(fast_graph, start as usize, goal as usize)?;
 
         // Convert node indices to NodeIds
         let node_path: Vec<NodeId> = path

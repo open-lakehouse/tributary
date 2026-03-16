@@ -325,7 +325,7 @@ mod tests {
     use super::*;
     use crate::context::SimulationConfig;
     use crate::runner::SimulationHooks;
-    use crate::utils::idents::{TaskId, WorkflowId, WorkflowInstanceId};
+    use crate::utils::idents::{TaskId, WorkflowInstanceId};
 
     #[test]
     fn test_telemetry_creation() {
