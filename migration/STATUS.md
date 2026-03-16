@@ -1,35 +1,37 @@
 # Consolidated Project Status
 
-**Last Updated:** March 16, 2026 (Phase 6 Complete)
-**Overall Progress:** 64% complete (9/14 phases)
-**Current Status:** Phases 6, 7, 8 COMPLETE + Production Ready
+**Last Updated:** March 16, 2026 (Phase 9 Complete)
+**Overall Progress:** 71% complete (10/14 phases)
+**Current Status:** Phases 6, 7, 8, 9 COMPLETE + Production Ready
 
 ---
 
 ## Executive Summary
 
-Phases 6 (Arrow Migration), 7 (Road Network Integration), and Phase 8 (Telemetry Generation) are **COMPLETE** and production-ready. All P0 fixes have been applied, achieving zero critical issues.
+Phases 6 (Arrow Migration), 7 (Road Network Integration), 8 (Telemetry Generation), and Phase 9 (Multiple Concurrent Workflows) are **COMPLETE** and production-ready. All P0 fixes have been applied, achieving zero critical issues.
 
 **Key Achievements:**
-- ✅ **Phase 6 complete** - Arrow migration with SQL queries and snapshots (10-100x speedups)
-- ✅ **464+ tests passing** (157 sim-core + 157 sim-geo + 104 sim-telemetry + 16 sim-events + 30 sim-kitchen)
-- ✅ **SQL query interface** - Cross-entity analytics with DataFusion
-- ✅ **Snapshot system** - 9x compression, 15ms save, 7ms restore
-- ✅ **Batch APIs** - 60-780x performance improvements verified
+- ✅ **Phase 9 complete** - Multi-workflow infrastructure with 3 concurrent workflow types
+- ✅ **586+ tests passing** (157 sim-core + 157 sim-geo + 104 sim-telemetry + 16 sim-events + 122 sim-kitchen + 30 caspers-universe)
+- ✅ **Performance:** 0.06ms/tick (1,667x better than 100ms target)
+- ✅ **Inventory management** - Auto-replenishment with supply chain workflow
+- ✅ **Courier delivery** - Full food delivery workflow integrated
+- ✅ **WorkflowRegistry** - Multi-workflow orchestration system
+- ✅ **E2E validation** - 24-hour simulation with all workflows
 - ✅ **Zero clippy warnings** on framework crates
 - ✅ **All performance targets met or exceeded**
 - ✅ **Production-ready deployment approved**
 
 **Next Steps:**
-- Phase 9: Multiple Concurrent Workflows (10-14 days) - **RECOMMENDED**
-- Phase 6 completion: Finish Arrow migration (2-3 days) - Quick win
-- Phase 10-11: Additional Domains (2 weeks)
+- Phase 10: Demand Generation (1 week) - **RECOMMENDED**
+- Phase 11: Additional Domains (1 week)
+- Phase 12-14: Python + CLI + Benchmarks (3 weeks)
 
 ---
 
 ## Current Status Details
 
-### Completed Phases (9/14)
+### Completed Phases (10/14)
 
 | Phase | Name | Status | Key Metrics |
 |-------|------|--------|-------------|
@@ -39,6 +41,7 @@ Phases 6 (Arrow Migration), 7 (Road Network Integration), and Phase 8 (Telemetry
 | 6 | Arrow Migration | ✅ 100% | 10-100x storage speedup, SQL queries, snapshots |
 | 7 | Road Network | ✅ | 157 tests, 7µs routing |
 | 8 | Telemetry | ✅ | 104 tests, OTLP compliance |
+| 9 | Multi-Workflow | ✅ 100% | 122 tests, 0.06ms/tick (1,667x better than target) |
 | P0 | Production Fixes | ✅ | FastGraph caching, zero warnings |
 | Cleanup | Documentation | ✅ | 91% reduction, essential docs only |
 
@@ -52,6 +55,7 @@ Phases 6 (Arrow Migration), 7 (Road Network Integration), and Phase 8 (Telemetry
 | FastGraph cached | N/A | 330ns | ✅ 5645x speedup |
 | Telemetry overhead | <5% | <1% | ✅ 5x better |
 | Batch operations | N/A | 7-785x | ✅ Validated |
+| Multi-workflow tick | <100ms | 0.06ms | ✅✅✅ 1,667x better |
 
 ### Test Coverage
 
@@ -59,73 +63,52 @@ Phases 6 (Arrow Migration), 7 (Road Network Integration), and Phase 8 (Telemetry
 - **sim-geo:** 157 tests passing (movement, routing, spatial)
 - **sim-events:** 16 tests passing (event emission, storage)
 - **sim-telemetry:** 104 tests passing (logs, traces, metrics, OTLP)
-- **sim-kitchen:** 30 tests passing (reference implementation)
-- **Total:** 464+ tests passing, 100% library test pass rate
+- **sim-kitchen:** 122 tests passing (multi-workflow, inventory, agents)
+- **caspers-universe:** 30 tests passing (domain validation)
+- **Total:** 586+ tests passing, 100% library test pass rate
 
-**Phase 6 Test Additions:**
-- +40 Arrow RecordBatch tests (Week 1)
-- +25 Snapshot tests (Week 2)
-- +10 SQL query tests (Week 3)
-- **Total:** +75 tests added in Phase 6
+**Phase 9 Test Additions:**
+- +17 WorkflowRegistry tests
+- +23 Inventory management tests
+- +11 Distribution site tests
+- +10 Supply driver tests
+- +8 Supply chain workflow tests
+- +19 Courier agent tests
+- +7 Courier workflow integration tests
+- +9 Inventory consumption tests
+- +8 Supply ordering tests
+- +10 E2E multi-workflow tests
+- **Total:** +122 tests added in Phase 9
 
 ---
 
 ## Known Issues
 
-### P1: Workflow Task 3x Multiplication
+**None.** All P1 issues resolved.
 
-**Priority:** P1 (Non-blocking for production)
-**Status:** Documented workaround applied
-
-**Problem:**
-- Task creation multiplies by 3x per workflow step
-- Single workflow creates 3 tasks instead of 1 on second step
-- Multiplier is exactly 3x (may be related to 3 telemetry generators)
-
-**Workarounds Applied:**
-- `crates/sim-core/tests/workflow_integration_test.rs:280` - Expects 3 instead of 1
-- `crates/sim-core/tests/workflow_integration_test.rs:445` - Expects 9 instead of 3
-
-**Impact:**
-- Tests still fail due to workflows completing earlier than expected
-- No functional breakage in production code
-- Inefficient resource usage
-
-**Investigation Path:**
-1. Add debug logging to task creation loop
-2. Check if `get_ready_instances()` returns duplicates
-3. Verify telemetry generators aren't triggering multiple task creations
-4. Look for loops that iterate 3 times in workflow advancement logic
-
-**Files to Investigate:**
-- `crates/sim-core/src/runner/mod.rs`
-- `crates/sim-core/src/workflows/instance_table.rs`
-- `crates/sim-core/src/runner/telemetry.rs`
-
-**Recommendation:**
-- Mark workflow integration tests as `#[ignore]` until fixed
-- Or redesign tests to be resilient to task count variations
-- Create detailed trace logging for one test run
+**Previously Resolved:**
+- ✅ **P1: Workflow Task 3x Multiplication** - Fixed in commit f1504ea (Mar 16, 2026)
+- ✅ **P2: Schema mismatch in caspers-universe** - Fixed in Phase 9 Stage 1 (Agent A)
 
 ---
 
 ## Forward Plan
 
-### Phase 9: Multiple Concurrent Workflows (10-14 days)
+### Phase 10: Demand Generation (1 week) - **RECOMMENDED NEXT**
 
 **Goals:**
-- Implement supply chain workflows
-- Add inventory management
-- Run 3 workflows concurrently
-- Validate multi-workflow coordination
+- Probabilistic customer order generation
+- Order rate patterns (time-based, load-based)
+- Demand forecasting system
+- Integration with existing workflows
 
-**Dependencies:** Phase 5 ✅ (complete)
+**Dependencies:** Phase 9 ✅ (complete)
 
-**Reference:** `/Users/robert.pack/code/management/migration/phases/PHASE_09_MULTI_WORKFLOW.md`
+**Reference:** `/Users/robert.pack/code/management/migration/phases/PHASE_10_11_DOMAINS.md`
 
 ---
 
-### Phase 10-11: Additional Domains (2 weeks)
+### Phase 11: Additional Domains (1 week)
 
 **Goals:**
 - Implement logistics domain
@@ -155,15 +138,15 @@ Phases 6 (Arrow Migration), 7 (Road Network Integration), and Phase 8 (Telemetry
 
 ## Timeline to Completion
 
-**Remaining Work:** 7-9 weeks (6 phases)
+**Remaining Work:** 5-6 weeks (4 phases)
 
 | Phase | Duration | Start After |
 |-------|----------|-------------|
-| 9 | 10-14 days | Now (Phase 5 complete) |
-| 10-11 | 2 weeks | Phase 9 or parallel |
-| 12-14 | 3 weeks | Phase 9 |
+| 10 | 1 week | Now (Phase 9 complete) |
+| 11 | 1 week | Phase 10 or parallel |
+| 12-14 | 3 weeks | Phase 10 |
 
-**Recommended Strategy:** Run Phase 10-11 in parallel with Phase 9 if resources available.
+**Recommended Strategy:** Phase 10 (Demand Generation) as next immediate task.
 
 ---
 
@@ -178,7 +161,8 @@ Phases 6 (Arrow Migration), 7 (Road Network Integration), and Phase 8 (Telemetry
 - [x] Complete customer lifecycle (ordering → waiting → eating → done)
 - [x] Road network routing with realistic travel times
 - [x] Telemetry generation (logs, traces, metrics)
-- [ ] Multiple workflow types run concurrently (Phase 9)
+- [x] Multiple workflow types run concurrently (Phase 9 ✅)
+- [ ] Probabilistic demand generation (Phase 10)
 - [ ] Second domain validates framework generality (Phase 11)
 - [ ] Python bindings working (Phase 12)
 - [ ] CLI supporting all operations (Phase 13)
@@ -205,6 +189,17 @@ Phases 6 (Arrow Migration), 7 (Road Network Integration), and Phase 8 (Telemetry
 ---
 
 ## Recent Commits
+
+### Commit 2717fa7: Phase 9 Complete
+```
+feat: complete Phase 9 - Multiple Concurrent Workflows
+- Multi-workflow registry for concurrent execution
+- Inventory management with auto-replenishment
+- Supply chain workflow (5 steps, 50 min)
+- Courier delivery workflow (4 steps, 17 min)
+- 122 tests passing, 0.06ms/tick (1,667x better than target)
+- Production-ready multi-workflow infrastructure
+```
 
 ### Commit 5f7e2ef: P0 Fixes for Production Readiness
 ```
@@ -245,8 +240,10 @@ feat: complete Phase 7+8 Day 6 - Integration tests, benchmarks, and E2E validati
 
 ### Completed Work
 
+- **Phase 6 Details:** `/Users/robert.pack/code/management/migration/completed/PHASE_6_COMPLETE.md`
 - **Phase 7 Details:** `/Users/robert.pack/code/management/migration/completed/PHASE_07_ROAD_NETWORK.md`
 - **Phase 8 Details:** `/Users/robert.pack/code/management/migration/completed/PHASE_08_TELEMETRY.md`
+- **Phase 9 Details:** `/Users/robert.pack/code/management/migration/completed/PHASE_9_COMPLETE.md`
 - **P0 Fixes:** `/Users/robert.pack/code/management/migration/completed/P0_FIXES_COMPLETE.md`
 - **All Completed:** `/Users/robert.pack/code/management/migration/completed/`
 
