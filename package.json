@@ -1,7 +1,0 @@
-{
-  "name": "caspers-universe",
-  "workspaces": [
-    "docs/",
-    "ui/"
-  ]
-}

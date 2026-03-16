@@ -1,69 +1,52 @@
-<p align="center">
-  <a href="https://delta.io/">
-    <img src="https://github.com/chefcaspers/management/blob/main/docs\src\assets\caspers.jpeg?raw=true" alt="chefcaspers logo" height="200">
-  </a>
-</p>
+# Tributary
 
-# Chef Casper's Management System
+[![Quick Checks](https://github.com/open-lakehouse/tributary/workflows/Quick%20Checks/badge.svg?branch=main)](https://github.com/open-lakehouse/tributary/actions/workflows/quick-checks.yml)
+[![Tests](https://github.com/open-lakehouse/tributary/workflows/Tests/badge.svg?branch=main)](https://github.com/open-lakehouse/tributary/actions/workflows/tests.yml)
+[![Release](https://github.com/open-lakehouse/tributary/workflows/Release/badge.svg)](https://github.com/open-lakehouse/tributary/actions/workflows/release.yml)
+
+A Rust-based simulation and geospatial processing framework with Python bindings.
 
 ## Overview
 
-Chef Casper's Management System is a comprehensive restaurant management application
-designed for multi-brand food service operations. It provides an intuitive interface
-for managing menus, inventory, orders, and brand-specific configurations across multiple
-restaurant brands under one management system.
+Tributary is a workspace containing multiple crates for building simulations, event-driven systems, and geospatial data processing, with first-class support for Apache Arrow, Delta Lake, and Python integration.
 
-## Entities and Relationships
+## Crates
 
-The application is structured around these key entities:
+- **sim-core** - Core simulation engine with workflow orchestration
+- **sim-events** - Event handling and processing system
+- **sim-geo** - Geospatial functionality and GeoArrow integration
+- **sim-kitchen** - Domain-specific simulation components
+- **sim-telemetry** - Observability and telemetry
+- **caspers-universe** - Universe simulation logic
+- **caspers-universe-cli** - Command-line interface
+- **caspers-universe-python** - Python bindings via PyO3
 
-- **Locations**: Physical locations where kitchens operate
-- **Vendors**: Companies that own and operate brands and kitchens
-- **Kitchens**: Physical cooking spaces within locations, operated by vendors
-- **Brands**: Distinct restaurant brands owned by vendors and operating in specific kitchens
-- **Menus**: Each brand has one menu that contains categories
-- **Categories**: Organizational sections of a menu (e.g., Appetizers, Entrees)
-- **Items**: Individual food/drink products with details like price, description, and images
+## Requirements
 
-### Entity Relationships
+- Rust 1.90 or later
+- Python 3.x (for Python bindings)
 
-```
-Location (1) ---> Kitchen (many) <---> Brand (many) <--- Vendor (1)
-                                         |
-                                         v
-                                     Menu (1)
-                                         |
-                                         v
-                                  Category (many)
-                                         |
-                                         v
-                                     Item (many)
-```
+## Development
 
-Key relationships:
-- Each Location can have multiple Kitchens
-- Each Vendor can own multiple Brands and Kitchens
-- Brands and Kitchens have a many-to-many relationship (brands can operate in multiple kitchens)
-- Each Brand has exactly one Menu
-- Each Menu has multiple Categories
-- Each Category contains multiple Items
+```bash
+# Run tests
+cargo test --workspace
 
-## Technical Documentation
+# Run benchmarks
+cargo bench --workspace
 
-Can run with embedded sqlite or remote postgres instance
+# Build CLI
+cargo build --release -p caspers-universe-cli
 
-To run:
-
-```
-cd backend
-poetry install # for dependencies
-DB_HOST= DB_USER= DB_PASSWORD= DB_NAME= # optional environment for hooking up to remote postgres
-python app.py
+# Build Python package
+cd python && maturin develop
 ```
 
-```
-cd frontend
-npm install
-npm start
-```
+## License
 
+Licensed under either of:
+
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or http://www.apache.org/licenses/LICENSE-2.0)
+- MIT license ([LICENSE-MIT](LICENSE-MIT) or http://opensource.org/licenses/MIT)
+
+at your option.
