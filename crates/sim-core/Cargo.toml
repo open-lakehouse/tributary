@@ -29,6 +29,7 @@ sim-telemetry = { path = "../sim-telemetry" }
 approx = "0.5.1"
 criterion = { version = "0.5", features = ["html_reports"] }
 rstest = "0.26.0"
+sim-geo = { path = "../sim-geo" }
 sim-kitchen = { path = "../sim-kitchen" }
 tempfile = "3.14"
 tokio = { version = "1", features = ["full"] }

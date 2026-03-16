@@ -4217,6 +4217,7 @@ dependencies = [
  "rstest",
  "serde",
  "serde_json",
+ "sim-geo",
  "sim-kitchen",
  "sim-telemetry",
  "tempfile",
@@ -4252,6 +4253,7 @@ dependencies = [
  "arrow",
  "arrow-schema",
  "chrono",
+ "criterion",
  "dashmap",
  "datafusion",
  "fast_paths",
@@ -4297,6 +4299,7 @@ version = "0.0.1"
 dependencies = [
  "arrow",
  "chrono",
+ "criterion",
  "opentelemetry",
  "opentelemetry-otlp",
  "rstest",

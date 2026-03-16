@@ -1,0 +1,256 @@
+//! Performance benchmarks for sim-geo routing and geospatial operations
+//!
+//! This benchmark suite validates that routing queries meet performance targets:
+//! - Single route query: <1ms (target: <100µs)
+//! - Batch 1000 queries: <1s (target: <100ms)
+//! - Network loading: <100ms (target: <50ms)
+//! - Velocity calculation: <1µs (target: <100ns)
+//!
+//! Run with: cargo bench -p sim-geo --bench routing_performance
+
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use geo::Point;
+use sim_geo::graph::{RoadEdge, RoadNetwork, RoadNode, RoadType};
+use sim_geo::movement::velocity::TimeOfDayVelocity;
+use chrono::Utc;
+
+/// Load a medium-sized test network (1024 nodes)
+fn load_network() -> RoadNetwork {
+    RoadNetwork::load_from_file("test_data/medium_city_graph.json")
+        .expect("Failed to load test network")
+}
+
+/// Create a simple test network for velocity benchmarks
+fn create_simple_network() -> RoadNetwork {
+    let mut network = RoadNetwork::new();
+
+    // Add a small grid of nodes
+    for i in 0..10 {
+        for j in 0..10 {
+            let id = (i * 10 + j) as u64;
+            network.add_node(RoadNode {
+                id,
+                position: Point::new(i as f64 * 0.001, j as f64 * 0.001),
+            });
+        }
+    }
+
+    // Add edges connecting the grid
+    for i in 0..10 {
+        for j in 0..10 {
+            let from = (i * 10 + j) as u64;
+
+            // Right connection
+            if j < 9 {
+                let to = (i * 10 + j + 1) as u64;
+                network.add_edge(RoadEdge {
+                    id: from * 1000 + to,
+                    from_node: from,
+                    to_node: to,
+                    distance_m: 100.0,
+                    geometry: geo::LineString::from(vec![
+                        (i as f64 * 0.001, j as f64 * 0.001),
+                        (i as f64 * 0.001, (j + 1) as f64 * 0.001),
+                    ]),
+                    road_type: RoadType::Residential,
+                    speed_limit_mps: 8.0,
+                });
+            }
+
+            // Down connection
+            if i < 9 {
+                let to = ((i + 1) * 10 + j) as u64;
+                network.add_edge(RoadEdge {
+                    id: from * 1000 + to + 500000,
+                    from_node: from,
+                    to_node: to,
+                    distance_m: 100.0,
+                    geometry: geo::LineString::from(vec![
+                        (i as f64 * 0.001, j as f64 * 0.001),
+                        ((i + 1) as f64 * 0.001, j as f64 * 0.001),
+                    ]),
+                    road_type: RoadType::Residential,
+                    speed_limit_mps: 8.0,
+                });
+            }
+        }
+    }
+
+    network
+}
+
+/// Benchmark: Single routing query performance
+///
+/// Target: <1ms (preferred: <100µs)
+///
+/// This is the core operation that must be extremely fast for real-time simulation.
+fn benchmark_routing_single_query(c: &mut Criterion) {
+    let network = load_network();
+
+    // Find valid node IDs from the network
+    let node_ids: Vec<_> = network.nodes.keys().copied().collect();
+    let start = node_ids[0];
+    let goal = node_ids[node_ids.len() / 2]; // Middle node
+
+    c.bench_function("route_single_query", |b| {
+        b.iter(|| {
+            network.find_shortest_path(black_box(start), black_box(goal))
+        });
+    });
+}
+
+/// Benchmark: Batch routing queries
+///
+/// Target for 1000 queries: <1s (preferred: <100ms = 100µs per query)
+///
+/// Tests throughput for scenarios where many agents plan routes simultaneously.
+fn benchmark_routing_batch_queries(c: &mut Criterion) {
+    let network = load_network();
+    let node_ids: Vec<_> = network.nodes.keys().copied().collect();
+    let node_count = node_ids.len();
+
+    for batch_size in [10, 100, 1000] {
+        c.bench_with_input(
+            BenchmarkId::new("route_batch", batch_size),
+            &batch_size,
+            |b, &size| {
+                b.iter(|| {
+                    for i in 0..size {
+                        let start = node_ids[i % node_count];
+                        let goal = node_ids[(i + node_count / 2) % node_count];
+                        black_box(network.find_shortest_path(start, goal));
+                    }
+                });
+            },
+        );
+    }
+}
+
+/// Benchmark: Network loading time
+///
+/// Target: <100ms (preferred: <50ms)
+///
+/// Loading time affects simulation startup and scenario switching.
+fn benchmark_network_loading(c: &mut Criterion) {
+    c.bench_function("network_load_medium", |b| {
+        b.iter(|| {
+            black_box(RoadNetwork::load_from_file("test_data/medium_city_graph.json"))
+        });
+    });
+
+    c.bench_function("network_load_small", |b| {
+        b.iter(|| {
+            black_box(RoadNetwork::load_from_file("test_data/small_city_graph.json"))
+        });
+    });
+}
+
+/// Benchmark: Velocity calculation overhead
+///
+/// Target: <1µs (preferred: <100ns)
+///
+/// Velocity calculations happen on every simulation step for moving agents.
+fn benchmark_velocity_calculation(c: &mut Criterion) {
+    let velocity_model = TimeOfDayVelocity::default();
+    let road_type = RoadType::Residential;
+    let time = Utc::now();
+
+    c.bench_function("velocity_calculation", |b| {
+        b.iter(|| {
+            black_box(velocity_model.calculate_velocity(
+                black_box(&road_type),
+                black_box(time),
+            ))
+        });
+    });
+}
+
+/// Benchmark: Point-to-node mapping (nearest node finding)
+///
+/// Target: <1ms (preferred: <100µs)
+///
+/// This operation is needed when agents start journeys from arbitrary locations.
+fn benchmark_point_to_node_mapping(c: &mut Criterion) {
+    let network = load_network();
+    let test_point = Point::new(-122.4194, 37.7749);
+
+    c.bench_function("find_nearest_node", |b| {
+        b.iter(|| {
+            network.find_nearest_node(black_box(test_point))
+        });
+    });
+}
+
+/// Benchmark: FastGraph preprocessing
+///
+/// This is a one-time cost when loading a network, but important to measure
+/// for understanding total initialization time.
+fn benchmark_fast_graph_preprocessing(c: &mut Criterion) {
+    let network = load_network();
+
+    c.bench_function("build_fast_graph", |b| {
+        b.iter(|| {
+            black_box(network.build_fast_graph())
+        });
+    });
+}
+
+/// Benchmark: Route calculation with graph reuse
+///
+/// This simulates the recommended usage pattern where the FastGraph is
+/// built once and reused for multiple queries.
+fn benchmark_routing_with_graph_reuse(c: &mut Criterion) {
+    let network = load_network();
+    let fast_graph = network.build_fast_graph();
+    let mut path_calculator = fast_paths::create_calculator(&fast_graph);
+
+    let node_ids: Vec<_> = network.nodes.keys().copied().collect();
+    let start = node_ids[0] as usize;
+    let goal = node_ids[node_ids.len() / 2] as usize;
+
+    c.bench_function("route_with_graph_reuse", |b| {
+        b.iter(|| {
+            black_box(path_calculator.calc_path(&fast_graph, black_box(start), black_box(goal)))
+        });
+    });
+}
+
+/// Benchmark: Batch routing with optimal graph reuse
+///
+/// This demonstrates best-case performance when the FastGraph is properly cached.
+fn benchmark_batch_routing_optimized(c: &mut Criterion) {
+    let network = load_network();
+    let fast_graph = network.build_fast_graph();
+    let node_ids: Vec<_> = network.nodes.keys().copied().collect();
+    let node_count = node_ids.len();
+
+    for batch_size in [10, 100, 1000] {
+        c.bench_with_input(
+            BenchmarkId::new("route_batch_optimized", batch_size),
+            &batch_size,
+            |b, &size| {
+                let mut path_calculator = fast_paths::create_calculator(&fast_graph);
+                b.iter(|| {
+                    for i in 0..size {
+                        let start = node_ids[i % node_count] as usize;
+                        let goal = node_ids[(i + node_count / 2) % node_count] as usize;
+                        black_box(path_calculator.calc_path(&fast_graph, start, goal));
+                    }
+                });
+            },
+        );
+    }
+}
+
+criterion_group!(
+    benches,
+    benchmark_routing_single_query,
+    benchmark_routing_batch_queries,
+    benchmark_network_loading,
+    benchmark_velocity_calculation,
+    benchmark_point_to_node_mapping,
+    benchmark_fast_graph_preprocessing,
+    benchmark_routing_with_graph_reuse,
+    benchmark_batch_routing_optimized,
+);
+criterion_main!(benches);
