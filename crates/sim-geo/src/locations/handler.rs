@@ -408,10 +408,11 @@ impl<L: Location> LocationHandler<L> {
                 let distance = Haversine.distance(query_point, loc_point);
 
                 if distance < min_distance
-                    && let Ok(id) = self.get_location_id_from_batch(row_idx) {
-                        min_distance = distance;
-                        best_result = Some((row_idx, id, distance));
-                    }
+                    && let Ok(id) = self.get_location_id_from_batch(row_idx)
+                {
+                    min_distance = distance;
+                    best_result = Some((row_idx, id, distance));
+                }
             }
         }
 
@@ -454,9 +455,10 @@ impl<L: Location> LocationHandler<L> {
                 let distance = Haversine.distance(query_point, loc_point);
 
                 if distance <= max_distance
-                    && let Ok(id) = self.get_location_id_from_batch(row_idx) {
-                        results.push(id);
-                    }
+                    && let Ok(id) = self.get_location_id_from_batch(row_idx)
+                {
+                    results.push(id);
+                }
             }
         }
 
