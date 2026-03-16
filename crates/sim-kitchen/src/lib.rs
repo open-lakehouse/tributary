@@ -168,6 +168,6 @@ pub use agents::{Customer, CustomerStatus};
 pub use events::*;
 pub use resources::{Kitchen, Order};
 pub use simulation::{
-    FoodPrepWorkflow, KitchenSimulation, KitchenSimulationHooks, add_customers,
-    build_simulation, process_demands,
+    FoodPrepWorkflow, KitchenSimulation, KitchenSimulationHooks, add_customers, build_simulation,
+    process_demands,
 };

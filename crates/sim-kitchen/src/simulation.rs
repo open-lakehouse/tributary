@@ -682,7 +682,9 @@ impl KitchenSimulation {
     }
 
     /// Get mutable reference to the underlying runner
-    pub fn runner_mut(&mut self) -> &mut SimulationRunner<Customer, Kitchen, Order, FoodPrepWorkflow> {
+    pub fn runner_mut(
+        &mut self,
+    ) -> &mut SimulationRunner<Customer, Kitchen, Order, FoodPrepWorkflow> {
         &mut self.runner
     }
 }
