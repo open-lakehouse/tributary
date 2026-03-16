@@ -58,7 +58,7 @@ impl ScalarUDFImpl for LengthSpheroid {
     }
 
     fn invoke_with_args(&self, args: ScalarFunctionArgs) -> Result<ColumnarValue> {
-        Ok(length_impl(args)?)
+        length_impl(args)
     }
 
     fn documentation(&self) -> Option<&Documentation> {

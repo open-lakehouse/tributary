@@ -116,8 +116,8 @@ pub(super) async fn handle(args: RunArgs) -> Result<()> {
 
         tokio::select! {
             event = tui.next_event() => {
-                if let Some(Event::Key(key)) = event {
-                    if key.kind == KeyEventKind::Press {
+                if let Some(Event::Key(key)) = event
+                    && key.kind == KeyEventKind::Press {
                         match key.code {
                             KeyCode::Char('q') | KeyCode::Esc => {
                                 app.should_quit = true;
@@ -130,7 +130,6 @@ pub(super) async fn handle(args: RunArgs) -> Result<()> {
                             _ => {}
                         }
                     }
-                }
             }
             msg = event_rx.recv() => {
                 process_message(&mut app, msg);

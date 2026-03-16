@@ -27,7 +27,7 @@ impl<T: Clone + Eq + Hash> H3Index<T> {
     pub fn insert(&mut self, cell: CellIndex, item: T) {
         self.cells
             .entry(cell)
-            .or_insert_with(HashSet::new)
+            .or_default()
             .insert(item);
     }
 

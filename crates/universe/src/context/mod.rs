@@ -15,7 +15,6 @@ use datafusion::sql::TableReference;
 use url::Url;
 use uuid::Uuid;
 
-pub(crate) use self::schemas::system::{ROUTING_EDGES_REF, ROUTING_NODES_REF};
 pub(crate) use self::storage::storage_catalog;
 use crate::context::memory::in_memory_catalog;
 use crate::context::schemas::SystemSchema;

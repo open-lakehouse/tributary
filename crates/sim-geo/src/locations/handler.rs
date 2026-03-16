@@ -151,7 +151,7 @@ impl<L: Location> LocationHandler<L> {
         // Update H3 spatial index
         self.h3_index
             .entry(cell)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(new_row_idx);
 
         Ok(())
@@ -266,7 +266,7 @@ impl<L: Location> LocationHandler<L> {
 
         for row_idx in candidates {
             if let Ok(loc_point) = self.get_point_from_batch(row_idx) {
-                let distance = Haversine.distance(point.into(), loc_point.into());
+                let distance = Haversine.distance(point, loc_point);
 
                 if distance < min_distance {
                     min_distance = distance;
@@ -287,7 +287,7 @@ impl<L: Location> LocationHandler<L> {
 
         for row_idx in 0..self.locations.num_rows() {
             if let Ok(loc_point) = self.get_point_from_batch(row_idx) {
-                let distance = Haversine.distance(point.into(), loc_point.into());
+                let distance = Haversine.distance(point, loc_point);
 
                 if distance < min_distance {
                     min_distance = distance;
@@ -336,13 +336,12 @@ impl<L: Location> LocationHandler<L> {
         let mut results = Vec::new();
         for row_idx in candidates {
             if let Ok(loc_point) = self.get_point_from_batch(row_idx) {
-                let distance = Haversine.distance(point.into(), loc_point.into());
+                let distance = Haversine.distance(point, loc_point);
 
-                if distance <= radius_meters {
-                    if let Ok(id) = self.get_location_id_from_batch(row_idx) {
+                if distance <= radius_meters
+                    && let Ok(id) = self.get_location_id_from_batch(row_idx) {
                         results.push(id);
                     }
-                }
             }
         }
 
@@ -354,13 +353,11 @@ impl<L: Location> LocationHandler<L> {
         let mut results = Vec::new();
 
         for row_idx in 0..self.locations.num_rows() {
-            if let Ok(Some(row_type)) = self.get_string_from_batch(row_idx, fields::LOCATION_TYPE) {
-                if row_type == location_type {
-                    if let Ok(id) = self.get_location_id_from_batch(row_idx) {
+            if let Ok(Some(row_type)) = self.get_string_from_batch(row_idx, fields::LOCATION_TYPE)
+                && row_type == location_type
+                    && let Ok(id) = self.get_location_id_from_batch(row_idx) {
                         results.push(id);
                     }
-                }
-            }
         }
 
         Ok(results)
@@ -810,14 +807,13 @@ impl<L: Location> LocationHandler<L> {
             }
 
             // Rebuild H3 index
-            if let Ok(Some(h3_value)) = self.get_u64_from_batch(row_idx, fields::H3_INDEX) {
-                if let Ok(cell) = CellIndex::try_from(h3_value) {
+            if let Ok(Some(h3_value)) = self.get_u64_from_batch(row_idx, fields::H3_INDEX)
+                && let Ok(cell) = CellIndex::try_from(h3_value) {
                     self.h3_index
                         .entry(cell)
-                        .or_insert_with(Vec::new)
+                        .or_default()
                         .push(row_idx);
                 }
-            }
         }
     }
 }

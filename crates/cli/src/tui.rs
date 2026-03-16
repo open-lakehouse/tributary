@@ -45,10 +45,7 @@ impl Tui {
     /// branches of a `tokio::select!` when crossterm produces a burst of
     /// non-key events (resize, focus, mouse).
     pub async fn next_event(&mut self) -> Option<crossterm::event::Event> {
-        match self.events.next().await? {
-            Ok(event) => Some(event),
-            Err(_) => None,
-        }
+        self.events.next().await?.ok()
     }
 }
 

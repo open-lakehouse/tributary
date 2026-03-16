@@ -271,22 +271,22 @@ impl SnapshotManager {
         // Register agents table
         let agents_table = Self::create_mem_table(data.agents)?;
         self.ctx
-            .register_table(&format!("{}_agents", snapshot_id), agents_table)?;
+            .register_table(format!("{}_agents", snapshot_id), agents_table)?;
 
         // Register resources table
         let resources_table = Self::create_mem_table(data.resources)?;
         self.ctx
-            .register_table(&format!("{}_resources", snapshot_id), resources_table)?;
+            .register_table(format!("{}_resources", snapshot_id), resources_table)?;
 
         // Register tasks table
         let tasks_table = Self::create_mem_table(data.tasks)?;
         self.ctx
-            .register_table(&format!("{}_tasks", snapshot_id), tasks_table)?;
+            .register_table(format!("{}_tasks", snapshot_id), tasks_table)?;
 
         // Register workflow_instances table
         let instances_table = Self::create_mem_table(data.workflow_instances)?;
         self.ctx.register_table(
-            &format!("{}_workflow_instances", snapshot_id),
+            format!("{}_workflow_instances", snapshot_id),
             instances_table,
         )?;
 
@@ -294,7 +294,7 @@ impl SnapshotManager {
         if let Some(locations) = data.locations {
             let locations_table = Self::create_mem_table(locations)?;
             self.ctx
-                .register_table(&format!("{}_locations", snapshot_id), locations_table)?;
+                .register_table(format!("{}_locations", snapshot_id), locations_table)?;
         }
 
         Ok(())
@@ -323,7 +323,7 @@ impl SnapshotManager {
         // Read locations if present
         let locations = if self
             .ctx
-            .table_exist(&format!("{}_locations", snapshot_id))?
+            .table_exist(format!("{}_locations", snapshot_id))?
         {
             Some(
                 self.read_table(&format!("{}_locations", snapshot_id))
@@ -542,7 +542,7 @@ impl SnapshotManager {
 
         // Concatenate multiple batches
         let schema = batches[0].schema();
-        arrow::compute::concat_batches(&schema, &batches).map_err(|e| Error::Arrow(e))
+        arrow::compute::concat_batches(&schema, &batches).map_err(Error::Arrow)
     }
 }
 
