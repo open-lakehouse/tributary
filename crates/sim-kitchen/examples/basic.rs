@@ -5,37 +5,37 @@
 //! - Running the simulation
 //! - Emitting CloudEvents
 //! - Writing events to Parquet
+//!
+//! Usage:
+//!   cargo run --example basic -p sim-kitchen [-- <steps> <output_dir>]
 
-use sim_kitchen::{add_customers, build_simulation};
+use sim_kitchen::KitchenSimulation;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("🍔 Ghost Kitchen Simulation Example\n");
+    let args: Vec<String> = std::env::args().collect();
+    let steps: usize = args.get(1).and_then(|s| s.parse().ok()).unwrap_or(100);
+    let output_dir = args
+        .get(2)
+        .map(String::as_str)
+        .unwrap_or(".caspers/sim-kitchen");
 
-    // Build simulation with 3 kitchens, 5 capacity each
-    let mut runner = build_simulation(3, 5, true);
+    println!("Ghost Kitchen Simulation Example\n");
 
-    // Add 20 customers
-    add_customers(&mut runner, 20);
+    let mut sim = KitchenSimulation::new(3, 5, true);
+    sim.add_customers(20);
 
-    println!("\n🚀 Starting simulation...\n");
+    println!("\nStarting simulation ({steps} steps)...\n");
+    sim.run_for_steps(steps)?;
 
-    // Run for 100 steps (50 minutes of simulated time with 30s steps)
-    runner.run_for_steps(100)?;
+    let stats = sim.runner().stats().clone();
+    println!("\nSimulation Statistics:");
+    println!("  Total steps: {}", stats.total_steps);
+    println!("  Total agent ticks: {}", stats.total_agent_ticks);
+    println!("  Total assignments: {}", stats.total_assignments);
 
-    println!("\n📦 Writing events to Parquet...");
-
-    // Extract hooks to get dispatcher
-    // Note: In a real scenario, you'd design this differently to avoid the unsafe cast
-    // This is just for demonstration purposes
-    let stats = runner.stats().clone();
-
-    println!("\n✨ Simulation Statistics:");
-    println!("   Total steps: {}", stats.total_steps);
-    println!("   Total agent ticks: {}", stats.total_agent_ticks);
-    println!("   Total assignments: {}", stats.total_assignments);
-
-    println!("\n✅ Simulation complete!");
-    println!("   Events would be written to 'kitchen_events.parquet'");
+    let events_path = std::path::PathBuf::from(output_dir).join("events.parquet");
+    let count = sim.save_events(&events_path)?;
+    println!("\nWrote {count} events to {}", events_path.display());
 
     Ok(())
 }

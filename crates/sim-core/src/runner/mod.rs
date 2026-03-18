@@ -43,7 +43,7 @@ use std::marker::PhantomData;
 /// Lifecycle hooks for simulation events
 ///
 /// Implement this trait to receive callbacks at key points in the simulation.
-pub trait SimulationHooks: Send + Sync {
+pub trait SimulationHooks: Send + Sync + 'static {
     /// Called before the simulation starts
     fn on_start(&mut self, _ctx: &SimulationContext) -> Result<()> {
         Ok(())
@@ -99,13 +99,26 @@ pub trait SimulationHooks: Send + Sync {
     ) -> Result<()> {
         Ok(())
     }
+
+    /// Downcast to concrete type for domain-specific access
+    fn as_any(&self) -> &dyn std::any::Any;
+
+    /// Downcast to concrete type for domain-specific mutation
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any;
 }
 
 /// Default implementation that does nothing
 #[derive(Debug, Default)]
 pub struct NoOpHooks;
 
-impl SimulationHooks for NoOpHooks {}
+impl SimulationHooks for NoOpHooks {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+}
 
 /// Simulation runner statistics
 #[derive(Debug, Clone, Default)]
@@ -247,6 +260,16 @@ where
     /// Set lifecycle hooks
     pub fn set_hooks(&mut self, hooks: Box<dyn SimulationHooks>) {
         self.hooks = hooks;
+    }
+
+    /// Downcast hooks to a concrete type for domain-specific access
+    pub fn hooks_as<H: SimulationHooks>(&self) -> Option<&H> {
+        self.hooks.as_any().downcast_ref::<H>()
+    }
+
+    /// Downcast hooks to a concrete mutable type for domain-specific access
+    pub fn hooks_as_mut<H: SimulationHooks>(&mut self) -> Option<&mut H> {
+        self.hooks.as_any_mut().downcast_mut::<H>()
     }
 
     /// Get the current simulation context
@@ -1009,6 +1032,14 @@ mod tests {
             *self.end_called.lock().unwrap() = true;
             Ok(())
         }
+
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
+        }
+
+        fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+            self
+        }
     }
 
     #[test]
@@ -1309,6 +1340,14 @@ mod tests {
             ) -> Result<()> {
                 self.events.lock().unwrap().push(event.clone());
                 Ok(())
+            }
+
+            fn as_any(&self) -> &dyn std::any::Any {
+                self
+            }
+
+            fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+                self
             }
         }
 

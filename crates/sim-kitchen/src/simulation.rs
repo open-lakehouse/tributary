@@ -66,7 +66,7 @@ use sim_core::{
     utils::idents::WorkflowInstanceId,
 };
 use sim_events::{Event, EventDispatcher};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 
 /// Food preparation workflow with multi-step processing
@@ -216,6 +216,9 @@ pub struct KitchenSimulationHooks {
     completed_orders: Vec<(String, AgentId)>, // (order_id, customer_id)
     /// Track eating customers (customer_id, order_id, finish_time) for event emission
     eating_customers: Vec<(AgentId, String, DateTime<Utc>)>,
+    /// Orders created during on_agents_ticked, to be drained by the simulation loop
+    /// and added to the ResourceAllocator
+    pending_orders: Vec<Order>,
     /// Inventory managers per kitchen (kitchen_id -> InventoryManager)
     pub inventory_managers: HashMap<Uuid, InventoryManager>,
     /// Recipe definitions (food_item -> ingredient -> quantity)
@@ -236,6 +239,7 @@ impl KitchenSimulationHooks {
             orders: HashMap::new(),
             completed_orders: Vec::new(),
             eating_customers: Vec::new(),
+            pending_orders: Vec::new(),
             inventory_managers: HashMap::new(),
             recipes: Self::default_recipes(),
             pending_supply_orders: HashMap::new(),
@@ -314,9 +318,31 @@ impl KitchenSimulationHooks {
         &self.dispatcher
     }
 
+    /// Get mutable reference to the event dispatcher
+    pub fn dispatcher_mut(&mut self) -> &mut EventDispatcher {
+        &mut self.dispatcher
+    }
+
     /// Take ownership of the dispatcher (for flushing at end)
     pub fn take_dispatcher(self) -> EventDispatcher {
         self.dispatcher
+    }
+
+    /// Flush all buffered events to a Parquet file
+    pub fn save_events(&mut self, path: impl Into<std::path::PathBuf>) -> sim_events::Result<usize> {
+        self.dispatcher.flush_to_parquet(path)
+    }
+
+    /// Drain Order tasks created during the last tick.
+    /// Called by the simulation loop to feed them into the ResourceAllocator.
+    pub fn drain_pending_orders(&mut self) -> Vec<Order> {
+        std::mem::take(&mut self.pending_orders)
+    }
+
+    /// Drain completed orders waiting for delivery.
+    /// Returns (order_id, customer_id) pairs for orders whose prep time has elapsed.
+    pub fn drain_completed_orders(&mut self) -> Vec<(String, AgentId)> {
+        std::mem::take(&mut self.completed_orders)
     }
 
     /// Select the nearest distribution site for a kitchen (simple first-match strategy)
@@ -542,6 +568,14 @@ impl SimulationHooks for KitchenSimulationHooks {
                         },
                     );
 
+                    // Create Order task for the ResourceAllocator
+                    let order_task = Order::new(
+                        order_id.to_string(),
+                        customer_id.to_string(),
+                        items.clone(),
+                    );
+                    self.pending_orders.push(order_task);
+
                     // Emit order created event
                     let event = Event::new(Box::new(OrderCreatedEvent {
                         order_id: order_id.to_string(),
@@ -685,6 +719,13 @@ impl SimulationHooks for KitchenSimulationHooks {
             }
         }
         Ok(())
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
     }
 }
 
@@ -930,6 +971,8 @@ pub struct KitchenSimulation {
     runner: SimulationRunner<Customer, Kitchen, Order, FoodPrepWorkflow>,
     /// Event dispatcher for emitting customer lifecycle events
     event_dispatcher: EventDispatcher,
+    /// Track which customers already had their Done event emitted
+    done_emitted: HashSet<AgentId>,
 }
 
 impl KitchenSimulation {
@@ -941,6 +984,7 @@ impl KitchenSimulation {
         Self {
             runner,
             event_dispatcher,
+            done_emitted: HashSet::new(),
         }
     }
 
@@ -951,43 +995,59 @@ impl KitchenSimulation {
 
     /// Run the simulation with full lifecycle management
     pub fn run_for_steps(&mut self, steps: usize) -> sim_core::Result<()> {
-        // Use the runner's built-in run_for_steps, but override the tick behavior
-        // by manually looping and delivering orders
         for _ in 0..steps {
-            // Tick the simulation
+            // 1. Tick agents, invoke hooks (on_agents_ticked creates OrderCreatedEvent
+            //    and collects Order tasks in pending_orders)
             self.runner.tick()?;
 
-            // Deliver completed orders to customers
+            // 2. Drain pending orders from hooks into the resource allocator
+            if let Some(hooks) = self.runner.hooks_as_mut::<KitchenSimulationHooks>() {
+                let new_orders = hooks.drain_pending_orders();
+                if !new_orders.is_empty() {
+                    if let Some(allocator) = self.runner.resources_mut() {
+                        for order in new_orders {
+                            let _ = allocator.add_task(order);
+                        }
+                    }
+                }
+            }
+
+            // 3. Allocate orders to kitchens (triggers on_resources_allocated →
+            //    OrderAssignedEvent, inventory events)
+            let _ = self.runner.allocate_resources(&LeastLoaded);
+
+            // 4. Deliver completed orders to customers (only those the hooks
+            //    marked as completed via on_after_tick)
             self.deliver_completed_orders()?;
 
-            // Check for customers who finished eating and emit CustomerDoneEvent
+            // 5. Emit CustomerDoneEvent for newly-done customers (once per customer)
             self.check_done_customers()?;
         }
 
         Ok(())
     }
 
-    /// Check for customers who transitioned to Done status and emit events
+    /// Emit CustomerDoneEvent for customers that just transitioned to Done,
+    /// guarded so each customer only emits once.
     fn check_done_customers(&mut self) -> sim_core::Result<()> {
         let mut newly_done = Vec::new();
 
         if let Some(population) = self.runner.population() {
             for customer in population.iter() {
-                if matches!(customer.status, CustomerStatus::Done) {
+                if matches!(customer.status, CustomerStatus::Done)
+                    && !self.done_emitted.contains(&customer.id)
+                {
                     newly_done.push(customer.id);
                 }
             }
         }
 
-        // Emit CustomerDoneEvent for newly done customers
         for customer_id in newly_done {
-            // Calculate total time - simplified to 0 for now
-            // In production, we'd track from first activity timestamp
-            let total_time_seconds = 0;
+            self.done_emitted.insert(customer_id);
 
             let event = Event::new(Box::new(CustomerDoneEvent {
                 customer_id: customer_id.to_string(),
-                total_time_seconds,
+                total_time_seconds: 0,
             }));
             self.event_dispatcher.emit(event);
         }
@@ -995,35 +1055,30 @@ impl KitchenSimulation {
         Ok(())
     }
 
-    /// Deliver completed orders to waiting customers
+    /// Deliver only orders that hooks report as completed.
+    /// Persists agent mutations via update_agents().
     fn deliver_completed_orders(&mut self) -> sim_core::Result<()> {
-        // Extract completed orders that need delivery
-        let mut orders_to_deliver = Vec::new();
+        // Drain completed orders from the hooks
+        let completed = if let Some(hooks) = self.runner.hooks_as_mut::<KitchenSimulationHooks>() {
+            hooks.drain_completed_orders()
+        } else {
+            return Ok(());
+        };
 
-        if let Some(population) = self.runner.population() {
-            let current_time = self.runner.context().current_time();
-
-            // Find customers waiting for food
-            for customer in population.iter() {
-                if let CustomerStatus::WaitingForFood { ref order_id } = customer.status {
-                    // Check if enough time has passed (simplified - 5 minutes)
-                    // In production, this would check actual task completion
-                    orders_to_deliver.push((order_id.clone(), customer.id, current_time));
-                }
-            }
+        if completed.is_empty() {
+            return Ok(());
         }
 
-        // Deliver orders to customers
+        let current_time = self.runner.context().current_time();
         let verbose = self.runner.context().config().verbose;
         let current_step = self.runner.context().step();
 
-        if let Some(population) = self.runner.population_mut() {
-            for (order_id, customer_id, current_time) in orders_to_deliver {
-                if let Some(mut customer) = population.get_agent_mut(customer_id) {
-                    // Calculate finish time before transitioning state
-                    let finish_time = current_time + customer.eating_duration;
+        let mut updated_customers = Vec::new();
 
-                    // Transition customer to eating
+        if let Some(population) = self.runner.population_mut() {
+            for (order_id, customer_id) in completed {
+                if let Some(mut customer) = population.get_agent_mut(customer_id) {
+                    let finish_time = current_time + customer.eating_duration;
                     customer.start_eating(current_time);
 
                     if verbose {
@@ -1033,14 +1088,20 @@ impl KitchenSimulation {
                         );
                     }
 
-                    // Emit CustomerEatingEvent
                     let event = Event::new(Box::new(CustomerEatingEvent {
                         customer_id: customer_id.to_string(),
                         order_id,
                         finish_time,
                     }));
                     self.event_dispatcher.emit(event);
+
+                    updated_customers.push(customer);
                 }
+            }
+
+            // Persist the state mutations back to the Arrow RecordBatch
+            if !updated_customers.is_empty() {
+                population.update_agents(updated_customers)?;
             }
         }
 
@@ -1057,6 +1118,52 @@ impl KitchenSimulation {
         &mut self,
     ) -> &mut SimulationRunner<Customer, Kitchen, Order, FoodPrepWorkflow> {
         &mut self.runner
+    }
+
+    /// Collect all event records from both the hooks dispatcher and the simulation dispatcher
+    /// without clearing them. Useful for test assertions.
+    pub fn collect_all_event_records(&self) -> Vec<sim_events::EventRecord> {
+        let mut records = Vec::new();
+        if let Some(hooks) = self.runner.hooks_as::<KitchenSimulationHooks>() {
+            records.extend(hooks.dispatcher().to_records());
+        }
+        records.extend(self.event_dispatcher.to_records());
+        records
+    }
+
+    /// Save all events (from both hooks and simulation dispatchers) to a Parquet file.
+    ///
+    /// Merges events from the `KitchenSimulationHooks` dispatcher and the
+    /// `KitchenSimulation` dispatcher, then writes them to a single Parquet file.
+    pub fn save_events(
+        &mut self,
+        path: impl Into<std::path::PathBuf>,
+    ) -> std::result::Result<usize, Box<dyn std::error::Error>> {
+        let path = path.into();
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+
+        let mut all_records = Vec::new();
+
+        // Collect events from the hooks' dispatcher
+        if let Some(hooks) = self.runner.hooks_as_mut::<KitchenSimulationHooks>() {
+            all_records.extend(hooks.dispatcher_mut().to_records());
+            hooks.dispatcher_mut().clear();
+        }
+
+        // Collect events from the simulation's own dispatcher
+        all_records.extend(self.event_dispatcher.to_records());
+        self.event_dispatcher.clear();
+
+        let count = all_records.len();
+        if count > 0 {
+            let mut writer = sim_events::storage::ParquetEventWriter::new(path)?;
+            writer.write_events(&all_records)?;
+            writer.close()?;
+        }
+
+        Ok(count)
     }
 }
 

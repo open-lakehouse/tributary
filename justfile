@@ -55,6 +55,16 @@ run-tracing:
 scratch:
     uv run --directory {{ source_directory() }}/notebooks marimo edit explore.py
 
+# run sim-kitchen simulation and write events to parquet
+[group('caspers')]
+sim-kitchen steps='100':
+    cargo run --example basic -p sim-kitchen -- {{ steps }}
+
+# inspect simulation events in marimo notebook
+[group('dev')]
+inspect:
+    uv run --directory {{ source_directory() }}/notebooks marimo edit sim_events.py
+
 # format and linting (runs pre-commit-hooks)
 [group('dev')]
 fmt:

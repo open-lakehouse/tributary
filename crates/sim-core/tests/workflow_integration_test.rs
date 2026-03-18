@@ -184,6 +184,14 @@ impl SimulationHooks for TestHooks {
         self.workflow_events.lock().unwrap().push(event.clone());
         Ok(())
     }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
 }
 
 #[test]
