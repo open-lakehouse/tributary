@@ -20,7 +20,7 @@ use sim_core::{
     population::{Agent, AgentStatus, AgentTickResult},
     resources::{LeastLoaded, Resource, ResourceAllocator, Task, TaskFactory},
     utils::idents::{AgentId, ResourceId, TaskId, WorkflowId, WorkflowInstanceId},
-    workflows::{Workflow, WorkflowEngine, WorkflowStep, WorkflowStepEvent},
+    workflows::{Workflow, WorkflowEngine, WorkflowRegistry, WorkflowStep, WorkflowStepEvent},
 };
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -232,14 +232,16 @@ fn test_complete_workflow_lifecycle() {
     let workflow_id = workflow.id();
 
     // Setup workflow engine
-    let mut workflows = WorkflowEngine::new();
-    workflows.register_workflow(workflow);
+    let mut engine = WorkflowEngine::new();
+    engine.register_workflow(workflow);
 
     // 2. Start a workflow instance
-    let instance = workflows.start_instance(workflow_id).unwrap();
+    let instance = engine.start_instance(workflow_id).unwrap();
     let instance_id = instance.id;
 
-    runner.set_workflow_engine(workflows);
+    let mut registry = WorkflowRegistry::new();
+    registry.register("test".to_string(), engine).unwrap();
+    runner.set_workflow_registry(registry);
 
     // Setup resources
     let mut allocator = ResourceAllocator::new();
@@ -277,8 +279,8 @@ fn test_complete_workflow_lifecycle() {
     runner.tick().unwrap(); // T=20s - step 1 completes at start of this tick
 
     // 7. Verify workflow advanced to step 2
-    let workflows = runner.workflows().unwrap();
-    let instance = workflows.instance_table.get_instance(instance_id).unwrap();
+    let engine = runner.workflow_registry().unwrap().get("test").unwrap();
+    let instance = engine.instance_table.get_instance(instance_id).unwrap();
     assert_eq!(instance.current_step, 1);
     assert!(!instance.is_complete);
 
@@ -294,8 +296,8 @@ fn test_complete_workflow_lifecycle() {
     runner.tick().unwrap(); // T=40s - step 2 completes at start of this tick
 
     // Verify workflow advanced to step 3
-    let workflows = runner.workflows().unwrap();
-    let instance = workflows.instance_table.get_instance(instance_id).unwrap();
+    let engine = runner.workflow_registry().unwrap().get("test").unwrap();
+    let instance = engine.instance_table.get_instance(instance_id).unwrap();
     assert_eq!(instance.current_step, 2);
     assert!(!instance.is_complete);
 
@@ -309,8 +311,8 @@ fn test_complete_workflow_lifecycle() {
     runner.tick().unwrap(); // T=65s - step 3 completes at start of this tick
 
     // 11. Verify workflow marked complete
-    let workflows = runner.workflows().unwrap();
-    let instance = workflows.instance_table.get_instance(instance_id).unwrap();
+    let engine = runner.workflow_registry().unwrap().get("test").unwrap();
+    let instance = engine.instance_table.get_instance(instance_id).unwrap();
     assert_eq!(instance.current_step, 3);
     assert!(instance.is_complete);
 
@@ -393,16 +395,18 @@ fn test_multiple_concurrent_workflows() {
     let workflow_id = workflow.id();
 
     // Setup workflow engine with 3 concurrent instances
-    let mut workflows = WorkflowEngine::new();
-    workflows.register_workflow(workflow);
+    let mut engine = WorkflowEngine::new();
+    engine.register_workflow(workflow);
 
-    let instance1 = workflows.start_instance(workflow_id).unwrap();
-    let instance2 = workflows.start_instance(workflow_id).unwrap();
-    let instance3 = workflows.start_instance(workflow_id).unwrap();
+    let instance1 = engine.start_instance(workflow_id).unwrap();
+    let instance2 = engine.start_instance(workflow_id).unwrap();
+    let instance3 = engine.start_instance(workflow_id).unwrap();
 
     let instance_ids = vec![instance1.id, instance2.id, instance3.id];
 
-    runner.set_workflow_engine(workflows);
+    let mut registry = WorkflowRegistry::new();
+    registry.register("test".to_string(), engine).unwrap();
+    runner.set_workflow_registry(registry);
 
     // Setup resources (enough capacity for all tasks)
     let mut allocator = ResourceAllocator::new();
@@ -438,9 +442,9 @@ fn test_multiple_concurrent_workflows() {
     runner.tick().unwrap(); // T=20s - step 1 completes at start of this tick
 
     // All workflows should advance to step 1
-    let workflows = runner.workflows().unwrap();
+    let engine = runner.workflow_registry().unwrap().get("test").unwrap();
     for instance_id in &instance_ids {
-        let instance = workflows.instance_table.get_instance(*instance_id).unwrap();
+        let instance = engine.instance_table.get_instance(*instance_id).unwrap();
         assert_eq!(instance.current_step, 1);
         assert!(!instance.is_complete);
     }
@@ -456,9 +460,9 @@ fn test_multiple_concurrent_workflows() {
     runner.tick().unwrap(); // T=35s - step 2 completes at start of this tick
 
     // All workflows should be complete
-    let workflows = runner.workflows().unwrap();
+    let engine = runner.workflow_registry().unwrap().get("test").unwrap();
     for instance_id in &instance_ids {
-        let instance = workflows.instance_table.get_instance(*instance_id).unwrap();
+        let instance = engine.instance_table.get_instance(*instance_id).unwrap();
         assert_eq!(instance.current_step, 2);
         assert!(instance.is_complete);
     }

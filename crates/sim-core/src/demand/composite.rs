@@ -18,12 +18,12 @@ use crate::population::Demand;
 /// let mut composite = CompositeDemandGenerator::new();
 ///
 /// // Add food orders (10/hour)
-/// composite = composite.add(Box::new(
+/// composite = composite.with_generator(Box::new(
 ///     PoissonDemandGenerator::new(10.0, "food_order")
 /// ));
 ///
 /// // Add grocery orders (5/hour)
-/// composite = composite.add(Box::new(
+/// composite = composite.with_generator(Box::new(
 ///     PoissonDemandGenerator::new(5.0, "grocery_order")
 /// ));
 ///
@@ -43,7 +43,7 @@ impl CompositeDemandGenerator {
     /// Add a generator to the pipeline
     ///
     /// Returns self for method chaining.
-    pub fn add(mut self, generator: Box<dyn DemandGenerator>) -> Self {
+    pub fn with_generator(mut self, generator: Box<dyn DemandGenerator>) -> Self {
         self.generators.push(generator);
         self
     }
@@ -126,10 +126,11 @@ mod tests {
 
     #[test]
     fn test_single_generator() {
-        let composite = CompositeDemandGenerator::new().add(Box::new(FixedCountGenerator {
-            count: 5,
-            demand_type: "order".to_string(),
-        }));
+        let composite =
+            CompositeDemandGenerator::new().with_generator(Box::new(FixedCountGenerator {
+                count: 5,
+                demand_type: "order".to_string(),
+            }));
 
         assert_eq!(composite.len(), 1);
         assert!(!composite.is_empty());
@@ -145,15 +146,15 @@ mod tests {
     #[test]
     fn test_multiple_generators() {
         let composite = CompositeDemandGenerator::new()
-            .add(Box::new(FixedCountGenerator {
+            .with_generator(Box::new(FixedCountGenerator {
                 count: 3,
                 demand_type: "food_order".to_string(),
             }))
-            .add(Box::new(FixedCountGenerator {
+            .with_generator(Box::new(FixedCountGenerator {
                 count: 5,
                 demand_type: "grocery_order".to_string(),
             }))
-            .add(Box::new(FixedCountGenerator {
+            .with_generator(Box::new(FixedCountGenerator {
                 count: 2,
                 demand_type: "package_delivery".to_string(),
             }));
@@ -189,11 +190,11 @@ mod tests {
     fn test_order_independence() {
         // Verify that demand order is preserved (generators run in order added)
         let composite = CompositeDemandGenerator::new()
-            .add(Box::new(FixedCountGenerator {
+            .with_generator(Box::new(FixedCountGenerator {
                 count: 2,
                 demand_type: "type_a".to_string(),
             }))
-            .add(Box::new(FixedCountGenerator {
+            .with_generator(Box::new(FixedCountGenerator {
                 count: 2,
                 demand_type: "type_b".to_string(),
             }));
@@ -213,15 +214,15 @@ mod tests {
     #[test]
     fn test_with_zero_count_generators() {
         let composite = CompositeDemandGenerator::new()
-            .add(Box::new(FixedCountGenerator {
+            .with_generator(Box::new(FixedCountGenerator {
                 count: 0,
                 demand_type: "none".to_string(),
             }))
-            .add(Box::new(FixedCountGenerator {
+            .with_generator(Box::new(FixedCountGenerator {
                 count: 3,
                 demand_type: "some".to_string(),
             }))
-            .add(Box::new(FixedCountGenerator {
+            .with_generator(Box::new(FixedCountGenerator {
                 count: 0,
                 demand_type: "none2".to_string(),
             }));

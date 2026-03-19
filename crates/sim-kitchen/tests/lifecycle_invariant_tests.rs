@@ -52,16 +52,28 @@ impl EventInvariantChecker {
     }
 
     fn extract_order_id(record: &EventRecord) -> Option<String> {
-        record.data.get("order_id").and_then(|v| v.as_str()).map(String::from)
+        record
+            .data
+            .get("order_id")
+            .and_then(|v| v.as_str())
+            .map(String::from)
     }
 
     fn extract_customer_id(record: &EventRecord) -> Option<String> {
-        record.data.get("customer_id").and_then(|v| v.as_str()).map(String::from)
+        record
+            .data
+            .get("customer_id")
+            .and_then(|v| v.as_str())
+            .map(String::from)
     }
 
     #[allow(dead_code)]
     fn extract_kitchen_id(record: &EventRecord) -> Option<String> {
-        record.data.get("kitchen_id").and_then(|v| v.as_str()).map(String::from)
+        record
+            .data
+            .get("kitchen_id")
+            .and_then(|v| v.as_str())
+            .map(String::from)
     }
 
     /// Invariant 1: For every order.created, there should be a corresponding
@@ -352,11 +364,31 @@ fn test_single_order_full_lifecycle() {
 
     let checker = EventInvariantChecker::new(sim.collect_all_event_records());
 
-    assert_eq!(checker.count(ORDER_CREATED), 1, "should have exactly 1 order created");
-    assert_eq!(checker.count(ORDER_ASSIGNED), 1, "should have exactly 1 order assigned");
-    assert_eq!(checker.count(ORDER_COMPLETED), 1, "should have exactly 1 order completed");
-    assert_eq!(checker.count(CUSTOMER_EATING), 1, "should have exactly 1 customer eating");
-    assert_eq!(checker.count(CUSTOMER_DONE), 1, "should have exactly 1 customer done");
+    assert_eq!(
+        checker.count(ORDER_CREATED),
+        1,
+        "should have exactly 1 order created"
+    );
+    assert_eq!(
+        checker.count(ORDER_ASSIGNED),
+        1,
+        "should have exactly 1 order assigned"
+    );
+    assert_eq!(
+        checker.count(ORDER_COMPLETED),
+        1,
+        "should have exactly 1 order completed"
+    );
+    assert_eq!(
+        checker.count(CUSTOMER_EATING),
+        1,
+        "should have exactly 1 customer eating"
+    );
+    assert_eq!(
+        checker.count(CUSTOMER_DONE),
+        1,
+        "should have exactly 1 customer done"
+    );
 
     checker.assert_all_invariants();
 
@@ -455,7 +487,10 @@ fn test_event_counts_match_across_dispatchers() {
         hooks_completed, sim_eating,
     );
 
-    assert!(hooks_completed > 0, "should have at least one completed order");
+    assert!(
+        hooks_completed > 0,
+        "should have at least one completed order"
+    );
 }
 
 /// Zero customers means zero events. Catches accidental event emission.
@@ -491,8 +526,12 @@ fn test_inventory_lifecycle_triggers_supply_events() {
         verbose: false,
         ..Default::default()
     };
-    let mut runner: SimulationRunner<Customer, sim_kitchen::Kitchen, sim_kitchen::Order, FoodPrepWorkflow> =
-        SimulationRunner::new(config);
+    let mut runner: SimulationRunner<
+        Customer,
+        sim_kitchen::Kitchen,
+        sim_kitchen::Order,
+        FoodPrepWorkflow,
+    > = SimulationRunner::new(config);
 
     let mut allocator = ResourceAllocator::new();
     let kitchen = sim_kitchen::Kitchen::new("Kitchen-1".to_string(), 5);
@@ -525,11 +564,8 @@ fn test_inventory_lifecycle_triggers_supply_events() {
 
     // Add a single customer that will order immediately
     let mut population = PopulationHandler::new();
-    let customer = Customer::with_params(
-        Point::new(-122.4, 37.8),
-        1.0,
-        chrono::Duration::minutes(1),
-    );
+    let customer =
+        Customer::with_params(Point::new(-122.4, 37.8), 1.0, chrono::Duration::minutes(1));
     population.add_agent(customer);
     runner.set_population_handler(population);
 
@@ -565,7 +601,10 @@ fn test_inventory_lifecycle_triggers_supply_events() {
 
     // Order should have been created and assigned
     assert!(checker.count(ORDER_CREATED) >= 1, "order should be created");
-    assert!(checker.count(ORDER_ASSIGNED) >= 1, "order should be assigned");
+    assert!(
+        checker.count(ORDER_ASSIGNED) >= 1,
+        "order should be assigned"
+    );
 
     // Inventory should have been consumed
     assert!(

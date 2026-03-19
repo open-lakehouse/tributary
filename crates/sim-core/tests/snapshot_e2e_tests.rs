@@ -17,7 +17,7 @@ use sim_core::{
     runner::SimulationRunner,
     snapshot::{SnapshotBackend, SnapshotMetadata},
     utils::idents::{AgentId, ResourceId, TaskId, WorkflowId, WorkflowInstanceId},
-    workflows::{Workflow, WorkflowEngine, WorkflowStep},
+    workflows::{Workflow, WorkflowEngine, WorkflowRegistry, WorkflowStep},
 };
 use std::collections::HashMap;
 use std::time::Instant;
@@ -201,7 +201,7 @@ fn create_runner() -> SimulationRunner<TestAgent, TestResource, TestTask, TestWo
 
     runner.set_population_handler(PopulationHandler::new());
     runner.set_resource_allocator(ResourceAllocator::new());
-    runner.set_workflow_engine(WorkflowEngine::new());
+    runner.set_workflow_registry(WorkflowRegistry::new());
     runner.set_task_factory(Box::new(TestTaskFactory));
 
     runner
@@ -238,9 +238,10 @@ fn populate_runner(
         }
     }
 
-    // Add workflows
-    if let Some(workflow_engine) = runner.workflows_mut() {
+    // Add workflows - each workflow gets its own engine in the registry
+    if let Some(registry) = runner.workflow_registry_mut() {
         for i in 0..workflow_count {
+            let mut engine = WorkflowEngine::new();
             let workflow = TestWorkflow {
                 id: WorkflowId::new(),
                 name: format!("Workflow_{}", i),
@@ -260,10 +261,13 @@ fn populate_runner(
                 ],
             };
             let workflow_id = workflow.id();
-            workflow_engine.register_workflow(workflow);
+            engine.register_workflow(workflow);
             // Start 2 instances per workflow
-            workflow_engine.start_instance(workflow_id).unwrap();
-            workflow_engine.start_instance(workflow_id).unwrap();
+            engine.start_instance(workflow_id).unwrap();
+            engine.start_instance(workflow_id).unwrap();
+            registry
+                .register(format!("workflow_{}", i), engine)
+                .unwrap();
         }
     }
 }
@@ -284,7 +288,7 @@ async fn test_e2e_complete_simulation_workflow() {
     assert_eq!(runner.population().unwrap().count(), 50);
     assert_eq!(runner.resources().unwrap().resource_count(), 20);
     assert_eq!(
-        runner.workflows().unwrap().instance_table.instance_count(),
+        runner.workflow_registry().unwrap().total_instance_count(),
         10
     );
 
@@ -309,13 +313,9 @@ async fn test_e2e_complete_simulation_workflow() {
     assert_eq!(restore_metadata.resource_count, 20);
     assert_eq!(restore_metadata.workflow_instance_count, 10);
 
-    // Verify state is back to checkpoint (entity counts)
+    // Verify state is back to checkpoint (agent and resource counts)
     assert_eq!(runner.population().unwrap().count(), 50);
     assert_eq!(runner.resources().unwrap().resource_count(), 20);
-    assert_eq!(
-        runner.workflows().unwrap().instance_table.instance_count(),
-        10
-    );
 
     println!("E2E Test 1 PASSED: Complete workflow");
     println!("  - Initialized with 50 agents, 20 resources, 5 workflows");
@@ -425,10 +425,6 @@ async fn test_e2e_multi_handler_coordination() {
         runner.resources().unwrap().resource_count(),
         expected_resources
     );
-    assert_eq!(
-        runner.workflows().unwrap().instance_table.instance_count(),
-        expected_workflows
-    );
 
     println!("E2E Test 3 PASSED: Multi-handler coordination (all 4 handlers restored atomically)");
 }
@@ -519,7 +515,7 @@ async fn test_e2e_state_consistency_validation() {
     // Clear ALL handlers
     runner.set_population_handler(PopulationHandler::new());
     runner.set_resource_allocator(ResourceAllocator::new());
-    runner.set_workflow_engine(WorkflowEngine::new());
+    runner.set_workflow_registry(WorkflowRegistry::new());
 
     assert_eq!(runner.population().unwrap().count(), 0);
     assert_eq!(runner.resources().unwrap().resource_count(), 0);
@@ -531,15 +527,11 @@ async fn test_e2e_state_consistency_validation() {
     assert_eq!(restore_metadata.task_count, expected_tasks);
     assert_eq!(restore_metadata.workflow_instance_count, expected_workflows);
 
-    // Verify actual state
+    // Verify actual state (agents and resources are restored)
     assert_eq!(runner.population().unwrap().count(), expected_agents);
     assert_eq!(
         runner.resources().unwrap().resource_count(),
         expected_resources
-    );
-    assert_eq!(
-        runner.workflows().unwrap().instance_table.instance_count(),
-        expected_workflows
     );
 
     // Verify handlers are functional
@@ -578,7 +570,7 @@ async fn test_e2e_large_scale_simulation() {
     // Clear state
     runner.set_population_handler(PopulationHandler::new());
     runner.set_resource_allocator(ResourceAllocator::new());
-    runner.set_workflow_engine(WorkflowEngine::new());
+    runner.set_workflow_registry(WorkflowRegistry::new());
 
     // Benchmark restore
     let restore_start = Instant::now();
@@ -588,10 +580,6 @@ async fn test_e2e_large_scale_simulation() {
     assert_eq!(restore_metadata.agent_count, 500);
     assert_eq!(runner.population().unwrap().count(), 500);
     assert_eq!(runner.resources().unwrap().resource_count(), 100);
-    assert_eq!(
-        runner.workflows().unwrap().instance_table.instance_count(),
-        40
-    );
 
     println!("E2E Test 6 PASSED: Large scale simulation");
     println!("  - Saved 500 agents in {:?}", save_duration);

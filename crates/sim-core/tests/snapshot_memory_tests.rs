@@ -12,7 +12,7 @@ use sim_core::{
     runner::SimulationRunner,
     snapshot::{SnapshotBackend, SnapshotData, SnapshotManager},
     utils::idents::{AgentId, ResourceId, TaskId, WorkflowId, WorkflowInstanceId},
-    workflows::{Workflow, WorkflowEngine, WorkflowStep},
+    workflows::{Workflow, WorkflowEngine, WorkflowRegistry, WorkflowStep},
 };
 
 // =============================================================================
@@ -166,7 +166,7 @@ fn setup_simulation() -> SimulationRunner<TestAgent, TestResource, TestTask, Tes
 
     runner.set_population_handler(PopulationHandler::new());
     runner.set_resource_allocator(ResourceAllocator::new());
-    runner.set_workflow_engine(WorkflowEngine::new());
+    runner.set_workflow_registry(WorkflowRegistry::new());
 
     runner
 }
@@ -252,7 +252,7 @@ async fn test_empty_simulation_handling() {
 
     runner.set_population_handler(PopulationHandler::new());
     runner.set_resource_allocator(ResourceAllocator::new());
-    runner.set_workflow_engine(WorkflowEngine::new());
+    runner.set_workflow_registry(WorkflowRegistry::new());
     runner.init_snapshot_manager().await.unwrap();
 
     let meta = runner.save_snapshot("empty").await.unwrap();

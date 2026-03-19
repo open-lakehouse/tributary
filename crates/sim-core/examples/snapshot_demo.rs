@@ -13,7 +13,7 @@ use sim_core::{
     runner::SimulationRunner,
     snapshot::SnapshotBackend,
     utils::idents::{AgentId, ResourceId, TaskId},
-    workflows::{Workflow, WorkflowEngine},
+    workflows::{Workflow, WorkflowRegistry},
 };
 
 // Example agent implementation
@@ -186,8 +186,8 @@ async fn main() -> sim_core::Result<()> {
     }
     runner.set_resource_allocator(allocator);
 
-    // Setup workflow engine
-    runner.set_workflow_engine(WorkflowEngine::new());
+    // Setup workflow registry
+    runner.set_workflow_registry(WorkflowRegistry::new());
 
     // Run initial simulation
     println!("\nRunning simulation for 10 steps...");

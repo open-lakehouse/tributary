@@ -22,7 +22,7 @@ pub struct LoadingDock {
     pub vehicle_slots: u32,
     pub packages_per_hour: f64,
     pub active_vehicles: HashMap<String, VehicleLoadingState>,
-    pub waiting_vehicles: VecDeque<String>,
+    pub waiting_vehicles: VecDeque<(String, Vec<String>)>,
     pub total_vehicles_serviced: u64,
 }
 
@@ -90,7 +90,7 @@ impl LoadingDock {
         current_tick: u64,
     ) -> Result<(), String> {
         if !self.has_available_slot() {
-            self.waiting_vehicles.push_back(driver_id);
+            self.waiting_vehicles.push_back((driver_id, package_ids));
             return Err("No available loading slots".to_string());
         }
 
@@ -160,9 +160,17 @@ impl LoadingDock {
 
         // Assign waiting vehicles to available slots
         while self.has_available_slot() && !self.waiting_vehicles.is_empty() {
-            if let Some(_driver_id) = self.waiting_vehicles.pop_front() {
-                // Need to know package count - for now, skip
-                // In real implementation, would store package info with waiting vehicles
+            if let Some((driver_id, package_ids)) = self.waiting_vehicles.pop_front() {
+                let seconds_per_package = 3600.0 / self.packages_per_hour;
+                let ticks_per_package = (seconds_per_package / 30.0).ceil() as u64;
+                let state = VehicleLoadingState {
+                    driver_id: driver_id.clone(),
+                    packages_to_load: package_ids,
+                    packages_loaded: 0,
+                    loading_started_tick: current_tick,
+                    next_package_ready_tick: current_tick + ticks_per_package,
+                };
+                self.active_vehicles.insert(driver_id, state);
             }
         }
 

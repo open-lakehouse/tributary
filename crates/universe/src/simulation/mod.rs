@@ -399,6 +399,13 @@ impl SimulationRunner {
         ])?;
         let maybe_journeys = self.movement.plan_journeys(&self.ctx, journey_data).await?;
 
+        let picked_up_event = EventsHelper::order_picked_up(picked_up_orders.clone().select([
+            col("site_id"),
+            col("assigned_courier").alias("courier_id"),
+            col("order_id"),
+            self.ctx.current_time_expr().alias("timestamp"),
+        ])?)?;
+
         if let Some(journeys) = maybe_journeys {
             let journeys = journeys
                 .join_on(
@@ -410,17 +417,50 @@ impl SimulationRunner {
                 )?
                 .drop_columns(&["assigned_courier"])?;
             self.population.start_journeys(&self.ctx, journeys).await?;
-        }
+            Ok(Some(picked_up_event))
+        } else {
+            // Routing failed: no journey could be planned. Immediately complete
+            // the delivery so couriers don't get stuck in Delivering status and
+            // orders don't stall in PickedUp status.
+            let unroutable_order_ids = picked_up_orders
+                .clone()
+                .select([col("order_id")])?
+                .collect()
+                .await?
+                .iter()
+                .flat_map(|b| b.column(0).as_fixed_size_binary().iter().flatten())
+                .map(|val| lit(ScalarValue::FixedSizeBinary(16, Some(val.to_vec()))))
+                .collect_vec();
+            if !unroutable_order_ids.is_empty() {
+                self.kitchens
+                    .set_order_status(&self.ctx, unroutable_order_ids, OrderStatus::Delivered)
+                    .await?;
+            }
 
-        Some(EventsHelper::order_picked_up(
-            picked_up_orders.clone().select([
-                col("site_id"),
-                col("assigned_courier").alias("courier_id"),
-                col("order_id"),
-                self.ctx.current_time_expr().alias("timestamp"),
-            ])?,
-        ))
-        .transpose()
+            let unroutable_courier_ids = picked_up_orders
+                .clone()
+                .select([col("assigned_courier")])?
+                .collect()
+                .await?
+                .iter()
+                .flat_map(|b| b.column(0).as_fixed_size_binary().iter().flatten())
+                .map(|val| lit(ScalarValue::FixedSizeBinary(16, Some(val.to_vec()))))
+                .collect_vec();
+            if !unroutable_courier_ids.is_empty() {
+                self.population
+                    .set_person_status(&self.ctx, unroutable_courier_ids, PersonStatusFlag::Idle)
+                    .await?;
+            }
+
+            let delivered_event =
+                EventsHelper::order_delivered(picked_up_orders.clone().select([
+                    col("assigned_courier").alias("person_id"),
+                    col("order_id"),
+                    self.ctx.current_time_expr().alias("timestamp"),
+                ])?)?;
+
+            Ok(Some(picked_up_event.union(delivered_event)?))
+        }
     }
 
     /// Assign courires to ready order for pickup.

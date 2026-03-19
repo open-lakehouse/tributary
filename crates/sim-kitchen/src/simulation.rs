@@ -329,7 +329,10 @@ impl KitchenSimulationHooks {
     }
 
     /// Flush all buffered events to a Parquet file
-    pub fn save_events(&mut self, path: impl Into<std::path::PathBuf>) -> sim_events::Result<usize> {
+    pub fn save_events(
+        &mut self,
+        path: impl Into<std::path::PathBuf>,
+    ) -> sim_events::Result<usize> {
         self.dispatcher.flush_to_parquet(path)
     }
 
@@ -569,11 +572,8 @@ impl SimulationHooks for KitchenSimulationHooks {
                     );
 
                     // Create Order task for the ResourceAllocator
-                    let order_task = Order::new(
-                        order_id.to_string(),
-                        customer_id.to_string(),
-                        items.clone(),
-                    );
+                    let order_task =
+                        Order::new(order_id.to_string(), customer_id.to_string(), items.clone());
                     self.pending_orders.push(order_task);
 
                     // Emit order created event
@@ -1003,11 +1003,11 @@ impl KitchenSimulation {
             // 2. Drain pending orders from hooks into the resource allocator
             if let Some(hooks) = self.runner.hooks_as_mut::<KitchenSimulationHooks>() {
                 let new_orders = hooks.drain_pending_orders();
-                if !new_orders.is_empty() {
-                    if let Some(allocator) = self.runner.resources_mut() {
-                        for order in new_orders {
-                            let _ = allocator.add_task(order);
-                        }
+                if !new_orders.is_empty()
+                    && let Some(allocator) = self.runner.resources_mut()
+                {
+                    for order in new_orders {
+                        let _ = allocator.add_task(order);
                     }
                 }
             }

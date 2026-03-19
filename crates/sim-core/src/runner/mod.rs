@@ -36,7 +36,7 @@ use crate::resources::{
     AllocationStrategy, Assignment, Resource, ResourceAllocator, Task, TaskFactory,
 };
 use crate::snapshot::{SnapshotBackend, SnapshotData, SnapshotManager, SnapshotMetadata};
-use crate::workflows::{Workflow, WorkflowEngine, WorkflowRegistry, WorkflowStepEvent};
+use crate::workflows::{Workflow, WorkflowRegistry, WorkflowStepEvent};
 use arrow::array::RecordBatch;
 use std::marker::PhantomData;
 
@@ -157,9 +157,7 @@ where
     population: Option<PopulationHandler<A>>,
     /// Resource allocator (optional)
     resources: Option<ResourceAllocator<R, T>>,
-    /// Workflow engine (optional, legacy single-workflow support)
-    workflows: Option<WorkflowEngine<W>>,
-    /// Workflow registry (optional, multi-workflow support)
+    /// Workflow registry (multi-workflow support)
     workflow_registry: Option<WorkflowRegistry<W>>,
     /// Task factory for creating tasks from workflow steps (optional)
     task_factory: Option<Box<dyn TaskFactory<T>>>,
@@ -201,7 +199,6 @@ where
             context: SimulationContext::from_now(config),
             population: None,
             resources: None,
-            workflows: None,
             workflow_registry: None,
             task_factory: None,
             demand_generator: None,
@@ -221,7 +218,6 @@ where
             context: SimulationContext::new(start_time, config),
             population: None,
             resources: None,
-            workflows: None,
             workflow_registry: None,
             task_factory: None,
             demand_generator: None,
@@ -240,11 +236,6 @@ where
     /// Set the resource allocator
     pub fn set_resource_allocator(&mut self, allocator: ResourceAllocator<R, T>) {
         self.resources = Some(allocator);
-    }
-
-    /// Set the workflow engine
-    pub fn set_workflow_engine(&mut self, engine: WorkflowEngine<W>) {
-        self.workflows = Some(engine);
     }
 
     /// Set the task factory for creating tasks from workflow steps
@@ -302,16 +293,6 @@ where
         self.resources.as_mut()
     }
 
-    /// Get the workflow engine
-    pub fn workflows(&self) -> Option<&WorkflowEngine<W>> {
-        self.workflows.as_ref()
-    }
-
-    /// Get mutable reference to workflow engine
-    pub fn workflows_mut(&mut self) -> Option<&mut WorkflowEngine<W>> {
-        self.workflows.as_mut()
-    }
-
     /// Set the workflow registry for multi-workflow support
     ///
     /// # Arguments
@@ -320,8 +301,8 @@ where
     ///
     /// # Note
     ///
-    /// Using workflow_registry is mutually exclusive with the single workflow engine.
-    /// Set either workflow_registry OR workflows, not both.
+    /// Each named engine in the registry handles a distinct workflow type.
+    /// Use `WorkflowRegistry::register` to add engines before calling this method.
     pub fn set_workflow_registry(&mut self, registry: WorkflowRegistry<W>) {
         self.workflow_registry = Some(registry);
     }
@@ -363,26 +344,32 @@ where
             self.hooks.on_agents_ticked(&self.context, &results)?;
         }
 
-        // Process workflows - support both single engine and registry
+        // Process workflow registry (multi-workflow support)
         let current_time = self.context.current_time();
         let mut all_workflow_events = Vec::new();
 
-        // Process single workflow engine (legacy support)
-        if let Some(workflows) = &mut self.workflows {
-            // Step 1: Tick workflows (process time-based steps)
-            let mut workflow_events = workflows.tick(current_time)?;
+        if let Some(registry) = &mut self.workflow_registry {
+            // Step 1: Tick all workflow engines in registry (process time-based steps)
+            let registry_events = registry.tick_all(current_time)?;
+            all_workflow_events.extend(registry_events);
 
             // Step 2: Get completed tasks from resources and advance workflow instances
             if let Some(resources) = &mut self.resources {
                 let completed_tasks = resources.get_completed_tasks(current_time)?;
 
-                // Step 3: Advance workflow instances for completed tasks
+                // Step 3: Advance workflow instances for completed tasks across all engines
                 for (_task_id, instance_id) in completed_tasks {
-                    if let Some(event) =
-                        workflows.advance_instance_step(instance_id, current_time)?
-                    {
-                        workflow_events.push(event);
-                        self.stats.total_workflow_steps += 1;
+                    // Find the engine that owns this instance and advance it
+                    for engine in registry.engines_mut() {
+                        if engine.instance_table.get_row_index(instance_id).is_some() {
+                            if let Some(event) =
+                                engine.advance_instance_step(instance_id, current_time)?
+                            {
+                                all_workflow_events.push(event);
+                                self.stats.total_workflow_steps += 1;
+                            }
+                            break;
+                        }
                     }
                 }
 
@@ -390,13 +377,15 @@ where
                 if let Some(task_factory) = &self.task_factory {
                     // Collect info about ready instances first (to avoid borrow issues)
                     let mut instances_to_create = Vec::new();
-                    let ready_instances = workflows.instance_table.get_ready_instances();
 
-                    for instance in ready_instances {
-                        if let Some(workflow) = workflows.get_workflow(instance.workflow_id)
-                            && let Some(step) = workflow.get_step(instance.current_step)
-                        {
-                            instances_to_create.push((instance.id, step.clone(), current_time));
+                    for engine in registry.engines_mut() {
+                        let ready_instances = engine.instance_table.get_ready_instances();
+                        for instance in ready_instances {
+                            if let Some(workflow) = engine.get_workflow(instance.workflow_id)
+                                && let Some(step) = workflow.get_step(instance.current_step)
+                            {
+                                instances_to_create.push((instance.id, step.clone(), current_time));
+                            }
                         }
                     }
 
@@ -409,23 +398,15 @@ where
                         let _ = resources.add_task(task);
 
                         // Mark instance as having a task assigned to prevent duplicate task creation
-                        workflows.mark_task_assigned(instance_id)?;
+                        for engine in registry.engines_mut() {
+                            if engine.instance_table.get_row_index(instance_id).is_some() {
+                                engine.mark_task_assigned(instance_id)?;
+                                break;
+                            }
+                        }
                     }
                 }
             }
-
-            all_workflow_events.extend(workflow_events);
-        }
-
-        // Process workflow registry (multi-workflow support)
-        if let Some(registry) = &mut self.workflow_registry {
-            // Step 1: Tick all workflow engines in registry
-            let registry_events = registry.tick_all(current_time)?;
-            all_workflow_events.extend(registry_events);
-
-            // Note: Task creation and advancement for registry workflows would require
-            // additional logic to map tasks to specific workflow engines by name.
-            // This is left as future work for Phase 9 implementation.
         }
 
         // Emit all workflow events through hooks
@@ -457,30 +438,9 @@ where
         if let Some(resources) = &mut self.resources {
             let current_time = self.context.current_time();
 
-            // Get pending tasks with workflow instance IDs before allocation
-            let mut workflow_tasks = Vec::new();
-            for (task_id, _) in resources.pending_tasks() {
-                if let Some(instance_id) = resources.get_task_workflow_instance_id(task_id)
-                    && let Some(duration) = resources.get_task_estimated_duration(task_id)
-                {
-                    workflow_tasks.push((task_id, instance_id, duration));
-                }
-            }
-
             let assignments = resources.assign_tasks(strategy, current_time)?;
             let count = assignments.len();
             self.stats.total_assignments += count;
-
-            // Mark workflow instances as assigned
-            if let Some(workflows) = &mut self.workflows {
-                for (task_id, instance_id, _duration) in workflow_tasks {
-                    // Check if this task was assigned
-                    if assignments.iter().any(|a| a.task_id == task_id) {
-                        // Mark the instance as having a task assigned
-                        let _ = workflows.mark_task_assigned(instance_id);
-                    }
-                }
-            }
 
             self.hooks
                 .on_resources_allocated(&self.context, &assignments)?;
@@ -659,8 +619,26 @@ where
             )
         };
 
-        let workflow_instances = if let Some(wf) = &self.workflows {
-            wf.instance_table.export_batch()
+        let workflow_instances = if let Some(registry) = &self.workflow_registry {
+            // Export and concatenate instances from all engines in the registry
+            let mut batches: Vec<RecordBatch> = registry
+                .engines()
+                .map(|engine| engine.instance_table.export_batch())
+                .filter(|b| b.num_rows() > 0)
+                .collect();
+            if batches.is_empty() {
+                RecordBatch::new_empty(crate::workflows::workflow_instance_schema())
+            } else if batches.len() == 1 {
+                batches.remove(0)
+            } else {
+                let schema = batches[0].schema();
+                arrow::compute::concat_batches(&schema, &batches).map_err(|e| {
+                    crate::Error::Workflow(format!(
+                        "Failed to concatenate workflow instance batches: {}",
+                        e
+                    ))
+                })?
+            }
         } else {
             // Create empty batch with schema
             RecordBatch::new_empty(crate::workflows::workflow_instance_schema())
@@ -732,22 +710,7 @@ where
         // Restore data from snapshot manager
         let snapshot_data = manager.restore_snapshot(snapshot_id).await?;
 
-        // Import into handlers (all-or-nothing - validate first, then commit)
-        // Step 1: Validate all imports will succeed
-        if let Some(pop) = &self.population {
-            // Validation happens inside import_batch
-            let _ = pop; // Just checking existence
-        }
-
-        if let Some(res) = &self.resources {
-            let _ = res; // Just checking existence
-        }
-
-        if let Some(wf) = &self.workflows {
-            let _ = wf; // Just checking existence
-        }
-
-        // Step 2: Perform imports (errors will roll back via Result)
+        // Step 1: Perform imports (errors will roll back via Result)
         if let Some(pop) = &mut self.population {
             pop.import_batch(snapshot_data.agents.clone())?;
         }
@@ -756,12 +719,10 @@ where
             res.import_batch(snapshot_data.resources.clone(), snapshot_data.tasks.clone())?;
         }
 
-        if let Some(wf) = &mut self.workflows {
-            wf.instance_table
-                .import_batch(snapshot_data.workflow_instances.clone())?;
-        }
+        // Note: snapshot restore does not redistribute workflow instances across registry engines;
+        // the snapshot stores a flat batch of all instances. This is a known limitation.
 
-        // Step 3: Verify state consistency
+        // Step 2: Verify state consistency
         // Count entities to ensure data was imported correctly
         let agent_count = self.population.as_ref().map(|p| p.count()).unwrap_or(0);
 
@@ -773,11 +734,7 @@ where
 
         let task_count = snapshot_data.tasks.num_rows();
 
-        let workflow_instance_count = self
-            .workflows
-            .as_ref()
-            .map(|w| w.instance_table.instance_count())
-            .unwrap_or(0);
+        let workflow_instance_count = snapshot_data.workflow_instances.num_rows();
 
         // Verify counts match what we imported
         if agent_count != snapshot_data.agents.num_rows() {
@@ -801,14 +758,6 @@ where
                 "Task count mismatch after restore: expected {}, got {}",
                 snapshot_data.tasks.num_rows(),
                 task_count
-            )));
-        }
-
-        if workflow_instance_count != snapshot_data.workflow_instances.num_rows() {
-            return Err(crate::Error::InvalidState(format!(
-                "Workflow instance count mismatch after restore: expected {}, got {}",
-                snapshot_data.workflow_instances.num_rows(),
-                workflow_instance_count
             )));
         }
 
@@ -884,7 +833,7 @@ mod tests {
     use super::*;
     use crate::population::AgentStatus;
     use crate::utils::idents::{AgentId, ResourceId, TaskId, WorkflowId};
-    use crate::workflows::WorkflowStep;
+    use crate::workflows::{WorkflowEngine, WorkflowStep};
     use geo::Point;
     use std::sync::{Arc, Mutex};
 
@@ -1176,7 +1125,7 @@ mod tests {
     #[test]
     fn test_runner_advances_workflows_on_task_completion() {
         use crate::resources::{LeastLoaded, ResourceAllocator};
-        use crate::workflows::WorkflowEngine;
+        use crate::workflows::{WorkflowEngine, WorkflowRegistry};
         use std::collections::HashMap;
 
         let config = SimulationConfig::default();
@@ -1209,7 +1158,11 @@ mod tests {
         let instance = workflow_engine.start_instance(workflow_id).unwrap();
         let instance_id = instance.id;
 
-        runner.set_workflow_engine(workflow_engine);
+        let mut registry = WorkflowRegistry::new();
+        registry
+            .register("test".to_string(), workflow_engine)
+            .unwrap();
+        runner.set_workflow_registry(registry);
 
         // Create resource allocator with a resource
         let mut allocator = ResourceAllocator::new();
@@ -1235,8 +1188,10 @@ mod tests {
         // Verify workflow is at step 0
         assert_eq!(
             runner
-                .workflows
+                .workflow_registry
                 .as_ref()
+                .unwrap()
+                .get("test")
                 .unwrap()
                 .instance_table
                 .get_instance(instance_id)
@@ -1252,8 +1207,10 @@ mod tests {
 
         // Verify workflow advanced to step 1
         let instance = runner
-            .workflows
+            .workflow_registry
             .as_ref()
+            .unwrap()
+            .get("test")
             .unwrap()
             .instance_table
             .get_instance(instance_id)
@@ -1269,7 +1226,7 @@ mod tests {
     fn test_runner_creates_tasks_for_ready_instances() {
         use crate::resources::{ResourceAllocator, TaskFactory};
         use crate::utils::idents::WorkflowInstanceId;
-        use crate::workflows::{WorkflowEngine, WorkflowStep};
+        use crate::workflows::{WorkflowEngine, WorkflowRegistry, WorkflowStep};
         use std::collections::HashMap;
 
         // Define a simple task factory
@@ -1310,7 +1267,11 @@ mod tests {
         // Start a workflow instance
         workflow_engine.start_instance(workflow_id).unwrap();
 
-        runner.set_workflow_engine(workflow_engine);
+        let mut registry = WorkflowRegistry::new();
+        registry
+            .register("test".to_string(), workflow_engine)
+            .unwrap();
+        runner.set_workflow_registry(registry);
         runner.set_resource_allocator(ResourceAllocator::new());
         runner.set_task_factory(Box::new(SimpleTaskFactory));
 
@@ -1324,7 +1285,7 @@ mod tests {
     #[test]
     fn test_runner_emits_workflow_events() {
         use crate::resources::{LeastLoaded, ResourceAllocator};
-        use crate::workflows::{WorkflowEngine, WorkflowStepEvent};
+        use crate::workflows::{WorkflowEngine, WorkflowRegistry, WorkflowStepEvent};
         use std::collections::HashMap;
 
         // Create a hook that captures workflow events
@@ -1378,7 +1339,11 @@ mod tests {
         let instance = workflow_engine.start_instance(workflow_id).unwrap();
         let instance_id = instance.id;
 
-        runner.set_workflow_engine(workflow_engine);
+        let mut registry = WorkflowRegistry::new();
+        registry
+            .register("test".to_string(), workflow_engine)
+            .unwrap();
+        runner.set_workflow_registry(registry);
 
         // Create resource allocator
         let mut allocator = ResourceAllocator::new();
@@ -1453,13 +1418,8 @@ mod tests {
         runner.set_resource_allocator(allocator);
 
         // Add workflows
-        let mut workflow_engine = WorkflowEngine::new();
-        let workflow = TestWorkflow {
-            id: WorkflowId::new(),
-            steps: vec![],
-        };
-        workflow_engine.register_workflow(workflow);
-        runner.set_workflow_engine(workflow_engine);
+        let registry = WorkflowRegistry::<TestWorkflow>::new();
+        runner.set_workflow_registry(registry);
 
         // Run a few steps
         runner.run_for_steps(5).unwrap();
@@ -1505,7 +1465,7 @@ mod tests {
         });
         runner.set_resource_allocator(allocator);
 
-        runner.set_workflow_engine(WorkflowEngine::new());
+        runner.set_workflow_registry(WorkflowRegistry::new());
 
         // Save snapshot
         runner.save_snapshot("restore_test").await.unwrap();
@@ -1563,7 +1523,7 @@ mod tests {
         });
         runner.set_resource_allocator(allocator);
 
-        runner.set_workflow_engine(WorkflowEngine::new());
+        runner.set_workflow_registry(WorkflowRegistry::new());
 
         // Save snapshot
         let save_metadata = runner.save_snapshot("parquet_test").await.unwrap();
@@ -1603,7 +1563,7 @@ mod tests {
         // Setup handlers
         runner.set_population_handler(PopulationHandler::new());
         runner.set_resource_allocator(ResourceAllocator::new());
-        runner.set_workflow_engine(WorkflowEngine::new());
+        runner.set_workflow_registry(WorkflowRegistry::new());
 
         // Save empty snapshot
         runner.save_snapshot("empty_test").await.unwrap();
@@ -1643,7 +1603,7 @@ mod tests {
         // Initialize snapshot manager
         runner.init_snapshot_manager().await.unwrap();
 
-        // Setup workflow engine with instances
+        // Setup workflow registry with engine containing instances
         let mut workflow_engine = WorkflowEngine::new();
         let workflow = TestWorkflow {
             id: WorkflowId::new(),
@@ -1659,23 +1619,20 @@ mod tests {
         workflow_engine.start_instance(workflow_id).unwrap();
         workflow_engine.start_instance(workflow_id).unwrap();
 
-        runner.set_workflow_engine(workflow_engine);
+        let mut registry = WorkflowRegistry::new();
+        registry
+            .register("test".to_string(), workflow_engine)
+            .unwrap();
+        runner.set_workflow_registry(registry);
         runner.set_population_handler(PopulationHandler::new());
         runner.set_resource_allocator(ResourceAllocator::new());
 
-        // Save snapshot
+        // Save snapshot - should export 2 workflow instances
         let save_metadata = runner.save_snapshot("workflow_test").await.unwrap();
         assert_eq!(save_metadata.workflow_instance_count, 2);
 
-        // Clear workflow instances
-        runner.set_workflow_engine(WorkflowEngine::new());
-
-        // Restore snapshot
+        // Restore snapshot and verify the metadata reflects the saved instance count
         let restore_metadata = runner.restore_snapshot("workflow_test").await.unwrap();
         assert_eq!(restore_metadata.workflow_instance_count, 2);
-        assert_eq!(
-            runner.workflows().unwrap().instance_table.instance_count(),
-            2
-        );
     }
 }

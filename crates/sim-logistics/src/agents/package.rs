@@ -417,6 +417,51 @@ impl Agent for Package {
                     destination: Point::new(dest_x, dest_y),
                 }
             }
+            "loaded" => {
+                let driver_id = metadata
+                    .get("driver_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let dest_x = metadata
+                    .get("dest_x")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0);
+                let dest_y = metadata
+                    .get("dest_y")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0);
+                PackageState::Loaded {
+                    driver_id,
+                    destination: Point::new(dest_x, dest_y),
+                }
+            }
+            "in_transit" => {
+                let driver_id = metadata
+                    .get("driver_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let dest_x = metadata
+                    .get("dest_x")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0);
+                let dest_y = metadata
+                    .get("dest_y")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0);
+                let estimated_arrival = metadata
+                    .get("eta")
+                    .and_then(|v| v.as_str())
+                    .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
+                    .map(|dt| dt.with_timezone(&Utc))
+                    .unwrap_or_else(Utc::now);
+                PackageState::InTransit {
+                    driver_id,
+                    destination: Point::new(dest_x, dest_y),
+                    estimated_arrival,
+                }
+            }
             "delivered" => {
                 let delivery_time = metadata
                     .get("delivery_time")
@@ -592,18 +637,69 @@ mod tests {
 
     #[test]
     fn test_package_arrow_round_trip() {
-        let pkg = Package::new(
-            Point::new(1.0, 2.0),
-            Point::new(3.0, 4.0),
-            2.5,
-            PackagePriority::Express,
-        );
+        let origin = Point::new(1.0, 2.0);
+        let destination = Point::new(3.0, 4.0);
 
+        // Test Created state
+        let pkg = Package::new(origin, destination, 2.5, PackagePriority::Express);
         let row = pkg.to_arrow_row();
         let restored = Package::from_arrow_row(&row).unwrap();
-
         assert_eq!(pkg.id, restored.id);
         assert_eq!(pkg.state.as_str(), restored.state.as_str());
         assert_eq!(pkg.weight_kg, restored.weight_kg);
+
+        // Test Sorted state
+        let mut pkg = Package::new(origin, destination, 1.0, PackagePriority::Standard);
+        pkg.mark_sorted("warehouse-42".to_string());
+        let row = pkg.to_arrow_row();
+        let restored = Package::from_arrow_row(&row).unwrap();
+        assert_eq!(pkg.id, restored.id);
+        assert_eq!(restored.state.as_str(), "sorted");
+        if let PackageState::Sorted { warehouse_id, .. } = &restored.state {
+            assert_eq!(warehouse_id, "warehouse-42");
+        } else {
+            panic!("Expected Sorted state");
+        }
+
+        // Test Loaded state
+        let mut pkg = Package::new(origin, destination, 1.0, PackagePriority::Standard);
+        pkg.mark_sorted("w1".to_string());
+        pkg.mark_loaded("driver-7".to_string());
+        let row = pkg.to_arrow_row();
+        let restored = Package::from_arrow_row(&row).unwrap();
+        assert_eq!(pkg.id, restored.id);
+        assert_eq!(restored.state.as_str(), "loaded");
+        if let PackageState::Loaded { driver_id, .. } = &restored.state {
+            assert_eq!(driver_id, "driver-7");
+        } else {
+            panic!("Expected Loaded state");
+        }
+
+        // Test InTransit state
+        let mut pkg = Package::new(origin, destination, 1.0, PackagePriority::Overnight);
+        pkg.mark_sorted("w1".to_string());
+        pkg.mark_loaded("driver-7".to_string());
+        let eta = Utc::now();
+        pkg.mark_in_transit(eta);
+        let row = pkg.to_arrow_row();
+        let restored = Package::from_arrow_row(&row).unwrap();
+        assert_eq!(pkg.id, restored.id);
+        assert_eq!(restored.state.as_str(), "in_transit");
+        if let PackageState::InTransit { driver_id, .. } = &restored.state {
+            assert_eq!(driver_id, "driver-7");
+        } else {
+            panic!("Expected InTransit state");
+        }
+
+        // Test Delivered state
+        let mut pkg = Package::new(origin, destination, 1.0, PackagePriority::Standard);
+        pkg.mark_sorted("w1".to_string());
+        pkg.mark_loaded("d1".to_string());
+        pkg.mark_in_transit(Utc::now());
+        pkg.mark_delivered();
+        let row = pkg.to_arrow_row();
+        let restored = Package::from_arrow_row(&row).unwrap();
+        assert_eq!(pkg.id, restored.id);
+        assert_eq!(restored.state.as_str(), "delivered");
     }
 }

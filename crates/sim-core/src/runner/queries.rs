@@ -167,11 +167,30 @@ where
             .map_err(|e| crate::Error::Query(format!("Failed to register tasks table: {}", e)))?;
     }
 
-    // Register workflow_instances table (if WorkflowEngine exists)
-    if let Some(ref wf) = runner.workflows {
-        let instances_batch = wf.instance_table.export_batch();
-        let instances_schema = instances_batch.schema();
+    // Register workflow_instances table (if WorkflowRegistry exists)
+    if let Some(ref registry) = runner.workflow_registry {
+        // Collect and concatenate instances from all engines
+        let batches: Vec<arrow::record_batch::RecordBatch> = registry
+            .engines()
+            .map(|engine| engine.instance_table.export_batch())
+            .filter(|b| b.num_rows() > 0)
+            .collect();
 
+        let instances_batch = if batches.is_empty() {
+            arrow::record_batch::RecordBatch::new_empty(crate::workflows::workflow_instance_schema())
+        } else if batches.len() == 1 {
+            batches.into_iter().next().unwrap()
+        } else {
+            let schema = batches[0].schema();
+            arrow::compute::concat_batches(&schema, &batches).map_err(|e| {
+                crate::Error::Query(format!(
+                    "Failed to concatenate workflow instance batches: {}",
+                    e
+                ))
+            })?
+        };
+
+        let instances_schema = instances_batch.schema();
         let instances_mem_table = MemTable::try_new(instances_schema, vec![vec![instances_batch]])
             .map_err(|e| {
                 crate::Error::Query(format!("Failed to create workflow_instances table: {}", e))

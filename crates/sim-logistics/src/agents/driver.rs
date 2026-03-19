@@ -34,7 +34,7 @@
 use geo::Point;
 use serde_json::Value;
 use sim_core::{
-    Agent, AgentId, AgentStatus, Result, SimulationContext,
+    Agent, AgentId, AgentStatus, Result, SimulationContext, move_towards,
     population::{AgentTickResult, ArrowAgentRow},
 };
 use uuid::Uuid;
@@ -184,24 +184,16 @@ impl Driver {
 
     /// Move towards a target location
     ///
-    /// Returns true if arrived at target
+    /// Returns true if arrived at target.
+    ///
+    /// Delegates to [`sim_core::move_towards`] for the shared movement calculation.
     fn move_towards(&mut self, target: Point<f64>, step_duration_secs: f64) -> bool {
-        let dx = target.x() - self.location.x();
-        let dy = target.y() - self.location.y();
-        let distance = (dx * dx + dy * dy).sqrt();
-
-        let max_travel = self.movement_speed * step_duration_secs;
-
-        if distance <= max_travel {
-            self.location = target;
-            true
-        } else {
-            let ratio = max_travel / distance;
-            let new_x = self.location.x() + dx * ratio;
-            let new_y = self.location.y() + dy * ratio;
-            self.location = Point::new(new_x, new_y);
-            false
-        }
+        move_towards(
+            &mut self.location,
+            target,
+            self.movement_speed,
+            step_duration_secs,
+        )
     }
 
     /// Get current package count
@@ -233,12 +225,11 @@ impl Agent for Driver {
         Some(self.location)
     }
 
-    fn tick(&mut self, _ctx: &SimulationContext) -> Result<AgentTickResult> {
+    fn tick(&mut self, ctx: &SimulationContext) -> Result<AgentTickResult> {
         let mut result = AgentTickResult::default();
         self.tick_count += 1;
 
-        // Simulation step duration (30 seconds default)
-        let step_duration = 30.0;
+        let step_duration = ctx.time_step().num_seconds() as f64;
 
         match &self.state.clone() {
             DriverState::Idle => {
@@ -485,6 +476,8 @@ impl Agent for Driver {
 mod tests {
     use super::*;
 
+    const STEP_SECS: f64 = 30.0;
+
     #[test]
     fn test_driver_creation() {
         let home = Point::new(-122.4, 37.8);
@@ -553,7 +546,7 @@ mod tests {
         let target = Point::new(100.0, 0.0);
 
         // Move towards target (30 second step, 15 m/s = 450m travel)
-        let arrived = driver.move_towards(target, 30.0);
+        let arrived = driver.move_towards(target, STEP_SECS);
 
         assert!(arrived);
         assert_eq!(driver.location, target);
@@ -567,7 +560,7 @@ mod tests {
         let target = Point::new(1000.0, 0.0);
 
         // Move towards target (can only travel 450m)
-        let arrived = driver.move_towards(target, 30.0);
+        let arrived = driver.move_towards(target, STEP_SECS);
 
         assert!(!arrived);
         assert!(driver.location.x() > 0.0);
