@@ -9,6 +9,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] - 2026-03-21
 
+### Added — Snapshot Management & SimulationManager
+
+#### sim-core: Structured Snapshot IDs
+- `SimulationContext::simulation_id()` — each context gets a `Uuid::now_v7()` on construction; exposed via accessor
+- `SnapshotMetadata` — new fields: `snapshot_id: Uuid`, `simulation_id: Uuid`, `label: Option<String>`, `sim_time: DateTime<Utc>`
+- `SnapshotMetadata::with_ids()` — constructor for callers that supply explicit IDs; `new()` still works and generates IDs internally
+- `SnapshotManager::save_snapshot_with_id()` — saves with explicit IDs and registers in internal `snapshot_registry` MemTable
+- `SnapshotManager::list_snapshots()` — list all snapshots recorded in this manager instance
+- `SnapshotManager::describe_snapshot(id)` — look up a single snapshot by UUID string
+
+#### sim-core: Snapshot via Control Channel
+- `ControlCommand::Snapshot(label)` — request an immediate snapshot while the sim is running
+- `SimEvent::SnapshotSaved { snapshot_id, label, sim_time, step }` — emitted after a successful snapshot
+- `SimulationRunner::save_snapshot_with_id()` — async helper for explicit-ID snapshots
+- `SimulationRunner::save_snapshot_with_ids_sync()` — sync wrapper used by the control-command handler
+
+#### sim-core: SimulationManager
+- New module `sim_core::manager` with `SimulationManager` — catalog layer tracking multiple simulation runs and their snapshots
+- `SimulationManagerBackend::{Memory, Parquet}` — backend selector
+- `SimulationManager::create_simulation()` → `Uuid` — register a new run; generates Uuid v7
+- `SimulationManager::list_simulations()` → `Vec<SimulationRecord>`
+- `SimulationManager::record_snapshot()` — record a snapshot taken by a runner
+- `SimulationManager::list_snapshots(simulation_id)` → `Vec<SnapshotRecord>` — filtered by simulation
+- `SimulationManager::snapshot_manager_for(simulation_id)` — create a scoped `SnapshotManager`
+- `SimulationRecord` and `SnapshotRecord` plain-data structs (no Arrow dependency on callers)
+
+#### cli: SnapshotSaved event handling
+- `process_sim_event` in `caspers` CLI now handles the new `SimEvent::SnapshotSaved` variant (logs at info level)
+
 ### Added — TUI/CLI UX Improvements
 
 #### sim-core: Speed Control and Pause-on-End

@@ -565,10 +565,119 @@ where
                         });
                     }
                 }
+                ControlCommand::Snapshot(label) => {
+                    let snapshot_id = uuid::Uuid::now_v7();
+                    let step = self.context.step();
+                    let sim_time = self.context.current_time();
+                    let simulation_id = self.context.simulation_id();
+                    match self.save_snapshot_with_ids_sync(
+                        snapshot_id,
+                        simulation_id,
+                        &label,
+                        sim_time,
+                    ) {
+                        Ok(_) => {
+                            if let Some(c) = &self.control {
+                                c.emit(SimEvent::SnapshotSaved {
+                                    snapshot_id,
+                                    label,
+                                    sim_time,
+                                    step,
+                                });
+                            }
+                        }
+                        Err(e) => {
+                            if let Some(c) = &self.control {
+                                c.emit(SimEvent::Error(format!("Snapshot failed: {e}")));
+                            }
+                        }
+                    }
+                }
             }
         }
 
         Ok(false)
+    }
+
+    /// Synchronously save a snapshot with explicit IDs by blocking on the async runtime.
+    ///
+    /// Safe to call from the synchronous tick loop because:
+    /// - Commands are processed between ticks (no concurrent mutation)
+    /// - The CLI runs under `#[tokio::main]`, so `Handle::current()` is available
+    fn save_snapshot_with_ids_sync(
+        &self,
+        snapshot_id: uuid::Uuid,
+        simulation_id: uuid::Uuid,
+        label: &str,
+        sim_time: chrono::DateTime<chrono::Utc>,
+    ) -> crate::Result<SnapshotMetadata> {
+        let label = label.to_string();
+        tokio::runtime::Handle::current().block_on(async move {
+            self.save_snapshot_with_id(snapshot_id, simulation_id, Some(&label), sim_time)
+                .await
+        })
+    }
+
+    /// Save a snapshot using explicit IDs, delegating to the SnapshotManager.
+    pub async fn save_snapshot_with_id(
+        &self,
+        snapshot_id: uuid::Uuid,
+        simulation_id: uuid::Uuid,
+        label: Option<&str>,
+        sim_time: chrono::DateTime<chrono::Utc>,
+    ) -> crate::Result<SnapshotMetadata> {
+        let manager = self.snapshot_manager.as_ref().ok_or_else(|| {
+            crate::Error::InvalidState("Snapshot manager not initialized".to_string())
+        })?;
+
+        let agents = if let Some(pop) = &self.population {
+            pop.export_batch()
+        } else {
+            RecordBatch::new_empty(crate::population::agent_schema())
+        };
+
+        let (resources, tasks) = if let Some(res) = &self.resources {
+            res.export_batch()
+        } else {
+            (
+                RecordBatch::new_empty(crate::resources::resource_schema()),
+                RecordBatch::new_empty(crate::resources::task_schema()),
+            )
+        };
+
+        let workflow_instances = if let Some(registry) = &self.workflow_registry {
+            let mut batches: Vec<RecordBatch> = registry
+                .engines()
+                .map(|engine| engine.instance_table.export_batch())
+                .filter(|b| b.num_rows() > 0)
+                .collect();
+            if batches.is_empty() {
+                RecordBatch::new_empty(crate::workflows::workflow_instance_schema())
+            } else if batches.len() == 1 {
+                batches.remove(0)
+            } else {
+                let schema = batches[0].schema();
+                arrow::compute::concat_batches(&schema, &batches).map_err(|e| {
+                    crate::Error::Workflow(format!(
+                        "Failed to concatenate workflow instance batches: {e}"
+                    ))
+                })?
+            }
+        } else {
+            RecordBatch::new_empty(crate::workflows::workflow_instance_schema())
+        };
+
+        let snapshot_data = SnapshotData {
+            agents,
+            resources,
+            tasks,
+            workflow_instances,
+            locations: None,
+        };
+
+        manager
+            .save_snapshot_with_id(snapshot_id, simulation_id, label, sim_time, snapshot_data)
+            .await
     }
 
     /// Run the simulation driven by the attached control channel.

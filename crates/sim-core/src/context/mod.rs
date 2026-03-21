@@ -5,6 +5,7 @@
 
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 /// Controls how the simulation clock advances each tick.
 ///
@@ -81,6 +82,8 @@ impl Default for SimulationConfig {
 /// Provides access to the current simulation time, configuration, and other runtime state.
 #[derive(Debug, Clone)]
 pub struct SimulationContext {
+    /// Unique simulation ID (Uuid v7, generated at construction)
+    simulation_id: Uuid,
     /// Simulation start time
     start_time: DateTime<Utc>,
     /// Current simulation time
@@ -103,6 +106,7 @@ impl SimulationContext {
     /// Create a new simulation context
     pub fn new(start_time: DateTime<Utc>, config: SimulationConfig) -> Self {
         Self {
+            simulation_id: Uuid::now_v7(),
             start_time,
             current_time: start_time,
             config,
@@ -116,6 +120,11 @@ impl SimulationContext {
     /// Create a context starting from the current time
     pub fn from_now(config: SimulationConfig) -> Self {
         Self::new(Utc::now(), config)
+    }
+
+    /// Get the unique simulation ID (Uuid v7, generated at construction)
+    pub fn simulation_id(&self) -> Uuid {
+        self.simulation_id
     }
 
     /// Get the simulation start time

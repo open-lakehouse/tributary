@@ -63,6 +63,9 @@ use datafusion::execution::context::SessionContext;
 use datafusion::prelude::*;
 use std::path::PathBuf;
 use std::sync::Arc;
+use uuid::Uuid;
+
+use super::metadata::SnapshotMetadata;
 
 /// Storage backend for snapshots
 ///
@@ -540,6 +543,212 @@ impl SnapshotManager {
         // Concatenate multiple batches
         let schema = batches[0].schema();
         arrow::compute::concat_batches(&schema, &batches).map_err(Error::Arrow)
+    }
+
+    /// Save a snapshot with explicit IDs (the canonical implementation).
+    ///
+    /// Writes all RecordBatches and returns populated `SnapshotMetadata`.
+    pub async fn save_snapshot_with_id(
+        &self,
+        snapshot_id: Uuid,
+        simulation_id: Uuid,
+        label: Option<&str>,
+        sim_time: chrono::DateTime<chrono::Utc>,
+        data: SnapshotData,
+    ) -> crate::Result<SnapshotMetadata> {
+        let agent_count = data.agents.num_rows();
+        let resource_count = data.resources.num_rows();
+        let task_count = data.tasks.num_rows();
+        let workflow_instance_count = data.workflow_instances.num_rows();
+        let location_count = data.locations.as_ref().map(|b| b.num_rows()).unwrap_or(0);
+
+        self.save_snapshot(&snapshot_id.to_string(), data).await?;
+
+        let meta = SnapshotMetadata::with_ids(
+            snapshot_id,
+            simulation_id,
+            label.map(|s| s.to_string()),
+            sim_time,
+            "1.0".to_string(),
+            agent_count,
+            resource_count,
+            task_count,
+            workflow_instance_count,
+            location_count,
+        );
+
+        // Register in the internal registry
+        self.register_metadata(&meta).await?;
+
+        Ok(meta)
+    }
+
+    /// Register a SnapshotMetadata entry in the internal in-memory registry.
+    async fn register_metadata(&self, meta: &SnapshotMetadata) -> crate::Result<()> {
+        use arrow::array::{Int64Array, StringArray, TimestampMillisecondArray};
+        use arrow::datatypes::{DataType, Field, Schema, TimeUnit};
+
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("id", DataType::Utf8, false),
+            Field::new("simulation_id", DataType::Utf8, false),
+            Field::new("label", DataType::Utf8, true),
+            Field::new(
+                "sim_time",
+                DataType::Timestamp(TimeUnit::Millisecond, Some("UTC".into())),
+                true,
+            ),
+            Field::new(
+                "created_at",
+                DataType::Timestamp(TimeUnit::Millisecond, Some("UTC".into())),
+                true,
+            ),
+            Field::new("agent_count", DataType::Int64, true),
+            Field::new("resource_count", DataType::Int64, true),
+            Field::new("task_count", DataType::Int64, true),
+            Field::new("workflow_instance_count", DataType::Int64, true),
+            Field::new("location_count", DataType::Int64, true),
+        ]));
+
+        let batch = arrow::record_batch::RecordBatch::try_new(
+            schema.clone(),
+            vec![
+                Arc::new(StringArray::from(vec![meta.snapshot_id.to_string()])),
+                Arc::new(StringArray::from(vec![meta.simulation_id.to_string()])),
+                Arc::new(StringArray::from(vec![meta.label.clone()])),
+                Arc::new(
+                    TimestampMillisecondArray::from(vec![meta.sim_time.timestamp_millis()])
+                        .with_timezone_opt(Some("UTC")),
+                ),
+                Arc::new(
+                    TimestampMillisecondArray::from(vec![meta.timestamp.timestamp_millis()])
+                        .with_timezone_opt(Some("UTC")),
+                ),
+                Arc::new(Int64Array::from(vec![meta.agent_count as i64])),
+                Arc::new(Int64Array::from(vec![meta.resource_count as i64])),
+                Arc::new(Int64Array::from(vec![meta.task_count as i64])),
+                Arc::new(Int64Array::from(vec![meta.workflow_instance_count as i64])),
+                Arc::new(Int64Array::from(vec![meta.location_count as i64])),
+            ],
+        )
+        .map_err(crate::Error::Arrow)?;
+
+        let table_name = "snapshot_registry";
+
+        if self.ctx.table_exist(table_name)? {
+            // Append: read existing, concat, re-register
+            let existing_df = self.ctx.table(table_name).await?;
+            let existing_batches = existing_df.collect().await?;
+            let mut all_batches = existing_batches;
+            all_batches.push(batch);
+            let combined = arrow::compute::concat_batches(&schema, &all_batches)
+                .map_err(crate::Error::Arrow)?;
+            self.ctx.deregister_table(table_name)?;
+            let new_table = Self::create_mem_table(combined)?;
+            self.ctx.register_table(table_name, new_table)?;
+        } else {
+            let table = Self::create_mem_table(batch)?;
+            self.ctx.register_table(table_name, table)?;
+        }
+
+        Ok(())
+    }
+
+    /// List all snapshots recorded in the internal registry.
+    pub async fn list_snapshots(&self) -> crate::Result<Vec<SnapshotMetadata>> {
+        let table_name = "snapshot_registry";
+        if !self.ctx.table_exist(table_name)? {
+            return Ok(vec![]);
+        }
+        let batches = self.ctx.table(table_name).await?.collect().await?;
+
+        let mut results = Vec::new();
+        for batch in &batches {
+            use arrow::array::{Int64Array, StringArray, TimestampMillisecondArray};
+            let id_col = batch
+                .column_by_name("id")
+                .and_then(|c| c.as_any().downcast_ref::<StringArray>())
+                .ok_or_else(|| crate::Error::InvalidState("missing id column".into()))?;
+            let sim_id_col = batch
+                .column_by_name("simulation_id")
+                .and_then(|c| c.as_any().downcast_ref::<StringArray>())
+                .ok_or_else(|| crate::Error::InvalidState("missing simulation_id column".into()))?;
+            let label_col = batch
+                .column_by_name("label")
+                .and_then(|c| c.as_any().downcast_ref::<StringArray>());
+            let sim_time_col = batch
+                .column_by_name("sim_time")
+                .and_then(|c| c.as_any().downcast_ref::<TimestampMillisecondArray>())
+                .ok_or_else(|| crate::Error::InvalidState("missing sim_time column".into()))?;
+            let created_at_col = batch
+                .column_by_name("created_at")
+                .and_then(|c| c.as_any().downcast_ref::<TimestampMillisecondArray>())
+                .ok_or_else(|| crate::Error::InvalidState("missing created_at column".into()))?;
+            let agent_col = batch
+                .column_by_name("agent_count")
+                .and_then(|c| c.as_any().downcast_ref::<Int64Array>());
+            let resource_col = batch
+                .column_by_name("resource_count")
+                .and_then(|c| c.as_any().downcast_ref::<Int64Array>());
+            let task_col = batch
+                .column_by_name("task_count")
+                .and_then(|c| c.as_any().downcast_ref::<Int64Array>());
+            let workflow_col = batch
+                .column_by_name("workflow_instance_count")
+                .and_then(|c| c.as_any().downcast_ref::<Int64Array>());
+            let location_col = batch
+                .column_by_name("location_count")
+                .and_then(|c| c.as_any().downcast_ref::<Int64Array>());
+
+            for i in 0..batch.num_rows() {
+                use arrow::array::Array as _;
+                use chrono::TimeZone;
+                let snapshot_id: uuid::Uuid = id_col
+                    .value(i)
+                    .parse()
+                    .map_err(|_| crate::Error::InvalidState("invalid snapshot_id uuid".into()))?;
+                let simulation_id: uuid::Uuid = sim_id_col
+                    .value(i)
+                    .parse()
+                    .map_err(|_| crate::Error::InvalidState("invalid simulation_id uuid".into()))?;
+                let label = label_col.and_then(|c| {
+                    if c.is_null(i) {
+                        None
+                    } else {
+                        Some(c.value(i).to_string())
+                    }
+                });
+                let sim_time = chrono::Utc
+                    .timestamp_millis_opt(sim_time_col.value(i))
+                    .single()
+                    .unwrap_or_default();
+                let created_at = chrono::Utc
+                    .timestamp_millis_opt(created_at_col.value(i))
+                    .single()
+                    .unwrap_or_default();
+
+                let meta = SnapshotMetadata {
+                    snapshot_id,
+                    simulation_id,
+                    label,
+                    sim_time,
+                    version: "1.0".to_string(),
+                    timestamp: created_at,
+                    agent_count: agent_col.map(|c| c.value(i) as usize).unwrap_or(0),
+                    resource_count: resource_col.map(|c| c.value(i) as usize).unwrap_or(0),
+                    task_count: task_col.map(|c| c.value(i) as usize).unwrap_or(0),
+                    workflow_instance_count: workflow_col.map(|c| c.value(i) as usize).unwrap_or(0),
+                    location_count: location_col.map(|c| c.value(i) as usize).unwrap_or(0),
+                };
+                results.push(meta);
+            }
+        }
+        Ok(results)
+    }
+
+    /// Look up a specific snapshot by its UUID string.
+    pub async fn describe_snapshot(&self, id: &str) -> crate::Result<Option<SnapshotMetadata>> {
+        let all = self.list_snapshots().await?;
+        Ok(all.into_iter().find(|m| m.snapshot_id.to_string() == id))
     }
 }
 

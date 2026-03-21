@@ -295,5 +295,10 @@ fn process_sim_event(app: &mut App, event: SimEvent) {
         SimEvent::SpeedChanged { multiplier } => {
             app.live_speed = multiplier;
         }
+        SimEvent::SnapshotSaved {
+            snapshot_id, label, ..
+        } => {
+            tracing::info!("snapshot saved: {snapshot_id} ({label})");
+        }
     }
 }

@@ -30,6 +30,7 @@
 
 pub mod context;
 pub mod demand;
+pub mod manager;
 pub mod population;
 pub mod resources;
 pub mod runner;
@@ -43,6 +44,7 @@ pub use demand::{
     CompositeDemandGenerator, DemandGenerator, PoissonDemandGenerator, SpatialDemandGenerator,
     TimeOfDayDemandGenerator,
 };
+pub use manager::{SimulationManager, SimulationManagerBackend, SimulationRecord, SnapshotRecord};
 pub use population::{Agent, AgentStatus, Demand, PopulationHandler};
 pub use resources::{AllocationStrategy, Resource, ResourceAllocator, Task};
 pub use runner::{

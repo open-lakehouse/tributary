@@ -27,6 +27,7 @@ use crate::Result;
 use crate::context::TimeMode;
 use chrono::{DateTime, Utc};
 use std::sync::mpsc;
+use uuid::Uuid;
 
 // ─── Commands (caller → runner) ───────────────────────────────────────────────
 
@@ -48,6 +49,9 @@ pub enum ControlCommand {
     SetMode(TimeMode),
     /// Set the speed multiplier for Live mode (clamped to [0.125, 16.0]).
     SetSpeed(f32),
+    /// Request an immediate snapshot. The runner generates a Uuid v7, saves
+    /// state, and emits [`SimEvent::SnapshotSaved`] with the ID on success.
+    Snapshot(String),
 }
 
 // ─── Events (runner → caller) ─────────────────────────────────────────────────
@@ -74,6 +78,13 @@ pub enum SimEvent {
     Error(String),
     /// Emitted when the Live-mode speed multiplier changes.
     SpeedChanged { multiplier: f32 },
+    /// Emitted after a snapshot is successfully saved via [`ControlCommand::Snapshot`].
+    SnapshotSaved {
+        snapshot_id: Uuid,
+        label: String,
+        sim_time: DateTime<Utc>,
+        step: usize,
+    },
 }
 
 // ─── Public controller (caller side) ─────────────────────────────────────────
