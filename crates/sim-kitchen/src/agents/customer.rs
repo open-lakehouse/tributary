@@ -133,7 +133,7 @@ impl Agent for Customer {
 
             CustomerStatus::Ordering => {
                 // Create demand for food
-                let order_id = format!("order-{}", self.id);
+                let order_id = format!("order-{}", uuid::Uuid::new_v4());
 
                 let mut metadata = HashMap::new();
                 metadata.insert("order_id".to_string(), Value::String(order_id.clone()));
@@ -173,7 +173,7 @@ impl Agent for Customer {
             }
 
             CustomerStatus::Done => {
-                // Terminal state
+                self.status = CustomerStatus::Idle;
             }
         }
 

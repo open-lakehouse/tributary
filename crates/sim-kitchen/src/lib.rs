@@ -173,7 +173,8 @@ pub use events::*;
 pub use locations::{DistributionSite, OrderFulfillment};
 pub use resources::{Inventory, InventoryError, InventoryManager, Kitchen, Order};
 pub use simulation::{
-    KitchenSimulation, KitchenSimulationHooks, add_customers, build_simulation, process_demands,
+    KitchenSimulation, KitchenSimulationHooks, SimulationMessage, add_customers, build_simulation,
+    process_demands,
 };
 pub use workflows::{
     CourierDeliveryTask, CourierDeliveryTaskFactory, CourierDeliveryWorkflow,

@@ -1,7 +1,5 @@
 set dotenv-load := true
 
-caspers_dir := '.caspers/'
-
 # Show available commands
 _default:
     @just --list --justfile {{ justfile() }}
@@ -23,15 +21,10 @@ build-py:
 build-py-cli:
     uv run maturin develop --uv --manifest-path crates/cli/Cargo.toml
 
-# Initialize a simulation
-[group('caspers')]
-init:
-    cargo run --bin caspers -- init --working-directory {{ caspers_dir }}
-
 # run simulation for a given duration
 [group('caspers')]
 run duration='100':
-    cargo run --bin caspers -- run --duration {{ duration }} --working-directory {{ caspers_dir }}
+    cargo run --bin caspers -- run --duration {{ duration }}
 
 [group('caspers')]
 run-tracing:
@@ -75,11 +68,6 @@ fmt:
 [group('dev')]
 docs:
     npm -w docs run dev
-
-# run the server with UI
-[group('server')]
-server:
-    cargo run --bin caspers -- server
 
 # build the UI for production
 [group('server')]
