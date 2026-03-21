@@ -181,6 +181,39 @@ the new framework but will eventually be replaced.
 
 ---
 
+## Git Commits
+
+GPG commit signing is required on this repository. The GPG PIN prompt requires an interactive terminal, which AI agents cannot provide. **Never attempt `git commit` directly** — it will time out and fail.
+
+### Correct workflow
+
+1. Stage files normally (`git add ...`)
+2. Prepare the commit message
+3. Output a ready-to-paste `git commit` command for the user to run in their terminal
+
+### Template
+
+Use an inline `-m` string — **not** the `$(cat <<'EOF' ...)` heredoc pattern, which fails in this environment:
+
+```bash
+git commit -m "<type>: <short summary>
+
+<body explaining what and why>
+
+Co-authored-by: Isaac"
+```
+
+The `Co-authored-by: Isaac` trailer must be included on every commit.
+
+### Commit message conventions
+
+- **Types**: `feat`, `fix`, `refactor`, `docs`, `test`, `chore`
+- Subject line ≤ 72 characters, imperative mood ("add", not "added")
+- Body explains *what* changed and *why* — bullet points are fine for multi-part changes
+- List affected crates in the body when changes span multiple packages
+
+---
+
 ## Critical Rules
 
 ### 🚨 NEVER DO THIS
@@ -192,6 +225,7 @@ the new framework but will eventually be replaced.
 6. **Mix time zones** — all timestamps are UTC, be explicit
 7. **Use `set_workflow_engine()`** — removed; use `set_workflow_registry()` only
 8. **Hardcode step duration as `30.0`** — use `ctx.time_step().num_seconds() as f64`
+9. **Run `git commit` directly** — GPG signing requires interactive TTY; prepare the command for the user instead (see Git Commits section above)
 
 ### ✅ ALWAYS DO THIS
 1. **Run `just generate`** after proto changes
@@ -367,6 +401,6 @@ The legacy `universe` crate has pre-existing dead code warnings that are out of 
 
 ---
 
-**Last Updated**: 2026-03-19
+**Last Updated**: 2026-03-21
 **Simulation Version**: 0.0.1
 **Rust Edition**: 2024 / MSRV 1.90
