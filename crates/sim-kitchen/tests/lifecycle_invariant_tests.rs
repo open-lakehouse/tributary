@@ -10,8 +10,7 @@ use geo::Point;
 use sim_core::PopulationHandler;
 use sim_events::EventRecord;
 use sim_kitchen::{
-    Customer, CustomerStatus, Inventory, InventoryManager, KitchenSimulation,
-    KitchenSimulationHooks,
+    Customer, Inventory, InventoryManager, KitchenSimulation, KitchenSimulationHooks,
 };
 use std::collections::{HashMap, HashSet};
 
@@ -156,22 +155,25 @@ impl EventInvariantChecker {
             created
         );
 
-        assert_eq!(
-            completed, assigned,
-            "Completed orders ({}) != assigned orders ({}); assigned orders must eventually complete",
-            completed, assigned
+        assert!(
+            completed <= assigned,
+            "More orders completed ({}) than assigned ({})",
+            completed,
+            assigned
         );
 
-        assert_eq!(
-            eating, completed,
-            "Customer eating events ({}) != completed orders ({})",
-            eating, completed
+        assert!(
+            eating <= completed,
+            "More customer eating events ({}) than completed orders ({})",
+            eating,
+            completed
         );
 
-        assert_eq!(
-            done, eating,
-            "Customer done events ({}) != customer eating events ({})",
-            done, eating
+        assert!(
+            done <= eating,
+            "More customer done events ({}) than eating events ({})",
+            done,
+            eating
         );
     }
 
@@ -216,26 +218,26 @@ impl EventInvariantChecker {
             }
         }
 
-        // Build per-customer eating→done positions
-        let mut customer_eating_pos: HashMap<String, usize> = HashMap::new();
+        // Build per-customer list of all eating positions (customers may cycle multiple times)
+        let mut customer_eating_positions: HashMap<String, Vec<usize>> = HashMap::new();
         for (idx, record) in self.events.iter().enumerate() {
             if record.event_type == CUSTOMER_EATING {
                 if let Some(cid) = Self::extract_customer_id(record) {
-                    customer_eating_pos.insert(cid, idx);
+                    customer_eating_positions.entry(cid).or_default().push(idx);
                 }
             }
         }
 
+        // For each done event, verify there is an eating event before it for that customer
         for (idx, record) in self.events.iter().enumerate() {
             if record.event_type == CUSTOMER_DONE {
                 if let Some(cid) = Self::extract_customer_id(record) {
-                    if let Some(&eating_pos) = customer_eating_pos.get(&cid) {
+                    if let Some(eating_positions) = customer_eating_positions.get(&cid) {
+                        let has_prior_eating = eating_positions.iter().any(|&ep| ep < idx);
                         assert!(
-                            idx > eating_pos,
-                            "Customer {}: done (position {}) before eating (position {})",
-                            cid,
-                            idx,
-                            eating_pos,
+                            has_prior_eating,
+                            "Customer {}: done (position {}) before any eating event (eating positions: {:?})",
+                            cid, idx, eating_positions,
                         );
                     }
                 }
@@ -261,20 +263,9 @@ impl EventInvariantChecker {
             }
         }
 
-        // Customer events keyed by customer_id
-        for event_type in [CUSTOMER_EATING, CUSTOMER_DONE] {
-            let mut seen: HashSet<String> = HashSet::new();
-            for record in self.events_of_type(event_type) {
-                if let Some(customer_id) = Self::extract_customer_id(record) {
-                    assert!(
-                        seen.insert(customer_id.clone()),
-                        "Duplicate {} event for customer {}",
-                        event_type,
-                        customer_id,
-                    );
-                }
-            }
-        }
+        // Note: CUSTOMER_EATING and CUSTOMER_DONE are intentionally not checked for duplicates
+        // here because customers cycle (eat → done → idle → order again), so each customer
+        // legitimately emits multiple eating and done events across cycles.
     }
 
     /// Invariant 5: At no point should the number of concurrently assigned
@@ -354,7 +345,7 @@ const STEPS_FOR_FULL_LIFECYCLE: usize = 20;
 // ===== Tests =====
 
 /// Single customer goes through the entire lifecycle. Verifies all 5 event
-/// types are emitted exactly once and in causal order.
+/// types are emitted at least once (customers now loop back to Idle after Done).
 #[test]
 fn test_single_order_full_lifecycle() {
     let mut sim = setup_deterministic_sim(1, 1, 5);
@@ -364,47 +355,32 @@ fn test_single_order_full_lifecycle() {
 
     let checker = EventInvariantChecker::new(sim.collect_all_event_records());
 
-    assert_eq!(
-        checker.count(ORDER_CREATED),
-        1,
-        "should have exactly 1 order created"
+    assert!(
+        checker.count(ORDER_CREATED) >= 1,
+        "should have at least 1 order created"
     );
-    assert_eq!(
-        checker.count(ORDER_ASSIGNED),
-        1,
-        "should have exactly 1 order assigned"
+    assert!(
+        checker.count(ORDER_ASSIGNED) >= 1,
+        "should have at least 1 order assigned"
     );
-    assert_eq!(
-        checker.count(ORDER_COMPLETED),
-        1,
-        "should have exactly 1 order completed"
+    assert!(
+        checker.count(ORDER_COMPLETED) >= 1,
+        "should have at least 1 order completed"
     );
-    assert_eq!(
-        checker.count(CUSTOMER_EATING),
-        1,
-        "should have exactly 1 customer eating"
+    assert!(
+        checker.count(CUSTOMER_EATING) >= 1,
+        "should have at least 1 customer eating"
     );
-    assert_eq!(
-        checker.count(CUSTOMER_DONE),
-        1,
-        "should have exactly 1 customer done"
+    assert!(
+        checker.count(CUSTOMER_DONE) >= 1,
+        "should have at least 1 customer done"
     );
 
     checker.assert_all_invariants();
-
-    // Verify the customer actually ended up in Done state
-    let pop = sim.runner().population().unwrap();
-    for customer in pop.iter() {
-        assert!(
-            matches!(customer.status, CustomerStatus::Done),
-            "Customer should be Done, got {:?}",
-            customer.status,
-        );
-    }
 }
 
 /// Five customers all complete the lifecycle. Validates invariants hold
-/// with concurrent orders across multiple kitchens.
+/// with concurrent orders across multiple kitchens (customers now loop).
 #[test]
 fn test_all_orders_complete_lifecycle() {
     let mut sim = setup_deterministic_sim(5, 3, 10);
@@ -414,11 +390,11 @@ fn test_all_orders_complete_lifecycle() {
 
     let checker = EventInvariantChecker::new(sim.collect_all_event_records());
 
-    assert_eq!(checker.count(ORDER_CREATED), 5);
-    assert_eq!(checker.count(ORDER_ASSIGNED), 5);
-    assert_eq!(checker.count(ORDER_COMPLETED), 5);
-    assert_eq!(checker.count(CUSTOMER_EATING), 5);
-    assert_eq!(checker.count(CUSTOMER_DONE), 5);
+    assert!(checker.count(ORDER_CREATED) >= 5);
+    assert!(checker.count(ORDER_ASSIGNED) >= 5);
+    assert!(checker.count(ORDER_COMPLETED) >= 5);
+    assert!(checker.count(CUSTOMER_EATING) >= 5);
+    assert!(checker.count(CUSTOMER_DONE) >= 5);
 
     checker.assert_all_invariants();
 }
@@ -429,22 +405,28 @@ fn test_all_orders_complete_lifecycle() {
 fn test_capacity_constrained_orders_queue() {
     let mut sim = setup_deterministic_sim(5, 1, 2);
 
-    // With capacity 2, orders process in batches: first 2 assigned, remaining 3
-    // queue. Each batch: ~12 ticks cooking + 2-3 eating. Need enough steps for
-    // all 5 orders to complete, but capacity constraints mean batching.
-    // ResourceAllocator capacity is based on pending tasks, not completion, so
-    // all 5 orders get created but only 2 are assigned at a time.
-    sim.run_for_steps(80).expect("simulation should complete");
+    // With capacity 2, orders process in batches of 2. Each batch takes ~10 ticks
+    // to cook (5 min / 30s per step). Run enough steps so all in-flight orders at
+    // the cutoff have time to complete: 100 steps + 10-step cook buffer = 110 steps.
+    sim.run_for_steps(110).expect("simulation should complete");
 
     let checker = EventInvariantChecker::new(sim.collect_all_event_records());
 
-    // All orders should eventually be created
-    assert_eq!(checker.count(ORDER_CREATED), 5);
+    // All orders should eventually be created (customers loop, so >= 5)
+    assert!(checker.count(ORDER_CREATED) >= 5);
 
-    // All assigned orders must complete
+    // Completed must not exceed assigned (orders in-flight at end may still be cooking)
     let assigned = checker.count(ORDER_ASSIGNED);
     let completed = checker.count(ORDER_COMPLETED);
-    assert_eq!(assigned, completed, "every assigned order must complete");
+    assert!(
+        completed <= assigned,
+        "completed ({completed}) must not exceed assigned ({assigned})"
+    );
+    // With 110 steps, at least some full cycles should complete
+    assert!(
+        completed >= 5,
+        "expected at least 5 completed orders, got {completed}"
+    );
 
     // Capacity constraint: never more than 2 orders in-flight at once
     checker.assert_resource_capacity_respected(2);
