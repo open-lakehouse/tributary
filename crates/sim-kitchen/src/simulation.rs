@@ -1072,9 +1072,9 @@ impl KitchenSimulation {
     /// 5. Deliver completed orders to customers
     /// 6. Emit `CustomerDoneEvent` for newly-done customers
     /// 7. Prune stale state for customers that reset to Idle
-    pub fn step(&mut self) -> sim_core::Result<()> {
-        // 1. Tick agents, invoke hooks (TickResult handled by caller if needed)
-        let _ = self.runner.tick()?;
+    pub fn step(&mut self) -> sim_core::Result<sim_core::context::TickResult> {
+        // 1. Tick agents, invoke hooks
+        let tick_result = self.runner.tick()?;
 
         // 1b. Free kitchen capacity for orders that completed this tick
         let completed_task_ids =
@@ -1134,7 +1134,7 @@ impl KitchenSimulation {
                 .retain(|_order_id, info| !idle_ids.contains(&info.customer_id));
         }
 
-        Ok(())
+        Ok(tick_result)
     }
 
     /// Run the simulation with full lifecycle management
@@ -1156,9 +1156,17 @@ impl KitchenSimulation {
     pub fn run_controlled_for(&mut self, max_steps: usize) -> sim_core::Result<()> {
         let mut steps_taken = 0;
 
+        // Once step_limit_paused is set, max_steps no longer applies —
+        // the simulation continues until stopped or a new end_time is hit.
+        let mut step_limit_paused = false;
+
         loop {
-            if steps_taken >= max_steps {
-                break;
+            if steps_taken >= max_steps && !step_limit_paused {
+                // Step limit reached: pause so the TUI stays alive.
+                step_limit_paused = true;
+                self.runner.set_paused(true);
+                let step = self.runner.context().step();
+                self.runner.emit_event(SimEvent::Paused { at_step: step });
             }
 
             // Spin-wait while paused, polling for commands
@@ -1190,7 +1198,7 @@ impl KitchenSimulation {
                 .unwrap_or_default();
             let own_before = self.event_dispatcher.event_counts().clone();
 
-            self.step()?;
+            let tick_result = self.step()?;
             steps_taken += 1;
 
             let step = self.runner.context().step();
@@ -1220,6 +1228,13 @@ impl KitchenSimulation {
                 sim_time,
                 event_counts,
             });
+
+            // When Range mode reaches end_time, pause rather than stop so the
+            // user can press [a] in the TUI to extend the range.
+            if tick_result == sim_core::TickResult::ReachedEnd {
+                self.runner.set_paused(true);
+                self.runner.emit_event(SimEvent::Paused { at_step: step });
+            }
         }
 
         self.flush_artifacts();

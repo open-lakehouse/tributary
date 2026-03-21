@@ -3,8 +3,9 @@ use crossterm::event::{Event, KeyCode, KeyEventKind};
 use sim_core::{ControlCommand, SimEvent, TimeMode, control_channel};
 use sim_kitchen::KitchenSimulation;
 
-use crate::app::App;
+use crate::app::{App, Dialog};
 use crate::error::Result;
+use crate::time_parse::parse_sim_time;
 use crate::tui::Tui;
 
 /// Time mode for the simulation run
@@ -37,12 +38,13 @@ pub(crate) struct RunArgs {
     #[arg(long, default_value = "range")]
     mode: RunMode,
 
-    /// Simulation start time (RFC 3339, e.g. 2026-01-01T00:00:00Z).
-    /// Applies to all modes; defaults to now.
+    /// Simulation start time.
+    /// Accepted: now  now+3h  now-30m  2026-01-01  2026-01-01T08:00:00Z
     #[arg(long)]
     start_time: Option<String>,
 
-    /// Simulation end time (RFC 3339). Only used with --mode range.
+    /// Simulation end time (range mode only).
+    /// Accepted: now  now+3h  now-30m  2026-01-01  2026-01-01T08:00:00Z
     #[arg(long)]
     end_time: Option<String>,
 }
@@ -50,13 +52,12 @@ pub(crate) struct RunArgs {
 pub(super) async fn handle(args: RunArgs) -> Result<()> {
     let duration = args.duration;
 
-    // Parse optional start/end times
+    // Parse optional start/end times using human-friendly parser
     let start_time: Option<DateTime<Utc>> = args
         .start_time
         .as_deref()
         .map(|s| {
-            DateTime::parse_from_rfc3339(s)
-                .map(|dt| dt.with_timezone(&Utc))
+            parse_sim_time(s)
                 .map_err(|e| crate::error::Error::Other(format!("invalid --start-time: {e}")))
         })
         .transpose()?;
@@ -65,8 +66,7 @@ pub(super) async fn handle(args: RunArgs) -> Result<()> {
         .end_time
         .as_deref()
         .map(|s| {
-            DateTime::parse_from_rfc3339(s)
-                .map(|dt| dt.with_timezone(&Utc))
+            parse_sim_time(s)
                 .map_err(|e| crate::error::Error::Other(format!("invalid --end-time: {e}")))
         })
         .transpose()?;
@@ -80,6 +80,9 @@ pub(super) async fn handle(args: RunArgs) -> Result<()> {
         RunMode::Catchup => "Catchup",
     }
     .to_string();
+
+    // Default time_step for kitchen sim is 60s
+    let time_step_secs: i64 = 60;
 
     let mode = args.mode.clone();
     let sim_handle = std::thread::spawn(move || {
@@ -115,7 +118,7 @@ pub(super) async fn handle(args: RunArgs) -> Result<()> {
     let mut tui = Tui::new()?;
     tui.enter()?;
 
-    let mut app = App::new(duration, initial_mode_str);
+    let mut app = App::new(duration, initial_mode_str, end_time, time_step_secs);
     let tick_rate = std::time::Duration::from_millis(50);
 
     loop {
@@ -128,36 +131,62 @@ pub(super) async fn handle(args: RunArgs) -> Result<()> {
             event = tui.next_event() => {
                 if let Some(Event::Key(key)) = event
                     && key.kind == KeyEventKind::Press {
-                        match key.code {
-                            KeyCode::Char('q') | KeyCode::Esc => {
-                                let _ = controller.send(ControlCommand::Stop);
-                                app.should_quit = true;
-                            }
-                            KeyCode::Char('c')
-                                if key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL) =>
-                            {
-                                let _ = controller.send(ControlCommand::Stop);
-                                app.should_quit = true;
-                            }
-                            KeyCode::Char(' ') if !app.completed => {
-                                if app.paused {
-                                    let _ = controller.send(ControlCommand::Resume);
-                                    app.paused = false;
-                                } else {
-                                    let _ = controller.send(ControlCommand::Pause);
+                        // If a dialog is open, route keys there first
+                        if !matches!(app.dialog, Dialog::None) {
+                            app.handle_dialog_key(key.code, &controller)?;
+                        } else {
+                            // Global key dispatch
+                            match key.code {
+                                KeyCode::Char('q') | KeyCode::Esc => {
+                                    let _ = controller.send(ControlCommand::Stop);
+                                    app.should_quit = true;
                                 }
+                                KeyCode::Char('c')
+                                    if key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL) =>
+                                {
+                                    let _ = controller.send(ControlCommand::Stop);
+                                    app.should_quit = true;
+                                }
+                                KeyCode::Char(' ') if !app.completed => {
+                                    if app.paused {
+                                        let _ = controller.send(ControlCommand::Resume);
+                                        app.paused = false;
+                                    } else {
+                                        let _ = controller.send(ControlCommand::Pause);
+                                    }
+                                }
+                                KeyCode::Char('s') if app.paused => {
+                                    let _ = controller.send(ControlCommand::StepN(1));
+                                }
+                                KeyCode::Char('f') if app.paused => {
+                                    let _ = controller.send(ControlCommand::StepN(10));
+                                }
+                                KeyCode::Char('m') if !app.completed => {
+                                    app.dialog = Dialog::ModeSelect;
+                                }
+                                KeyCode::Char('a') if !app.completed && app.time_mode == "Range" => {
+                                    app.dialog = Dialog::AdvanceBy {
+                                        input: String::new(),
+                                        error: None,
+                                    };
+                                }
+                                // Speed controls (Live mode only, not completed)
+                                KeyCode::Char('+') | KeyCode::Char('=')
+                                    if !app.completed && app.time_mode == "Live" =>
+                                {
+                                    let new_speed = (app.live_speed * 2.0).min(16.0);
+                                    let _ = controller.send(ControlCommand::SetSpeed(new_speed));
+                                    app.live_speed = new_speed;
+                                }
+                                KeyCode::Char('-')
+                                    if !app.completed && app.time_mode == "Live" =>
+                                {
+                                    let new_speed = (app.live_speed / 2.0).max(0.125);
+                                    let _ = controller.send(ControlCommand::SetSpeed(new_speed));
+                                    app.live_speed = new_speed;
+                                }
+                                _ => {}
                             }
-                            KeyCode::Char('s') if app.paused => {
-                                let _ = controller.send(ControlCommand::StepN(1));
-                            }
-                            KeyCode::Char('f') if app.paused => {
-                                let _ = controller.send(ControlCommand::StepN(10));
-                            }
-                            KeyCode::Char('m') if !app.completed => {
-                                let next_mode = app.cycle_mode();
-                                let _ = controller.send(ControlCommand::SetMode(next_mode));
-                            }
-                            _ => {}
                         }
                     }
             }
@@ -206,7 +235,6 @@ pub(super) async fn handle(args: RunArgs) -> Result<()> {
                         "   Expected {} steps, but only completed {}",
                         app.total_steps, app.current_step
                     );
-                    eprintln!("   This might indicate an issue in the simulation core.");
                 } else {
                     eprintln!("\n✅ Simulation completed successfully!");
                     eprintln!("   Completed {} steps", app.current_step);
@@ -263,6 +291,9 @@ fn process_sim_event(app: &mut App, event: SimEvent) {
             tracing::error!("simulation error: {err}");
             app.set_error(err);
             app.mark_completed();
+        }
+        SimEvent::SpeedChanged { multiplier } => {
+            app.live_speed = multiplier;
         }
     }
 }

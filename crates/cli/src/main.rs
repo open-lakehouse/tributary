@@ -4,6 +4,7 @@ mod app;
 mod error;
 mod run;
 mod telemetry;
+mod time_parse;
 mod tui;
 
 #[derive(clap::Parser)]

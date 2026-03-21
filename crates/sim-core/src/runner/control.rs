@@ -46,6 +46,8 @@ pub enum ControlCommand {
     StepN(usize),
     /// Change the time mode mid-simulation.
     SetMode(TimeMode),
+    /// Set the speed multiplier for Live mode (clamped to [0.125, 16.0]).
+    SetSpeed(f32),
 }
 
 // ─── Events (runner → caller) ─────────────────────────────────────────────────
@@ -70,6 +72,8 @@ pub enum SimEvent {
     },
     /// Emitted when the run loop exits due to an error.
     Error(String),
+    /// Emitted when the Live-mode speed multiplier changes.
+    SpeedChanged { multiplier: f32 },
 }
 
 // ─── Public controller (caller side) ─────────────────────────────────────────

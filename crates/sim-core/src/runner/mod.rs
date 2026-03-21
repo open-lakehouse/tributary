@@ -478,6 +478,11 @@ where
         self.paused
     }
 
+    /// Set the paused state directly (used by domain wrappers).
+    pub fn set_paused(&mut self, paused: bool) {
+        self.paused = paused;
+    }
+
     /// Emit a [`SimEvent`] via the attached control channel (no-op if none).
     pub fn emit_event(&self, event: SimEvent) {
         if let Some(c) = &self.control {
@@ -550,6 +555,15 @@ where
                 }
                 ControlCommand::Start => {
                     // No-op: already running
+                }
+                ControlCommand::SetSpeed(speed) => {
+                    let clamped = speed.clamp(0.125, 16.0);
+                    self.context.live_speed = clamped;
+                    if let Some(c) = &self.control {
+                        c.emit(SimEvent::SpeedChanged {
+                            multiplier: clamped,
+                        });
+                    }
                 }
             }
         }

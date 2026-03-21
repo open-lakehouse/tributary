@@ -9,6 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] - 2026-03-21
 
+### Added — TUI/CLI UX Improvements
+
+#### sim-core: Speed Control and Pause-on-End
+- `ControlCommand::SetSpeed(f32)` — set Live-mode speed multiplier (clamped to [0.125, 16.0])
+- `SimEvent::SpeedChanged { multiplier: f32 }` — emitted when speed changes
+- `SimulationContext::live_speed: f32` field — speed multiplier used by `sleep_duration()`
+- `SimulationRunner::set_paused(bool)` — public method for domain wrappers to enter paused state
+
+#### sim-kitchen: Pause on Range End
+- `KitchenSimulation::step()` now returns `TickResult` so callers can inspect it
+- `run_controlled_for`: when Range mode hits `end_time`, emits `Paused` and enters the pause loop rather than stopping — allows user to advance range in TUI without restarting
+
+#### CLI: Human-Friendly Time Parsing
+- New `time_parse::parse_sim_time()` — accepts `now`, `now+3h`, `now-30m`, `2026-01-01`, full RFC 3339
+- `--start-time` and `--end-time` now use this parser; help text updated
+
+#### CLI TUI: Guided Mode Dialog and Improved Layout
+- `[m]` opens a `ModeSelect` dialog instead of blindly cycling — eliminates the undefined-behavior bug where switching back to Range sent `end_time: None`
+- `[a]` key opens `AdvanceBy` dialog when in Range mode — extend the simulation end time without restarting
+- `[+]`/`[-]` keys adjust Live-mode speed (doubles / halves, shown in help bar)
+- New header row: title + colored mode badge (`[RANGE]`/`[LIVE]`/`[CATCHUP]`) + full datetime + step counter
+- Body area horizontally split: left totals panel (one entry per event type) + right event log
+- Help bar is context-sensitive: shows `[a]`/`[+/-] Speed Nx` only when relevant
+- Mode badge colors: Range=Blue, Live=Green, Catchup=Yellow
+
 ### Added — Interactive TUI with Bidirectional Control Channel
 
 #### sim-core: Control Channel Enhancements

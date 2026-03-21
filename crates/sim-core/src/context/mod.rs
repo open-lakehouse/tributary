@@ -94,6 +94,9 @@ pub struct SimulationContext {
     /// Reference point for Live/Catchup sleep calculations:
     /// `(wall_clock_at_live_start, step_at_live_start)`
     live_reference: Option<(DateTime<Utc>, usize)>,
+    /// Speed multiplier for Live mode (1.0 = real-time, 2.0 = 2x speed).
+    /// Clamped to [0.125, 16.0] when set.
+    pub live_speed: f32,
 }
 
 impl SimulationContext {
@@ -106,6 +109,7 @@ impl SimulationContext {
             step: 0,
             time_mode: TimeMode::default(),
             live_reference: None,
+            live_speed: 1.0,
         }
     }
 
@@ -215,8 +219,11 @@ impl SimulationContext {
         }
         let steps_since = self.step.saturating_sub(ref_step);
         let step_nanos = self.config.time_step.num_nanoseconds().unwrap_or(0);
-        let elapsed_sim_ns = steps_since as i64 * step_nanos;
-        let next_wall = ref_wall + Duration::nanoseconds(elapsed_sim_ns);
+        // Divide sim nanos by speed to get wall-clock nanos per step.
+        let speed = self.live_speed.max(0.001) as f64;
+        let wall_nanos_per_step = (step_nanos as f64 / speed) as i64;
+        let elapsed_wall_ns = steps_since as i64 * wall_nanos_per_step;
+        let next_wall = ref_wall + Duration::nanoseconds(elapsed_wall_ns);
         let now = Utc::now();
         if now < next_wall {
             (next_wall - now).to_std().ok()

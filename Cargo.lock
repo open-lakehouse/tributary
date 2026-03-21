@@ -609,6 +609,7 @@ dependencies = [
  "clap",
  "crossterm",
  "futures 0.3.31",
+ "humantime",
  "opentelemetry",
  "opentelemetry-otlp",
  "opentelemetry_sdk",
