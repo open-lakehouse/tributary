@@ -187,9 +187,13 @@ GPG commit signing is required on this repository. The GPG PIN prompt requires a
 
 ### Correct workflow
 
-1. Stage files normally (`git add ...`)
-2. Prepare the commit message
-3. Output a ready-to-paste `git commit` command for the user to run in their terminal
+1. Run `cargo clippy --workspace --fix --allow-dirty` to apply automatic lint fixes (may change code)
+2. Run `cargo fmt --all` to format all code (including anything clippy rewrote)
+3. Stage files (`git add ...`)
+4. Prepare the commit message
+5. Output a ready-to-paste `git commit` command for the user to run in their terminal
+
+Steps 1 and 2 must always run in this order before staging — clippy may rewrite code that then needs formatting, and the pre-commit hook enforces `cargo fmt`, so unformatted files will cause it to abort the commit.
 
 ### Template
 
@@ -226,6 +230,7 @@ The `Co-authored-by: Isaac` trailer must be included on every commit.
 7. **Use `set_workflow_engine()`** — removed; use `set_workflow_registry()` only
 8. **Hardcode step duration as `30.0`** — use `ctx.time_step().num_seconds() as f64`
 9. **Run `git commit` directly** — GPG signing requires interactive TTY; prepare the command for the user instead (see Git Commits section above)
+10. **Stage files before running clippy and fmt** — always run `cargo clippy --workspace --fix --allow-dirty` then `cargo fmt --all` first; clippy may rewrite code that needs formatting, and the pre-commit hook will abort if files are not already formatted
 
 ### ✅ ALWAYS DO THIS
 1. **Run `just generate`** after proto changes

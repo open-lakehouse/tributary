@@ -1100,11 +1100,11 @@ impl KitchenSimulation {
                 } else {
                     vec![]
                 };
-            if !completed_task_ids.is_empty() {
-                if let Some(allocator) = self.runner.resources_mut() {
-                    for task_id in completed_task_ids {
-                        let _ = allocator.complete_task(task_id);
-                    }
+            if !completed_task_ids.is_empty()
+                && let Some(allocator) = self.runner.resources_mut()
+            {
+                for task_id in completed_task_ids {
+                    let _ = allocator.complete_task(task_id);
                 }
             }
 
@@ -1146,12 +1146,12 @@ impl KitchenSimulation {
                         .collect()
                 })
                 .unwrap_or_default();
-            if !idle_ids.is_empty() {
-                if let Some(hooks) = self.runner.hooks_as_mut::<KitchenSimulationHooks>() {
-                    hooks
-                        .orders
-                        .retain(|_order_id, info| !idle_ids.contains(&info.customer_id));
-                }
+            if !idle_ids.is_empty()
+                && let Some(hooks) = self.runner.hooks_as_mut::<KitchenSimulationHooks>()
+            {
+                hooks
+                    .orders
+                    .retain(|_order_id, info| !idle_ids.contains(&info.customer_id));
             }
 
             // 6. Send per-step progress to TUI if a channel is attached
