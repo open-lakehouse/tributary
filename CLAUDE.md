@@ -203,10 +203,10 @@ GPG commit signing is required on this repository. The GPG PIN prompt requires a
 
 1. Run `cargo clippy --workspace --fix --allow-dirty` to apply automatic lint fixes (may change code)
 2. Run `cargo fmt --all` to format all code (including anything clippy rewrote)
-3. Stage files (`git add <specific files>`)
+3. Stage files with `git add <specific files>` — do this programmatically (via Bash tool)
 4. Output a ready-to-paste `git commit` command for the user to run in their terminal
 
-Steps 1 and 2 must always run in this order before staging — clippy may rewrite code that then needs formatting, and the pre-commit hook enforces `cargo fmt`.
+Steps 1 and 2 must always run in this order before staging — clippy may rewrite code that then needs formatting, and the pre-commit hook enforces `cargo fmt`. Step 3 (staging) must be done by the agent so the user only needs to paste and run a single commit command.
 
 ### Template
 
