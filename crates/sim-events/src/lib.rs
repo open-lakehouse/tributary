@@ -48,7 +48,6 @@ pub use core::{Event, EventPayload, EventRecord};
 pub use dispatcher::{
     ChannelSenderProcessor, EventDispatcher, EventProcessor, ParquetEventProcessor,
 };
-pub use storage::ParquetEventWriter;
 
 /// Result type used throughout the crate
 pub type Result<T> = std::result::Result<T, Error>;

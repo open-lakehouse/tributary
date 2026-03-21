@@ -2,7 +2,6 @@
 
 use crate::core::{Event, EventRecord};
 use std::collections::HashMap;
-use std::path::PathBuf;
 
 /// Trait for processing events as they are emitted.
 /// Processors must not block — use channels for expensive work.
@@ -194,51 +193,6 @@ impl EventDispatcher {
     /// Convert buffered events to records
     pub fn to_records(&self) -> Vec<EventRecord> {
         self.buffer.iter().map(|e| e.to_record()).collect()
-    }
-
-    /// Flush events to Parquet file.
-    ///
-    /// # Deprecated
-    ///
-    /// This method will be removed once all callers migrate to `ParquetEventProcessor`.
-    /// Do not add new usages.
-    #[deprecated(note = "Use ParquetEventProcessor instead")]
-    pub fn flush_to_parquet(&mut self, path: impl Into<PathBuf>) -> crate::Result<usize> {
-        use crate::storage::ParquetEventWriter;
-        let records = self.to_records();
-        let count = records.len();
-        if count > 0 {
-            let mut writer = ParquetEventWriter::new(path.into())?;
-            writer.write_events(&records)?;
-            writer.close()?;
-        }
-        self.clear();
-        Ok(count)
-    }
-
-    /// Flush events to JSON Lines file.
-    ///
-    /// # Deprecated
-    ///
-    /// This method will be removed once all callers migrate to a processor.
-    /// Do not add new usages.
-    #[deprecated(note = "Use an EventProcessor implementation instead")]
-    pub fn flush_to_jsonl(&mut self, path: impl Into<PathBuf>) -> crate::Result<usize> {
-        let path = path.into();
-        let file = std::fs::File::create(path)?;
-        let mut writer = std::io::BufWriter::new(file);
-
-        let count = self.buffer.len();
-
-        for event in &self.buffer {
-            let json = event.to_cloudevents_json();
-            serde_json::to_writer(&mut writer, &json)?;
-            use std::io::Write;
-            writeln!(writer)?;
-        }
-
-        self.clear();
-        Ok(count)
     }
 }
 

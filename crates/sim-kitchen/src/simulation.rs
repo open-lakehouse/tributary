@@ -402,14 +402,6 @@ impl KitchenSimulationHooks {
         self.dispatcher
     }
 
-    /// Flush all buffered events to a Parquet file
-    pub fn save_events(
-        &mut self,
-        path: impl Into<std::path::PathBuf>,
-    ) -> sim_events::Result<usize> {
-        self.dispatcher.flush_to_parquet(path)
-    }
-
     /// Drain Order tasks created during the last tick.
     /// Called by the simulation loop to feed them into the ResourceAllocator.
     pub fn drain_pending_orders(&mut self) -> Vec<Order> {
