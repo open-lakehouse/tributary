@@ -376,13 +376,14 @@ impl KitchenSimulationHooks {
     }
 
     /// Emit eating events for customers that started eating
-    pub fn emit_eating_events(&mut self) {
+    pub fn emit_eating_events(&mut self, sim_time: chrono::DateTime<chrono::Utc>) {
         for (customer_id, order_id, finish_time) in self.eating_customers.drain(..) {
             let event = Event::new(Box::new(CustomerEatingEvent {
                 customer_id: customer_id.to_string(),
                 order_id,
                 finish_time,
-            }));
+            }))
+            .with_time(sim_time);
             self.dispatcher.emit(event);
         }
     }
@@ -479,7 +480,8 @@ impl KitchenSimulationHooks {
                     current_quantity,
                     reorder_point,
                     timestamp: ctx.current_time(),
-                }));
+                }))
+                .with_time(ctx.current_time());
                 self.dispatcher.emit(low_event);
 
                 // Select distribution site
@@ -520,7 +522,8 @@ impl KitchenSimulationHooks {
                         quantity: reorder_quantity,
                         source_site_id: site_id.to_string(),
                         timestamp: ctx.current_time(),
-                    }));
+                    }))
+                    .with_time(ctx.current_time());
                     self.dispatcher.emit(order_event);
                 } else if ctx.config().verbose {
                     println!(
@@ -588,7 +591,8 @@ impl SimulationHooks for KitchenSimulationHooks {
                         order_id: order_id.clone(),
                         customer_id: order_info.customer_id.to_string(),
                         prep_time_seconds: prep_time,
-                    }));
+                    }))
+                    .with_time(current_time);
 
                     self.dispatcher.emit(event);
                 }
@@ -665,7 +669,8 @@ impl SimulationHooks for KitchenSimulationHooks {
                         customer_id: customer_id.to_string(),
                         items,
                         timestamp: ctx.current_time(),
-                    }));
+                    }))
+                    .with_time(ctx.current_time());
 
                     self.dispatcher.emit(event);
 
@@ -735,7 +740,8 @@ impl SimulationHooks for KitchenSimulationHooks {
                                 order_id: order_id.clone(),
                                 items: total_ingredients.clone(),
                                 timestamp: ctx.current_time(),
-                            }));
+                            }))
+                            .with_time(ctx.current_time());
                             self.dispatcher.emit(event);
                         }
                         Err(e) => {
@@ -754,7 +760,8 @@ impl SimulationHooks for KitchenSimulationHooks {
                                 order_id: order_id.clone(),
                                 error: e.to_string(),
                                 timestamp: ctx.current_time(),
-                            }));
+                            }))
+                            .with_time(ctx.current_time());
                             self.dispatcher.emit(event);
                         }
                     }
@@ -766,7 +773,8 @@ impl SimulationHooks for KitchenSimulationHooks {
                     kitchen_id: assignment.resource_id.to_string(),
                     kitchen_name: format!("Kitchen-{}", assignment.resource_id),
                     estimated_completion,
-                }));
+                }))
+                .with_time(ctx.current_time());
                 self.dispatcher.emit(event);
             }
 
@@ -847,7 +855,8 @@ impl KitchenSimulationHooks {
                             quantity,
                             new_quantity,
                             timestamp: ctx.current_time(),
-                        }));
+                        }))
+                        .with_time(ctx.current_time());
                         self.dispatcher.emit(event);
 
                         // Remove from pending supply orders
@@ -1243,7 +1252,8 @@ impl KitchenSimulation {
             let event = Event::new(Box::new(CustomerDoneEvent {
                 customer_id: customer_id.to_string(),
                 total_time_seconds: 0,
-            }));
+            }))
+            .with_time(self.runner.context().current_time());
             self.event_dispatcher.emit(event);
         }
 
@@ -1287,7 +1297,8 @@ impl KitchenSimulation {
                         customer_id: customer_id.to_string(),
                         order_id,
                         finish_time,
-                    }));
+                    }))
+                    .with_time(current_time);
                     self.event_dispatcher.emit(event);
 
                     updated_customers.push(customer);

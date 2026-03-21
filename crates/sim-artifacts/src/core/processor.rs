@@ -84,7 +84,11 @@ impl<P: Send + 'static> LocalEventProcessor for ArtifactCollectorProcessor<P> {
             .and_then(|v| v.as_str())
             .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
             .map(|dt| dt.with_timezone(&Utc))
-            .unwrap_or_else(Utc::now);
+            .unwrap_or_else(|| {
+                // Should never happen for correctly-emitted events.
+                // Use Unix epoch so bad data is immediately obvious in output.
+                chrono::DateTime::UNIX_EPOCH.with_timezone(&Utc)
+            });
 
         let mut inner = self.inner.lock().unwrap();
         // Split the borrow: take a raw pointer to collector so we can borrow profiles separately.
