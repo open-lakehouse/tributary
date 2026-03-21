@@ -57,6 +57,7 @@ pub enum SimEvent {
     TickCompleted {
         step: usize,
         sim_time: DateTime<Utc>,
+        event_counts: std::collections::HashMap<String, u64>,
     },
     /// Emitted when the time mode changes (e.g. Catchup → Live).
     ModeChanged { mode: String },

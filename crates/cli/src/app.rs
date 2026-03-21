@@ -7,6 +7,7 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Borders, Gauge, Paragraph, Wrap},
 };
+use sim_core::TimeMode;
 
 use crate::tui::Frame;
 
@@ -47,10 +48,12 @@ pub struct App {
     pub scroll_offset: u16,
     pub error: Option<String>,
     pub thread_panicked: bool,
+    pub paused: bool,
+    pub time_mode: String,
 }
 
 impl App {
-    pub fn new(total_steps: usize) -> Self {
+    pub fn new(total_steps: usize, time_mode: String) -> Self {
         Self {
             current_step: 0,
             total_steps,
@@ -62,6 +65,8 @@ impl App {
             scroll_offset: 0,
             error: None,
             thread_panicked: false,
+            paused: false,
+            time_mode,
         }
     }
 
@@ -105,16 +110,31 @@ impl App {
         self.completed = true;
     }
 
+    /// Cycle through Range → Live → Catchup → Range, return the `TimeMode` to send.
+    pub fn cycle_mode(&mut self) -> TimeMode {
+        let next = match self.time_mode.as_str() {
+            "Range" => "Live",
+            "Live" => "Catchup",
+            _ => "Range",
+        };
+        self.time_mode = next.to_string();
+        match next {
+            "Live" => TimeMode::Live,
+            "Catchup" => TimeMode::Catchup,
+            _ => TimeMode::Range { end_time: None },
+        }
+    }
+
     pub fn render(&self, frame: &mut Frame<'_>) {
         let area = frame.area();
 
-        // If there's an error, show error panel
         if self.error.is_some() || self.thread_panicked {
             let layout = Layout::vertical([
                 Constraint::Length(3),
-                Constraint::Length(7), // Larger for error display
+                Constraint::Length(7),
                 Constraint::Length(5),
                 Constraint::Min(10),
+                Constraint::Length(3),
             ])
             .split(area);
 
@@ -122,23 +142,26 @@ impl App {
             self.render_error(frame, layout[1]);
             self.render_summary(frame, layout[2]);
             self.render_log(frame, layout[3]);
+            self.render_status_bar(frame, layout[4]);
         } else {
             let layout = Layout::vertical([
                 Constraint::Length(3),
                 Constraint::Length(5),
                 Constraint::Min(10),
+                Constraint::Length(3),
             ])
             .split(area);
 
             self.render_progress(frame, layout[0]);
             self.render_summary(frame, layout[1]);
             self.render_log(frame, layout[2]);
+            self.render_status_bar(frame, layout[3]);
         }
     }
 
     fn render_progress(&self, frame: &mut Frame<'_>, area: Rect) {
         let ratio = if self.total_steps > 0 {
-            self.current_step as f64 / self.total_steps as f64
+            (self.current_step as f64 / self.total_steps as f64).min(1.0)
         } else {
             0.0
         };
@@ -164,6 +187,14 @@ impl App {
                 ),
                 Color::Green,
             )
+        } else if self.paused {
+            (
+                format!(
+                    "Step {}/{}  [sim: {}]  ■ PAUSED",
+                    self.current_step, self.total_steps, time_label
+                ),
+                Color::Yellow,
+            )
         } else {
             (
                 format!(
@@ -174,12 +205,12 @@ impl App {
             )
         };
 
+        let mode_badge = format!("[{}]", self.time_mode);
+        let paused_badge = if self.paused { " [■ PAUSED]" } else { "" };
+        let title = format!(" Simulation Progress {mode_badge}{paused_badge} ");
+
         let gauge = Gauge::default()
-            .block(
-                Block::default()
-                    .title(" Simulation Progress ")
-                    .borders(Borders::ALL),
-            )
+            .block(Block::default().title(title).borders(Borders::ALL))
             .gauge_style(Style::default().fg(color).add_modifier(Modifier::BOLD))
             .ratio(ratio)
             .label(label);
@@ -287,14 +318,30 @@ impl App {
         };
 
         let footer = if self.completed {
-            " Event Log [q to quit] "
+            " Event Log "
         } else {
-            " Event Log [q to abort] "
+            " Event Log "
         };
 
         let paragraph = Paragraph::new(lines)
             .block(Block::default().title(footer).borders(Borders::ALL))
             .scroll((scroll, 0));
+
+        frame.render_widget(paragraph, area);
+    }
+
+    fn render_status_bar(&self, frame: &mut Frame<'_>, area: Rect) {
+        let hints = if self.completed || self.error.is_some() || self.thread_panicked {
+            " [q] Quit".to_string()
+        } else if self.paused {
+            " [q] Quit  [Space] Resume  [s] Step 1  [f] Step 10  [m] Mode".to_string()
+        } else {
+            " [q] Quit  [Space] Pause  [m] Mode".to_string()
+        };
+
+        let paragraph = Paragraph::new(hints)
+            .block(Block::default().title(" Controls ").borders(Borders::ALL))
+            .style(Style::default().fg(Color::DarkGray));
 
         frame.render_widget(paragraph, area);
     }

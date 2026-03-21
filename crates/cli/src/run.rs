@@ -1,8 +1,7 @@
 use chrono::{DateTime, Utc};
 use crossterm::event::{Event, KeyCode, KeyEventKind};
-use sim_core::{ControlCommand, TimeMode, control_channel};
-use sim_kitchen::{KitchenSimulation, SimulationMessage};
-use tokio::sync::mpsc;
+use sim_core::{ControlCommand, SimEvent, TimeMode, control_channel};
+use sim_kitchen::KitchenSimulation;
 
 use crate::app::App;
 use crate::error::Result;
@@ -74,7 +73,13 @@ pub(super) async fn handle(args: RunArgs) -> Result<()> {
 
     // Controller lives on the TUI side; receiver goes to the sim thread.
     let (controller, receiver) = control_channel(128);
-    let (event_tx, mut event_rx) = mpsc::unbounded_channel::<SimulationMessage>();
+
+    let initial_mode_str = match args.mode {
+        RunMode::Range => "Range",
+        RunMode::Live => "Live",
+        RunMode::Catchup => "Catchup",
+    }
+    .to_string();
 
     let mode = args.mode.clone();
     let sim_handle = std::thread::spawn(move || {
@@ -94,63 +99,23 @@ pub(super) async fn handle(args: RunArgs) -> Result<()> {
         };
         sim.runner_mut().set_time_mode(time_mode);
 
-        // For range mode, attach TUI channel so progress messages stream
-        let is_range = matches!(args.mode, RunMode::Range);
-        if is_range {
-            sim.set_tui_channel(event_tx.clone(), duration);
-            if let Err(e) = sim.run_for_steps(duration) {
-                let _ = event_tx.send(SimulationMessage::Error(e.to_string()));
-            }
-            return;
+        // Attach control channel
+        sim.runner_mut().attach_control(receiver);
+
+        let max = match args.mode {
+            RunMode::Range => duration,
+            _ => usize::MAX,
+        };
+
+        if let Err(e) = sim.run_controlled_for(max) {
+            sim.runner_mut().emit_event(SimEvent::Error(e.to_string()));
         }
-
-        // For Live / Catchup: run a step loop, poll control channel for stop
-        // signal, send progress messages manually.
-        let tx = event_tx.clone();
-        for i in 0..duration {
-            // Poll the control receiver for a Stop command
-            {
-                let cmds = receiver.drain_commands();
-                let mut should_stop = false;
-                for cmd in cmds {
-                    if matches!(cmd, ControlCommand::Stop) {
-                        should_stop = true;
-                    }
-                }
-                if should_stop {
-                    break;
-                }
-            }
-
-            match sim.step() {
-                Ok(()) => {
-                    let step = sim.runner().context().step();
-                    let sim_time = sim.runner().context().current_time();
-                    let _ = tx.send(SimulationMessage::StepCompleted {
-                        step,
-                        total_steps: duration,
-                        sim_time,
-                        event_counts: Default::default(),
-                    });
-                }
-                Err(e) => {
-                    let _ = tx.send(SimulationMessage::Error(e.to_string()));
-                    return;
-                }
-            }
-            let _ = i; // step counter used implicitly via range
-        }
-
-        let _ = tx.send(SimulationMessage::Completed {
-            steps: sim.runner().context().step(),
-            final_time: sim.runner().context().current_time(),
-        });
     });
 
     let mut tui = Tui::new()?;
     tui.enter()?;
 
-    let mut app = App::new(duration);
+    let mut app = App::new(duration, initial_mode_str);
     let tick_rate = std::time::Duration::from_millis(50);
 
     loop {
@@ -174,22 +139,49 @@ pub(super) async fn handle(args: RunArgs) -> Result<()> {
                                 let _ = controller.send(ControlCommand::Stop);
                                 app.should_quit = true;
                             }
+                            KeyCode::Char(' ') if !app.completed => {
+                                if app.paused {
+                                    let _ = controller.send(ControlCommand::Resume);
+                                    app.paused = false;
+                                } else {
+                                    let _ = controller.send(ControlCommand::Pause);
+                                }
+                            }
+                            KeyCode::Char('s') if app.paused => {
+                                let _ = controller.send(ControlCommand::StepN(1));
+                            }
+                            KeyCode::Char('f') if app.paused => {
+                                let _ = controller.send(ControlCommand::StepN(10));
+                            }
+                            KeyCode::Char('m') if !app.completed => {
+                                let next_mode = app.cycle_mode();
+                                let _ = controller.send(ControlCommand::SetMode(next_mode));
+                            }
                             _ => {}
                         }
                     }
             }
-            msg = event_rx.recv() => {
-                process_message(&mut app, msg);
+            _ = &mut timeout => {
+                while let Some(event) = controller.try_recv() {
+                    process_sim_event(&mut app, event);
+                }
             }
-            _ = &mut timeout => {}
         }
 
-        while let Ok(msg) = event_rx.try_recv() {
-            process_message(&mut app, Some(msg));
+        // Drain any remaining events after timeout
+        while let Some(event) = controller.try_recv() {
+            process_sim_event(&mut app, event);
         }
 
-        if app.should_quit {
-            break;
+        if app.should_quit || app.completed {
+            // Drain remaining events before deciding to exit
+            while let Some(event) = controller.try_recv() {
+                process_sim_event(&mut app, event);
+            }
+            if app.should_quit {
+                break;
+            }
+            // Stay in loop after completion so user can press q
         }
     }
 
@@ -249,31 +241,27 @@ pub(super) async fn handle(args: RunArgs) -> Result<()> {
     Ok(())
 }
 
-fn process_message(app: &mut App, msg: Option<SimulationMessage>) {
-    match msg {
-        Some(SimulationMessage::StepCompleted {
+fn process_sim_event(app: &mut App, event: SimEvent) {
+    match event {
+        SimEvent::TickCompleted {
             step,
-            total_steps: _,
             sim_time,
             event_counts,
-        }) => {
+        } => {
             app.push_step(step, sim_time, event_counts);
         }
-        Some(SimulationMessage::Completed { steps, final_time }) => {
-            tracing::info!(
-                "Simulation completed successfully: {} steps, final time: {}",
-                steps,
-                final_time
-            );
+        SimEvent::Paused { .. } => {
+            app.paused = true;
+        }
+        SimEvent::ModeChanged { mode } => {
+            app.time_mode = mode;
+        }
+        SimEvent::SimulationEnded { .. } => {
             app.mark_completed();
         }
-        Some(SimulationMessage::Error(err)) => {
+        SimEvent::Error(err) => {
             tracing::error!("simulation error: {err}");
             app.set_error(err);
-            app.mark_completed();
-        }
-        None => {
-            tracing::warn!("Simulation channel closed unexpectedly");
             app.mark_completed();
         }
     }

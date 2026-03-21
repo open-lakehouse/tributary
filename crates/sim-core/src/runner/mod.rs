@@ -466,6 +466,25 @@ where
         self.control = Some(rx);
     }
 
+    /// Public wrapper around `apply_control_commands` for use by domain wrappers.
+    ///
+    /// Returns `true` if a `Stop` command was received (caller should break).
+    pub fn process_control_commands(&mut self) -> Result<bool> {
+        self.apply_control_commands()
+    }
+
+    /// Returns whether the simulation is currently paused.
+    pub fn is_paused(&self) -> bool {
+        self.paused
+    }
+
+    /// Emit a [`SimEvent`] via the attached control channel (no-op if none).
+    pub fn emit_event(&self, event: SimEvent) {
+        if let Some(c) = &self.control {
+            c.emit(event);
+        }
+    }
+
     /// Drain pending [`ControlCommand`]s and apply them.
     ///
     /// Returns `true` if a `Stop` command was received (caller should break).
@@ -501,7 +520,11 @@ where
                         let step = self.context.step();
                         let sim_time = self.context.current_time();
                         if let Some(c) = &self.control {
-                            c.emit(SimEvent::TickCompleted { step, sim_time });
+                            c.emit(SimEvent::TickCompleted {
+                                step,
+                                sim_time,
+                                event_counts: std::collections::HashMap::new(),
+                            });
                             if result == TickResult::SwitchedToLive {
                                 c.emit(SimEvent::ModeChanged {
                                     mode: "live".to_string(),
@@ -585,7 +608,11 @@ where
             let sim_time = self.context.current_time();
 
             if let Some(c) = &self.control {
-                c.emit(SimEvent::TickCompleted { step, sim_time });
+                c.emit(SimEvent::TickCompleted {
+                    step,
+                    sim_time,
+                    event_counts: std::collections::HashMap::new(),
+                });
                 if result == TickResult::SwitchedToLive {
                     c.emit(SimEvent::ModeChanged {
                         mode: "live".to_string(),

@@ -67,7 +67,7 @@ use sim_artifacts::{
     ArtifactCollector, ArtifactCollectorProcessor, LocalEventProcessor, ParquetArtifactStorage,
 };
 use sim_core::{
-    AgentId, PopulationHandler, ResourceAllocator, SimulationContext, SimulationHooks,
+    AgentId, PopulationHandler, ResourceAllocator, SimEvent, SimulationContext, SimulationHooks,
     SimulationRunner, TaskId,
     population::AgentTickResult,
     resources::{Assignment, LeastLoaded},
@@ -76,21 +76,6 @@ use sim_core::{
 use sim_events::{Event, EventDispatcher};
 use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
-
-/// Messages sent from the simulation to a TUI consumer via a channel.
-pub enum SimulationMessage {
-    StepCompleted {
-        step: usize,
-        total_steps: usize,
-        sim_time: DateTime<Utc>,
-        event_counts: HashMap<String, u64>,
-    },
-    Completed {
-        steps: usize,
-        final_time: DateTime<Utc>,
-    },
-    Error(String),
-}
 
 /// Food preparation workflow with multi-step processing
 ///
@@ -1052,9 +1037,6 @@ pub struct KitchenSimulation {
     event_dispatcher: EventDispatcher,
     /// Track which customers already had their Done event emitted
     done_emitted: HashSet<AgentId>,
-    /// Optional TUI channel for streaming per-step progress
-    tui_tx: Option<tokio::sync::mpsc::UnboundedSender<SimulationMessage>>,
-    tui_total_steps: usize,
 }
 
 impl KitchenSimulation {
@@ -1067,19 +1049,7 @@ impl KitchenSimulation {
             runner,
             event_dispatcher,
             done_emitted: HashSet::new(),
-            tui_tx: None,
-            tui_total_steps: 0,
         }
-    }
-
-    /// Attach a TUI channel so the simulation streams per-step progress messages.
-    pub fn set_tui_channel(
-        &mut self,
-        tx: tokio::sync::mpsc::UnboundedSender<SimulationMessage>,
-        total_steps: usize,
-    ) {
-        self.tui_tx = Some(tx);
-        self.tui_total_steps = total_steps;
     }
 
     /// Add customers to the simulation
@@ -1170,7 +1140,49 @@ impl KitchenSimulation {
     /// Run the simulation with full lifecycle management
     pub fn run_for_steps(&mut self, steps: usize) -> sim_core::Result<()> {
         for _ in 0..steps {
-            // Snapshot event counts before this tick (to compute per-step delta below)
+            self.step()?;
+        }
+        self.flush_artifacts();
+        Ok(())
+    }
+
+    /// Run for up to `max_steps`, driven by the control channel attached to the runner.
+    ///
+    /// Unlike [`Self::run_for_steps`], this method honours Pause/Resume/StepN/Stop
+    /// commands and emits `SimEvent::TickCompleted` with per-step event deltas via
+    /// the control channel after every tick.
+    ///
+    /// Call `runner_mut().attach_control(receiver)` before this method.
+    pub fn run_controlled_for(&mut self, max_steps: usize) -> sim_core::Result<()> {
+        let mut steps_taken = 0;
+
+        loop {
+            if steps_taken >= max_steps {
+                break;
+            }
+
+            // Spin-wait while paused, polling for commands
+            while self.runner.is_paused() {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+                if self.runner.process_control_commands()? {
+                    self.flush_artifacts();
+                    self.runner.emit_event(SimEvent::SimulationEnded {
+                        total_steps: self.runner.context().step(),
+                        final_time: self.runner.context().current_time(),
+                    });
+                    return Ok(());
+                }
+            }
+
+            if self.runner.process_control_commands()? {
+                break;
+            }
+
+            // Re-check pause after processing commands
+            if self.runner.is_paused() {
+                continue;
+            }
+
             let counts_before: HashMap<String, usize> = self
                 .runner
                 .hooks_as::<KitchenSimulationHooks>()
@@ -1179,50 +1191,47 @@ impl KitchenSimulation {
             let own_before = self.event_dispatcher.event_counts().clone();
 
             self.step()?;
+            steps_taken += 1;
 
-            // Send per-step progress to TUI if a channel is attached
-            if let Some(tx) = &self.tui_tx {
-                let current_step = self.runner.context().step();
-                let sim_time = self.runner.context().current_time();
+            let step = self.runner.context().step();
+            let sim_time = self.runner.context().current_time();
 
-                // Compute per-step delta from hooks dispatcher
-                let mut step_counts: HashMap<String, u64> = HashMap::new();
-                if let Some(hooks) = self.runner.hooks_as::<KitchenSimulationHooks>() {
-                    for (k, v) in hooks.dispatcher.event_counts() {
-                        let before = counts_before.get(k).copied().unwrap_or(0);
-                        let delta = v.saturating_sub(before) as u64;
-                        if delta > 0 {
-                            step_counts.insert(k.clone(), delta);
-                        }
-                    }
-                }
-                // Also include events from the simulation's own dispatcher
-                for (k, v) in self.event_dispatcher.event_counts() {
-                    let before = own_before.get(k).copied().unwrap_or(0);
+            // Compute per-step delta
+            let mut event_counts: HashMap<String, u64> = HashMap::new();
+            if let Some(hooks) = self.runner.hooks_as::<KitchenSimulationHooks>() {
+                for (k, v) in hooks.dispatcher.event_counts() {
+                    let before = counts_before.get(k).copied().unwrap_or(0);
                     let delta = v.saturating_sub(before) as u64;
                     if delta > 0 {
-                        *step_counts.entry(k.clone()).or_default() += delta;
+                        event_counts.insert(k.clone(), delta);
                     }
                 }
-
-                let _ = tx.send(SimulationMessage::StepCompleted {
-                    step: current_step,
-                    total_steps: self.tui_total_steps,
-                    sim_time,
-                    event_counts: step_counts,
-                });
             }
-        }
+            for (k, v) in self.event_dispatcher.event_counts() {
+                let before = own_before.get(k).copied().unwrap_or(0);
+                let delta = v.saturating_sub(before) as u64;
+                if delta > 0 {
+                    *event_counts.entry(k.clone()).or_default() += delta;
+                }
+            }
 
-        // Send completion message
-        if let Some(tx) = &self.tui_tx {
-            let _ = tx.send(SimulationMessage::Completed {
-                steps: self.runner.context().step(),
-                final_time: self.runner.context().current_time(),
+            self.runner.emit_event(SimEvent::TickCompleted {
+                step,
+                sim_time,
+                event_counts,
             });
         }
 
-        // Flush artifacts generated during the run to the output directory.
+        self.flush_artifacts();
+        self.runner.emit_event(SimEvent::SimulationEnded {
+            total_steps: self.runner.context().step(),
+            final_time: self.runner.context().current_time(),
+        });
+        Ok(())
+    }
+
+    /// Flush accumulated artifacts to the output directory.
+    fn flush_artifacts(&mut self) {
         if let Some(hooks) = self.runner.hooks_as::<KitchenSimulationHooks>() {
             let artifact_count = hooks.artifact_count();
             if let Err(e) = hooks.flush_artifacts() {
@@ -1231,8 +1240,6 @@ impl KitchenSimulation {
                 eprintln!("Flushed {artifact_count} artifacts to output/artifacts/");
             }
         }
-
-        Ok(())
     }
 
     /// Remove IDs from `done_emitted` for customers that have reset back to Idle,
