@@ -16,7 +16,7 @@
 //!
 //! ```rust
 //! use sim_kitchen::locations::{DistributionSite, OrderFulfillment};
-//! use geo_types::Point;
+//! use geo::Point;
 //!
 //! // Create a distribution site in San Francisco
 //! let site = DistributionSite::new(
@@ -41,7 +41,7 @@
 //!
 //! ```rust
 //! use sim_kitchen::locations::DistributionSite;
-//! use geo_types::Point;
+//! use geo::Point;
 //!
 //! let site = DistributionSite::new(
 //!     "Central Warehouse".to_string(),
@@ -129,7 +129,7 @@ impl DistributionSite {
     ///
     /// ```rust
     /// use sim_kitchen::locations::DistributionSite;
-    /// use geo_types::Point;
+    /// use geo::Point;
     ///
     /// let site = DistributionSite::new(
     ///     "Main Warehouse".to_string(),
@@ -185,7 +185,7 @@ impl DistributionSite {
     ///
     /// ```rust
     /// use sim_kitchen::locations::DistributionSite;
-    /// use geo_types::Point;
+    /// use geo::Point;
     ///
     /// let site = DistributionSite::new(
     ///     "Warehouse".to_string(),
@@ -218,7 +218,7 @@ impl DistributionSite {
     ///
     /// ```rust
     /// use sim_kitchen::locations::DistributionSite;
-    /// use geo_types::Point;
+    /// use geo::Point;
     ///
     /// let site = DistributionSite::new(
     ///     "Distribution Center".to_string(),
@@ -254,7 +254,7 @@ impl DistributionSite {
     ///
     /// ```rust
     /// use sim_kitchen::locations::DistributionSite;
-    /// use geo_types::Point;
+    /// use geo::Point;
     ///
     /// let site = DistributionSite::new(
     ///     "Warehouse".to_string(),

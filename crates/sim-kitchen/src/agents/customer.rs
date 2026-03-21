@@ -133,7 +133,7 @@ impl Agent for Customer {
 
             CustomerStatus::Ordering => {
                 // Create demand for food
-                let order_id = format!("order-{}", self.id);
+                let order_id = format!("order-{}", uuid::Uuid::new_v4());
 
                 let mut metadata = HashMap::new();
                 metadata.insert("order_id".to_string(), Value::String(order_id.clone()));
@@ -173,7 +173,7 @@ impl Agent for Customer {
             }
 
             CustomerStatus::Done => {
-                // Terminal state
+                self.status = CustomerStatus::Idle;
             }
         }
 
@@ -182,6 +182,17 @@ impl Agent for Customer {
 
     fn state_data(&self) -> serde_json::Value {
         let mut map = serde_json::Map::new();
+
+        map.insert(
+            "order_probability".to_string(),
+            serde_json::Value::Number(
+                serde_json::Number::from_f64(self.order_probability).unwrap_or(0.into()),
+            ),
+        );
+        map.insert(
+            "eating_duration_s".to_string(),
+            serde_json::Value::Number(self.eating_duration.num_seconds().into()),
+        );
 
         match &self.status {
             CustomerStatus::WaitingForFood { order_id } => {
@@ -255,12 +266,29 @@ impl Agent for Customer {
             geo::Point::new(0.0, 0.0) // Default location
         };
 
+        let metadata: serde_json::Value = if let Some(ref m) = row.metadata {
+            serde_json::from_str(m).unwrap_or_default()
+        } else {
+            serde_json::Value::Null
+        };
+
+        let order_probability = metadata
+            .get("order_probability")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.1);
+
+        let eating_duration = metadata
+            .get("eating_duration_s")
+            .and_then(|v| v.as_i64())
+            .map(chrono::Duration::seconds)
+            .unwrap_or_else(|| chrono::Duration::minutes(20));
+
         Ok(Customer {
             id,
             status,
             location,
-            order_probability: 0.1,
-            eating_duration: chrono::Duration::minutes(20),
+            order_probability,
+            eating_duration,
         })
     }
 }

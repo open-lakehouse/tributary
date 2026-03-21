@@ -54,20 +54,43 @@
 //! ```
 
 use crate::agents::{Customer, CustomerStatus};
+use crate::artifact_generators::{
+    CustomerDoneArtifactGenerator, InventoryArtifactGenerator, OrderCompletedArtifactGenerator,
+    OrderCreatedArtifactGenerator, SupplyOrderArtifactGenerator,
+};
 use crate::events::*;
 use crate::locations::DistributionSite;
+use crate::profiles::ProfileRegistry;
 use crate::resources::{InventoryManager, Kitchen, Order};
 use chrono::{DateTime, Utc};
+use sim_artifacts::{
+    ArtifactCollector, ArtifactCollectorProcessor, LocalEventProcessor, ParquetArtifactStorage,
+};
 use sim_core::{
     AgentId, PopulationHandler, ResourceAllocator, SimulationContext, SimulationHooks,
-    SimulationRunner,
+    SimulationRunner, TaskId,
     population::AgentTickResult,
     resources::{Assignment, LeastLoaded},
     utils::idents::WorkflowInstanceId,
 };
 use sim_events::{Event, EventDispatcher};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
+
+/// Messages sent from the simulation to a TUI consumer via a channel.
+pub enum SimulationMessage {
+    StepCompleted {
+        step: usize,
+        total_steps: usize,
+        sim_time: DateTime<Utc>,
+        event_counts: HashMap<String, u64>,
+    },
+    Completed {
+        steps: usize,
+        final_time: DateTime<Utc>,
+    },
+    Error(String),
+}
 
 /// Food preparation workflow with multi-step processing
 ///
@@ -172,6 +195,7 @@ struct OrderInfo {
     created_at: DateTime<Utc>,
     assigned_at: Option<DateTime<Utc>>,
     completed_at: Option<DateTime<Utc>>,
+    task_id: Option<TaskId>,
 }
 
 /// Simulation hooks that emit events and manage order lifecycle
@@ -216,6 +240,12 @@ pub struct KitchenSimulationHooks {
     completed_orders: Vec<(String, AgentId)>, // (order_id, customer_id)
     /// Track eating customers (customer_id, order_id, finish_time) for event emission
     eating_customers: Vec<(AgentId, String, DateTime<Utc>)>,
+    /// Orders created during on_agents_ticked, to be drained by the simulation loop
+    /// and added to the ResourceAllocator
+    pending_orders: Vec<Order>,
+    /// TaskIds of completed orders, to be drained and passed to allocator.complete_task()
+    /// so kitchen capacity is freed for new orders
+    pending_completions: Vec<TaskId>,
     /// Inventory managers per kitchen (kitchen_id -> InventoryManager)
     pub inventory_managers: HashMap<Uuid, InventoryManager>,
     /// Recipe definitions (food_item -> ingredient -> quantity)
@@ -227,21 +257,69 @@ pub struct KitchenSimulationHooks {
     pub distribution_sites: Vec<DistributionSite>,
     /// Track supply order metadata (workflow_instance_id -> (kitchen_id, item_type, quantity))
     supply_order_metadata: HashMap<WorkflowInstanceId, (Uuid, String, u32)>,
+    /// Artifact collector processor — generates downstream artifacts from sim events
+    artifact_processor: ArtifactCollectorProcessor<ProfileRegistry>,
+    /// Index into the hooks dispatcher's buffered events slice; tracks which events
+    /// have already been forwarded to the artifact processor this run.
+    last_artifact_processed: usize,
 }
 
 impl KitchenSimulationHooks {
     pub fn new() -> Self {
+        Self::with_artifact_output("output/artifacts")
+    }
+
+    /// Create hooks with a specific artifact output directory.
+    pub fn with_artifact_output(artifact_dir: impl Into<std::path::PathBuf>) -> Self {
+        let mut collector: ArtifactCollector<ProfileRegistry> = ArtifactCollector::new();
+        collector.add_generator(Box::new(OrderCreatedArtifactGenerator::new()));
+        collector.add_generator(Box::new(CustomerDoneArtifactGenerator::new()));
+        collector.add_generator(Box::new(SupplyOrderArtifactGenerator::new()));
+        collector.add_generator(Box::new(InventoryArtifactGenerator::new()));
+        collector.add_generator(Box::new(OrderCompletedArtifactGenerator::new()));
+        let artifact_processor =
+            ArtifactCollectorProcessor::new(collector, ProfileRegistry::new(), "kitchen-sim")
+                .with_storage(Box::new(ParquetArtifactStorage::new(artifact_dir)));
+
         Self {
             dispatcher: EventDispatcher::new(),
             orders: HashMap::new(),
             completed_orders: Vec::new(),
             eating_customers: Vec::new(),
+            pending_orders: Vec::new(),
+            pending_completions: Vec::new(),
             inventory_managers: HashMap::new(),
             recipes: Self::default_recipes(),
             pending_supply_orders: HashMap::new(),
             distribution_sites: Vec::new(),
             supply_order_metadata: HashMap::new(),
+            artifact_processor,
+            last_artifact_processed: 0,
         }
+    }
+
+    /// Forward any newly buffered events to the artifact processor.
+    ///
+    /// Called at the end of each simulation tick to process events emitted
+    /// during that tick through all registered artifact generators.
+    pub fn process_new_events_through_artifacts(&mut self) {
+        let events = self.dispatcher.buffered_events();
+        let new_events = &events[self.last_artifact_processed..];
+        for event in new_events {
+            let json = event.to_cloudevents_json();
+            self.artifact_processor.process(&json);
+        }
+        self.last_artifact_processed = events.len();
+    }
+
+    /// Flush all accumulated artifacts to attached storage.
+    pub fn flush_artifacts(&self) -> Result<(), sim_artifacts::ArtifactError> {
+        self.artifact_processor.flush_to_storage()
+    }
+
+    /// Return the number of artifacts accumulated so far.
+    pub fn artifact_count(&self) -> usize {
+        self.artifact_processor.artifact_count()
     }
 
     /// Create default recipe definitions
@@ -314,9 +392,32 @@ impl KitchenSimulationHooks {
         &self.dispatcher
     }
 
+    /// Get mutable reference to the event dispatcher
+    pub fn dispatcher_mut(&mut self) -> &mut EventDispatcher {
+        &mut self.dispatcher
+    }
+
     /// Take ownership of the dispatcher (for flushing at end)
     pub fn take_dispatcher(self) -> EventDispatcher {
         self.dispatcher
+    }
+
+    /// Drain Order tasks created during the last tick.
+    /// Called by the simulation loop to feed them into the ResourceAllocator.
+    pub fn drain_pending_orders(&mut self) -> Vec<Order> {
+        std::mem::take(&mut self.pending_orders)
+    }
+
+    /// Drain completed orders waiting for delivery.
+    /// Returns (order_id, customer_id) pairs for orders whose prep time has elapsed.
+    pub fn drain_completed_orders(&mut self) -> Vec<(String, AgentId)> {
+        std::mem::take(&mut self.completed_orders)
+    }
+
+    /// Drain task_ids of completed orders so the simulation loop can call
+    /// allocator.complete_task() to free kitchen capacity.
+    pub fn drain_pending_completions(&mut self) -> Vec<TaskId> {
+        std::mem::take(&mut self.pending_completions)
     }
 
     /// Select the nearest distribution site for a kitchen (simple first-match strategy)
@@ -472,6 +573,11 @@ impl SimulationHooks for KitchenSimulationHooks {
                     self.completed_orders
                         .push((order_id.clone(), order_info.customer_id));
 
+                    // Schedule kitchen capacity release
+                    if let Some(task_id) = order_info.task_id {
+                        self.pending_completions.push(task_id);
+                    }
+
                     if ctx.config().verbose {
                         println!("✅ [Step {}] Order {} completed!", ctx.step(), order_id);
                     }
@@ -488,6 +594,9 @@ impl SimulationHooks for KitchenSimulationHooks {
                 }
             }
         }
+
+        // Forward all newly emitted events to the artifact processor.
+        self.process_new_events_through_artifacts();
 
         Ok(())
     }
@@ -530,6 +639,11 @@ impl SimulationHooks for KitchenSimulationHooks {
                         .map(AgentId::from_uuid)
                         .unwrap_or_else(|_| AgentId::new());
 
+                    // Create Order task for the ResourceAllocator
+                    let order_task =
+                        Order::new(order_id.to_string(), customer_id.to_string(), items.clone());
+                    let task_id = order_task.id;
+
                     // Track order
                     self.orders.insert(
                         order_id.to_string(),
@@ -539,8 +653,11 @@ impl SimulationHooks for KitchenSimulationHooks {
                             created_at: ctx.current_time(),
                             assigned_at: None,
                             completed_at: None,
+                            task_id: Some(task_id),
                         },
                     );
+
+                    self.pending_orders.push(order_task);
 
                     // Emit order created event
                     let event = Event::new(Box::new(OrderCreatedEvent {
@@ -574,96 +691,83 @@ impl SimulationHooks for KitchenSimulationHooks {
         for assignment in assignments {
             let kitchen_id = assignment.resource_id.as_uuid();
 
-            // Track assignment time for orders
-            for (order_id, order_info) in self.orders.iter_mut() {
-                if order_info.assigned_at.is_none() {
-                    order_info.assigned_at = Some(ctx.current_time());
-
-                    if ctx.config().verbose {
-                        println!(
-                            "👨‍🍳 [Step {}] Order {} assigned to kitchen",
-                            ctx.step(),
-                            order_id
-                        );
-                    }
-
-                    // Try to consume inventory if manager exists for this kitchen
-                    if let Some(manager) = self.inventory_managers.get(&kitchen_id) {
-                        // Get the order's items from metadata
-                        // For now, we'll assume all orders have items from the Order struct
-                        // In a real system, we'd parse this from assignment.task metadata
-
-                        // Calculate total ingredients needed for all items
-                        let mut total_ingredients: HashMap<String, u32> = HashMap::new();
-
-                        // For this demo, assume order has typical items
-                        // In production, this would come from the Order task's items field
-                        // For now, we'll consume a standard "meal" recipe
-                        for (item_type, quantity) in [("flour", 2), ("beef", 1), ("lettuce", 1)] {
-                            *total_ingredients.entry(item_type.to_string()).or_insert(0) +=
-                                quantity;
-                        }
-
-                        // Try to consume ingredients
-                        match manager.consume_multiple(&total_ingredients) {
-                            Ok(_) => {
-                                if ctx.config().verbose {
-                                    println!(
-                                        "📦 [Step {}] Kitchen {} consumed inventory for order {}",
-                                        ctx.step(),
-                                        kitchen_id,
-                                        order_id
-                                    );
-                                }
-
-                                // Emit inventory consumed event
-                                let event = Event::new(Box::new(InventoryConsumedEvent {
-                                    kitchen_id: kitchen_id.to_string(),
-                                    order_id: order_id.clone(),
-                                    items: total_ingredients.clone(),
-                                    timestamp: ctx.current_time(),
-                                }));
-                                self.dispatcher.emit(event);
-                            }
-                            Err(e) => {
-                                if ctx.config().verbose {
-                                    println!(
-                                        "⚠️  [Step {}] Kitchen {} insufficient inventory for order {}: {}",
-                                        ctx.step(),
-                                        kitchen_id,
-                                        order_id,
-                                        e
-                                    );
-                                }
-
-                                // Emit insufficient inventory event
-                                let event = Event::new(Box::new(InsufficientInventoryEvent {
-                                    kitchen_id: kitchen_id.to_string(),
-                                    order_id: order_id.clone(),
-                                    error: e.to_string(),
-                                    timestamp: ctx.current_time(),
-                                }));
-                                self.dispatcher.emit(event);
-
-                                // Order still proceeds (graceful degradation)
-                                // In production, might want to reject or queue the order
-                            }
-                        }
-                    }
-
-                    // Emit order assigned event
-                    // Note: estimated_completion would come from task metadata in production
-                    let estimated_completion = ctx.current_time() + chrono::Duration::minutes(5);
-                    let event = Event::new(Box::new(OrderAssignedEvent {
-                        order_id: order_id.clone(),
-                        kitchen_id: assignment.resource_id.to_string(),
-                        kitchen_name: format!("Kitchen-{}", assignment.resource_id),
-                        estimated_completion,
-                    }));
-
-                    self.dispatcher.emit(event);
-                    break; // Only assign one order per assignment
+            // Find the order that matches this assignment's task_id
+            let matching_order_id = self.orders.iter().find_map(|(order_id, info)| {
+                if info.task_id == Some(assignment.task_id) && info.assigned_at.is_none() {
+                    Some(order_id.clone())
+                } else {
+                    None
                 }
+            });
+
+            if let Some(order_id) = matching_order_id {
+                let order_info = self.orders.get_mut(&order_id).unwrap();
+                order_info.assigned_at = Some(ctx.current_time());
+
+                if ctx.config().verbose {
+                    println!(
+                        "👨‍🍳 [Step {}] Order {} assigned to kitchen",
+                        ctx.step(),
+                        order_id
+                    );
+                }
+
+                // Try to consume inventory if manager exists for this kitchen
+                if let Some(manager) = self.inventory_managers.get(&kitchen_id) {
+                    let mut total_ingredients: HashMap<String, u32> = HashMap::new();
+                    for (item_type, quantity) in [("flour", 2), ("beef", 1), ("lettuce", 1)] {
+                        *total_ingredients.entry(item_type.to_string()).or_insert(0) += quantity;
+                    }
+
+                    match manager.consume_multiple(&total_ingredients) {
+                        Ok(_) => {
+                            if ctx.config().verbose {
+                                println!(
+                                    "📦 [Step {}] Kitchen {} consumed inventory for order {}",
+                                    ctx.step(),
+                                    kitchen_id,
+                                    order_id
+                                );
+                            }
+
+                            let event = Event::new(Box::new(InventoryConsumedEvent {
+                                kitchen_id: kitchen_id.to_string(),
+                                order_id: order_id.clone(),
+                                items: total_ingredients.clone(),
+                                timestamp: ctx.current_time(),
+                            }));
+                            self.dispatcher.emit(event);
+                        }
+                        Err(e) => {
+                            if ctx.config().verbose {
+                                println!(
+                                    "⚠️  [Step {}] Kitchen {} insufficient inventory for order {}: {}",
+                                    ctx.step(),
+                                    kitchen_id,
+                                    order_id,
+                                    e
+                                );
+                            }
+
+                            let event = Event::new(Box::new(InsufficientInventoryEvent {
+                                kitchen_id: kitchen_id.to_string(),
+                                order_id: order_id.clone(),
+                                error: e.to_string(),
+                                timestamp: ctx.current_time(),
+                            }));
+                            self.dispatcher.emit(event);
+                        }
+                    }
+                }
+
+                let estimated_completion = ctx.current_time() + chrono::Duration::minutes(5);
+                let event = Event::new(Box::new(OrderAssignedEvent {
+                    order_id: order_id.clone(),
+                    kitchen_id: assignment.resource_id.to_string(),
+                    kitchen_name: format!("Kitchen-{}", assignment.resource_id),
+                    estimated_completion,
+                }));
+                self.dispatcher.emit(event);
             }
 
             // After processing this assignment, check if we need to trigger supply orders
@@ -685,6 +789,13 @@ impl SimulationHooks for KitchenSimulationHooks {
             }
         }
         Ok(())
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
     }
 }
 
@@ -930,6 +1041,11 @@ pub struct KitchenSimulation {
     runner: SimulationRunner<Customer, Kitchen, Order, FoodPrepWorkflow>,
     /// Event dispatcher for emitting customer lifecycle events
     event_dispatcher: EventDispatcher,
+    /// Track which customers already had their Done event emitted
+    done_emitted: HashSet<AgentId>,
+    /// Optional TUI channel for streaming per-step progress
+    tui_tx: Option<tokio::sync::mpsc::UnboundedSender<SimulationMessage>>,
+    tui_total_steps: usize,
 }
 
 impl KitchenSimulation {
@@ -941,7 +1057,20 @@ impl KitchenSimulation {
         Self {
             runner,
             event_dispatcher,
+            done_emitted: HashSet::new(),
+            tui_tx: None,
+            tui_total_steps: 0,
         }
+    }
+
+    /// Attach a TUI channel so the simulation streams per-step progress messages.
+    pub fn set_tui_channel(
+        &mut self,
+        tx: tokio::sync::mpsc::UnboundedSender<SimulationMessage>,
+        total_steps: usize,
+    ) {
+        self.tui_tx = Some(tx);
+        self.tui_total_steps = total_steps;
     }
 
     /// Add customers to the simulation
@@ -951,43 +1080,169 @@ impl KitchenSimulation {
 
     /// Run the simulation with full lifecycle management
     pub fn run_for_steps(&mut self, steps: usize) -> sim_core::Result<()> {
-        // Use the runner's built-in run_for_steps, but override the tick behavior
-        // by manually looping and delivering orders
         for _ in 0..steps {
-            // Tick the simulation
+            // Snapshot event counts before this tick (to compute per-step delta below)
+            let counts_before: HashMap<String, usize> = self
+                .runner
+                .hooks_as::<KitchenSimulationHooks>()
+                .map(|h| h.dispatcher.event_counts().clone())
+                .unwrap_or_default();
+            let own_before = self.event_dispatcher.event_counts().clone();
+
+            // 1. Tick agents, invoke hooks (on_agents_ticked creates OrderCreatedEvent
+            //    and collects Order tasks in pending_orders)
             self.runner.tick()?;
 
-            // Deliver completed orders to customers
+            // 1b. Free kitchen capacity for orders that completed this tick
+            let completed_task_ids =
+                if let Some(hooks) = self.runner.hooks_as_mut::<KitchenSimulationHooks>() {
+                    hooks.drain_pending_completions()
+                } else {
+                    vec![]
+                };
+            if !completed_task_ids.is_empty()
+                && let Some(allocator) = self.runner.resources_mut()
+            {
+                for task_id in completed_task_ids {
+                    let _ = allocator.complete_task(task_id);
+                }
+            }
+
+            // 2. Drain pending orders from hooks into the resource allocator
+            if let Some(hooks) = self.runner.hooks_as_mut::<KitchenSimulationHooks>() {
+                let new_orders = hooks.drain_pending_orders();
+                if !new_orders.is_empty()
+                    && let Some(allocator) = self.runner.resources_mut()
+                {
+                    for order in new_orders {
+                        let _ = allocator.add_task(order);
+                    }
+                }
+            }
+
+            // 3. Allocate orders to kitchens (triggers on_resources_allocated →
+            //    OrderAssignedEvent, inventory events)
+            let _ = self.runner.allocate_resources(&LeastLoaded);
+
+            // 4. Deliver completed orders to customers (only those the hooks
+            //    marked as completed via on_after_tick)
             self.deliver_completed_orders()?;
 
-            // Check for customers who finished eating and emit CustomerDoneEvent
+            // 5. Emit CustomerDoneEvent for newly-done customers (once per customer)
             self.check_done_customers()?;
+
+            // 5a. Remove IDs of customers who reset back to Idle so their next
+            //     Done transition re-emits the event.
+            self.prune_done_emitted();
+
+            // 5b. Prune stale order entries for customers who have reset to Idle
+            let idle_ids: Vec<AgentId> = self
+                .runner
+                .population()
+                .map(|pop| {
+                    pop.iter()
+                        .filter(|c| matches!(c.status, CustomerStatus::Idle))
+                        .map(|c| c.id)
+                        .collect()
+                })
+                .unwrap_or_default();
+            if !idle_ids.is_empty()
+                && let Some(hooks) = self.runner.hooks_as_mut::<KitchenSimulationHooks>()
+            {
+                hooks
+                    .orders
+                    .retain(|_order_id, info| !idle_ids.contains(&info.customer_id));
+            }
+
+            // 6. Send per-step progress to TUI if a channel is attached
+            if let Some(tx) = &self.tui_tx {
+                let current_step = self.runner.context().step();
+                let sim_time = self.runner.context().current_time();
+
+                // Compute per-step delta from hooks dispatcher
+                let mut step_counts: HashMap<String, u64> = HashMap::new();
+                if let Some(hooks) = self.runner.hooks_as::<KitchenSimulationHooks>() {
+                    for (k, v) in hooks.dispatcher.event_counts() {
+                        let before = counts_before.get(k).copied().unwrap_or(0);
+                        let delta = v.saturating_sub(before) as u64;
+                        if delta > 0 {
+                            step_counts.insert(k.clone(), delta);
+                        }
+                    }
+                }
+                // Also include events from the simulation's own dispatcher
+                for (k, v) in self.event_dispatcher.event_counts() {
+                    let before = own_before.get(k).copied().unwrap_or(0);
+                    let delta = v.saturating_sub(before) as u64;
+                    if delta > 0 {
+                        *step_counts.entry(k.clone()).or_default() += delta;
+                    }
+                }
+
+                let _ = tx.send(SimulationMessage::StepCompleted {
+                    step: current_step,
+                    total_steps: self.tui_total_steps,
+                    sim_time,
+                    event_counts: step_counts,
+                });
+            }
+        }
+
+        // Send completion message
+        if let Some(tx) = &self.tui_tx {
+            let _ = tx.send(SimulationMessage::Completed {
+                steps: self.runner.context().step(),
+                final_time: self.runner.context().current_time(),
+            });
+        }
+
+        // Flush artifacts generated during the run to the output directory.
+        if let Some(hooks) = self.runner.hooks_as::<KitchenSimulationHooks>() {
+            let artifact_count = hooks.artifact_count();
+            if let Err(e) = hooks.flush_artifacts() {
+                eprintln!("Warning: failed to flush artifacts: {e}");
+            } else if artifact_count > 0 {
+                eprintln!("Flushed {artifact_count} artifacts to output/artifacts/");
+            }
         }
 
         Ok(())
     }
 
-    /// Check for customers who transitioned to Done status and emit events
+    /// Remove IDs from `done_emitted` for customers that have reset back to Idle,
+    /// allowing their next Done transition to re-emit the event.
+    fn prune_done_emitted(&mut self) {
+        if let Some(population) = self.runner.population() {
+            self.done_emitted.retain(|id| {
+                population
+                    .get_agent(*id)
+                    .map(|c| !matches!(c.status, CustomerStatus::Idle))
+                    .unwrap_or(false)
+            });
+        }
+    }
+
+    /// Emit CustomerDoneEvent for customers that just transitioned to Done,
+    /// guarded so each customer only emits once.
     fn check_done_customers(&mut self) -> sim_core::Result<()> {
         let mut newly_done = Vec::new();
 
         if let Some(population) = self.runner.population() {
             for customer in population.iter() {
-                if matches!(customer.status, CustomerStatus::Done) {
+                if matches!(customer.status, CustomerStatus::Done)
+                    && !self.done_emitted.contains(&customer.id)
+                {
                     newly_done.push(customer.id);
                 }
             }
         }
 
-        // Emit CustomerDoneEvent for newly done customers
         for customer_id in newly_done {
-            // Calculate total time - simplified to 0 for now
-            // In production, we'd track from first activity timestamp
-            let total_time_seconds = 0;
+            self.done_emitted.insert(customer_id);
 
             let event = Event::new(Box::new(CustomerDoneEvent {
                 customer_id: customer_id.to_string(),
-                total_time_seconds,
+                total_time_seconds: 0,
             }));
             self.event_dispatcher.emit(event);
         }
@@ -995,35 +1250,30 @@ impl KitchenSimulation {
         Ok(())
     }
 
-    /// Deliver completed orders to waiting customers
+    /// Deliver only orders that hooks report as completed.
+    /// Persists agent mutations via update_agents().
     fn deliver_completed_orders(&mut self) -> sim_core::Result<()> {
-        // Extract completed orders that need delivery
-        let mut orders_to_deliver = Vec::new();
+        // Drain completed orders from the hooks
+        let completed = if let Some(hooks) = self.runner.hooks_as_mut::<KitchenSimulationHooks>() {
+            hooks.drain_completed_orders()
+        } else {
+            return Ok(());
+        };
 
-        if let Some(population) = self.runner.population() {
-            let current_time = self.runner.context().current_time();
-
-            // Find customers waiting for food
-            for customer in population.iter() {
-                if let CustomerStatus::WaitingForFood { ref order_id } = customer.status {
-                    // Check if enough time has passed (simplified - 5 minutes)
-                    // In production, this would check actual task completion
-                    orders_to_deliver.push((order_id.clone(), customer.id, current_time));
-                }
-            }
+        if completed.is_empty() {
+            return Ok(());
         }
 
-        // Deliver orders to customers
+        let current_time = self.runner.context().current_time();
         let verbose = self.runner.context().config().verbose;
         let current_step = self.runner.context().step();
 
-        if let Some(population) = self.runner.population_mut() {
-            for (order_id, customer_id, current_time) in orders_to_deliver {
-                if let Some(mut customer) = population.get_agent_mut(customer_id) {
-                    // Calculate finish time before transitioning state
-                    let finish_time = current_time + customer.eating_duration;
+        let mut updated_customers = Vec::new();
 
-                    // Transition customer to eating
+        if let Some(population) = self.runner.population_mut() {
+            for (order_id, customer_id) in completed {
+                if let Some(mut customer) = population.get_agent_mut(customer_id) {
+                    let finish_time = current_time + customer.eating_duration;
                     customer.start_eating(current_time);
 
                     if verbose {
@@ -1033,14 +1283,20 @@ impl KitchenSimulation {
                         );
                     }
 
-                    // Emit CustomerEatingEvent
                     let event = Event::new(Box::new(CustomerEatingEvent {
                         customer_id: customer_id.to_string(),
                         order_id,
                         finish_time,
                     }));
                     self.event_dispatcher.emit(event);
+
+                    updated_customers.push(customer);
                 }
+            }
+
+            // Persist the state mutations back to the Arrow RecordBatch
+            if !updated_customers.is_empty() {
+                population.update_agents(updated_customers)?;
             }
         }
 
@@ -1057,6 +1313,52 @@ impl KitchenSimulation {
         &mut self,
     ) -> &mut SimulationRunner<Customer, Kitchen, Order, FoodPrepWorkflow> {
         &mut self.runner
+    }
+
+    /// Collect all event records from both the hooks dispatcher and the simulation dispatcher
+    /// without clearing them. Useful for test assertions.
+    pub fn collect_all_event_records(&self) -> Vec<sim_events::EventRecord> {
+        let mut records = Vec::new();
+        if let Some(hooks) = self.runner.hooks_as::<KitchenSimulationHooks>() {
+            records.extend(hooks.dispatcher().to_records());
+        }
+        records.extend(self.event_dispatcher.to_records());
+        records
+    }
+
+    /// Save all events (from both hooks and simulation dispatchers) to a Parquet file.
+    ///
+    /// Merges events from the `KitchenSimulationHooks` dispatcher and the
+    /// `KitchenSimulation` dispatcher, then writes them to a single Parquet file.
+    pub fn save_events(
+        &mut self,
+        path: impl Into<std::path::PathBuf>,
+    ) -> std::result::Result<usize, Box<dyn std::error::Error>> {
+        let path = path.into();
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+
+        let mut all_records = Vec::new();
+
+        // Collect events from the hooks' dispatcher
+        if let Some(hooks) = self.runner.hooks_as_mut::<KitchenSimulationHooks>() {
+            all_records.extend(hooks.dispatcher_mut().to_records());
+            hooks.dispatcher_mut().clear();
+        }
+
+        // Collect events from the simulation's own dispatcher
+        all_records.extend(self.event_dispatcher.to_records());
+        self.event_dispatcher.clear();
+
+        let count = all_records.len();
+        if count > 0 {
+            let mut writer = sim_events::storage::ParquetEventWriter::new(path)?;
+            writer.write_events(&all_records)?;
+            writer.close()?;
+        }
+
+        Ok(count)
     }
 }
 

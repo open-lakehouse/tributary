@@ -40,6 +40,10 @@ coverage/
 .cargo/
 target/
 
+# Simulation output (generated at runtime)
+output/
+crates/sim-kitchen/output/
+
 # environment variables
 .env
 
@@ -49,3 +53,7 @@ target/
 ui/node_modules/
 ui/dist/
 node_modules/
+
+# Claude Code
+.claude/worktrees/
+.claude/projects/

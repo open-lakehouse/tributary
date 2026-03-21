@@ -160,8 +160,11 @@
 //! See the `examples/` directory for complete working examples.
 
 pub mod agents;
+pub mod artifact_generators;
 pub mod events;
 pub mod locations; // Agent E: Distribution sites for supply chain
+pub mod profiles;
+pub mod recipes;
 pub mod resources;
 pub mod simulation;
 
@@ -171,9 +174,11 @@ pub mod workflows; // Agent G: Supply chain workflow
 pub use agents::{Courier, CourierState, Customer, CustomerStatus, DriverState, SupplyDriver};
 pub use events::*;
 pub use locations::{DistributionSite, OrderFulfillment};
-pub use resources::{Inventory, InventoryError, InventoryManager, Kitchen, Order};
+pub use recipes::{Recipe, RecipeRegistry, RecipeStep, StationKind};
+pub use resources::{Inventory, InventoryError, InventoryManager, Kitchen, KitchenStation, Order};
 pub use simulation::{
-    KitchenSimulation, KitchenSimulationHooks, add_customers, build_simulation, process_demands,
+    KitchenSimulation, KitchenSimulationHooks, SimulationMessage, add_customers, build_simulation,
+    process_demands,
 };
 pub use workflows::{
     CourierDeliveryTask, CourierDeliveryTaskFactory, CourierDeliveryWorkflow,

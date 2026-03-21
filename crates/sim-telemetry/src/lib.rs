@@ -46,12 +46,14 @@
 pub mod core;
 pub mod formats;
 pub mod generators;
+pub mod processor;
 
 // Re-export commonly used types for convenience
 pub use core::{
     LogLevel, MetricType, TelemetryCollector, TelemetryError, TelemetryGenerator, TelemetryRecord,
 };
 pub use generators::{EventToLogGenerator, EventToMetricGenerator, EventToTraceGenerator};
+pub use processor::TelemetryCollectorProcessor;
 
 #[cfg(test)]
 mod integration_tests {

@@ -15,22 +15,18 @@ const MAX_LOG_ENTRIES: usize = 500;
 /// Color palette for different event type categories.
 fn event_color(event_type: &str) -> Color {
     match event_type {
-        t if t.contains("order_created") => Color::Green,
-        t if t.contains("order_ready") => Color::Yellow,
-        t if t.contains("order_picked_up") => Color::Cyan,
-        t if t.contains("order_delivered") => Color::Magenta,
-        t if t.contains("order_line") => Color::Blue,
-        t if t.contains("check_in") => Color::LightGreen,
-        t if t.contains("check_out") => Color::LightRed,
+        "io.kitchen.order.created" => Color::Green,
+        "io.kitchen.order.assigned" => Color::Yellow,
+        "io.kitchen.order.completed" => Color::Cyan,
+        "io.kitchen.customer.eating" => Color::Magenta,
+        "io.kitchen.customer.done" => Color::Blue,
         _ => Color::White,
     }
 }
 
-/// Strip the common `caspers.universe.` prefix for compact display.
+/// Strip the common `io.kitchen.` prefix for compact display.
 fn short_event_type(event_type: &str) -> &str {
-    event_type
-        .strip_prefix("caspers.universe.")
-        .unwrap_or(event_type)
+    event_type.strip_prefix("io.kitchen.").unwrap_or(event_type)
 }
 
 pub struct LogEntry {

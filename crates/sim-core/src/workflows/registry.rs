@@ -54,7 +54,7 @@ use std::collections::HashMap;
 /// # Thread Safety
 ///
 /// WorkflowRegistry is not thread-safe by default. For concurrent access,
-/// wrap it in Arc<Mutex<WorkflowRegistry<W>>>.
+/// wrap it in `Arc<Mutex<WorkflowRegistry<W>>>`.
 pub struct WorkflowRegistry<W: Workflow> {
     /// Workflow engines indexed by name
     engines: HashMap<String, WorkflowEngine<W>>,
@@ -333,6 +333,16 @@ impl<W: Workflow> WorkflowRegistry<W> {
     /// ```
     pub fn clear(&mut self) {
         self.engines.clear();
+    }
+
+    /// Iterate over all workflow engines (immutable)
+    pub fn engines(&self) -> impl Iterator<Item = &WorkflowEngine<W>> {
+        self.engines.values()
+    }
+
+    /// Iterate over all workflow engines (mutable)
+    pub fn engines_mut(&mut self) -> impl Iterator<Item = &mut WorkflowEngine<W>> {
+        self.engines.values_mut()
     }
 }
 

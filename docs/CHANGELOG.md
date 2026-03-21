@@ -7,7 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [Unreleased]
+## [Unreleased] - 2026-03-21
+
+### Added — Realistic Multi-Type Data Artifact Generation
+
+#### New Crate: `sim-artifacts`
+Generic framework for generating business artifacts from simulation events. Mirrors `sim-telemetry` architecture — no dependency on `sim-kitchen`.
+
+- `Artifact` enum (7 variants: Document, StructuredData, WebEvent, EmailMessage, SmsMessage, PushNotification, ApiCall)
+- `ArtifactGenerator<P>` trait for domain-specific generators
+- `ArtifactCollector<P>` aggregating multiple generators
+- `ArtifactCollectorProcessor<P>` bridging to the event pipeline via `LocalEventProcessor`
+- `ArtifactStorage` trait + `ParquetArtifactStorage` (JSONL output, grouped by type)
+
+#### sim-events: EventProcessor Pipeline
+- `EventProcessor` trait: pluggable, non-blocking processors registered on `EventDispatcher`
+- `ChannelSenderProcessor`: fire-and-forget event forwarding on mpsc channel
+- `ParquetEventProcessor`: processor-based Parquet persistence (replaces direct flush calls)
+- Tick index: `mark_tick_start()` / `current_tick_events()` for per-tick event slices
+- `flush_to_parquet()` / `flush_to_jsonl()` deprecated in favour of processor-based persistence
+
+#### sim-kitchen: Business Artifact Generators
+Five generators producing ~268 artifacts per 50-tick run:
+- Orders: web analytics funnel (4 events), email confirmation, SMS, payment API call + authorization record
+- Customer done: HTML receipt, loyalty transaction, review request email
+- Supply orders: purchase order HTML, vendor API call, accounts payable entry
+- Inventory: receiving manifest HTML, inventory ledger entry
+- Order completed: kitchen ticket, ingredient usage, quality control record
+
+#### sim-kitchen: Profile Registry
+Deterministic agent profiles seeded by `AgentId` bytes — reproducible across runs.
+`CustomerProfile`, `CourierProfile`, `SupplyDriverProfile` with realistic fake fields.
+
+#### sim-kitchen: Recipe System
+`RecipeRegistry::load_defaults()` parses bundled universe brand templates.
+`StationKind` enum maps template strings to typed prep stations.
+New events: `io.kitchen.recipe.step.started`, `io.kitchen.recipe.step.completed`.
+
+#### sim-telemetry: TelemetryCollectorProcessor
+Adapts `TelemetryCollector` to the event pipeline without introducing a circular dependency.
 
 ### Planned
 - Phase 12-14: Python bindings (PyO3), CLI tool, comprehensive benchmarks

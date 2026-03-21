@@ -256,7 +256,6 @@ async fn test_unreachable_orders(
 
     let unreachable_order = orders.select([
         col("person_id"),
-        col("order_id"),
         col("submitted_at"),
         named_struct(vec![lit("x"), lit(0.0_f64), lit("y"), lit(0.0_f64)]).alias("destination"),
         col("items"),

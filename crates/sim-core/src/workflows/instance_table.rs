@@ -326,7 +326,7 @@ impl WorkflowInstanceTable {
     ///
     /// # Arguments
     ///
-    /// * `updates` - Vec of (instance_id, Box<dyn FnOnce>) tuples
+    /// * `updates` - Vec of `(instance_id, Box<dyn FnOnce>)` tuples
     ///
     /// # Returns
     ///

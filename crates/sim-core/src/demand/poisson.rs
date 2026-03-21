@@ -246,9 +246,10 @@ mod tests {
 
     #[test]
     fn test_randomness() {
-        // Verify that two generators with different seeds produce different results
-        let generator1 = PoissonDemandGenerator::with_seed(10.0, "order", 1);
-        let generator2 = PoissonDemandGenerator::with_seed(10.0, "order", 2);
+        // Verify that two generators with different seeds produce different results.
+        // Use a high rate (600/hr) so lambda=10 per 60s step, giving meaningful variance.
+        let generator1 = PoissonDemandGenerator::with_seed(600.0, "order", 1);
+        let generator2 = PoissonDemandGenerator::with_seed(600.0, "order", 2);
 
         let config = SimulationConfig::default();
         let ctx = SimulationContext::from_now(config);

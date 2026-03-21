@@ -122,7 +122,7 @@ pub fn _length_impl<'a>(array: &'a impl GeoArrowArrayAccessor<'a>) -> GeoArrowRe
 #[cfg(test)]
 mod test {
 
-    use geo::{Euclidean, Length, LineString, MultiLineString, Point};
+    use geo::{Haversine, Length, LineString, MultiLineString, Point};
     use geoarrow_array::array::PointArray;
     use geoarrow_array::builder::{
         LineStringBuilder, MultiLineStringBuilder, PointBuilder, WkbBuilder,
@@ -165,8 +165,8 @@ mod test {
         let result = haversine_length(&linestring_array).unwrap();
 
         assert_eq!(result.len(), 2);
-        assert_eq!(result.value(0), Euclidean.length(&linestring_1));
-        assert_eq!(result.value(1), Euclidean.length(&linestring_2));
+        assert_eq!(result.value(0), Haversine.length(&linestring_1));
+        assert_eq!(result.value(1), Haversine.length(&linestring_2));
     }
 
     #[test]
@@ -191,9 +191,9 @@ mod test {
         assert_eq!(result.len(), 2);
         assert_eq!(
             result.value(0),
-            Euclidean.length(&linestring_1) + Euclidean.length(&linestring_2)
+            Haversine.length(&linestring_1) + Haversine.length(&linestring_2)
         );
-        assert_eq!(result.value(1), Euclidean.length(&linestring_3));
+        assert_eq!(result.value(1), Haversine.length(&linestring_3));
     }
 
     #[test]
@@ -208,8 +208,8 @@ mod test {
 
         let result = haversine_length(&wkb_array).unwrap();
         assert_eq!(2, result.len());
-        assert_eq!(result.value(0), Euclidean.length(&linestring_1));
-        assert_eq!(result.value(1), Euclidean.length(&linestring_2));
+        assert_eq!(result.value(0), Haversine.length(&linestring_1));
+        assert_eq!(result.value(1), Haversine.length(&linestring_2));
     }
 
     #[test]

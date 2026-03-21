@@ -45,8 +45,9 @@ pub mod storage;
 
 // Re-export commonly used types
 pub use core::{Event, EventPayload, EventRecord};
-pub use dispatcher::EventDispatcher;
-pub use storage::ParquetEventWriter;
+pub use dispatcher::{
+    ChannelSenderProcessor, EventDispatcher, EventProcessor, ParquetEventProcessor,
+};
 
 /// Result type used throughout the crate
 pub type Result<T> = std::result::Result<T, Error>;

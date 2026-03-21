@@ -44,7 +44,7 @@
 //! // Assign a delivery task
 //! let kitchen = Point::new(-122.5, 37.9);
 //! let customer = Point::new(-122.3, 37.7);
-//! courier.assign_delivery(kitchen, customer, "order-123".to_string());
+//! courier.assign_delivery(kitchen, customer, "order-123".to_string(), "customer-456".to_string());
 //!
 //! // Run simulation
 //! let ctx = SimulationContext::from_now(SimulationConfig::default());
@@ -54,7 +54,7 @@
 use geo::Point;
 use serde_json::Value;
 use sim_core::{
-    Agent, AgentId, AgentStatus, Result, SimulationContext,
+    Agent, AgentId, AgentStatus, Result, SimulationContext, move_towards,
     population::{AgentTickResult, ArrowAgentRow},
 };
 use uuid::Uuid;
@@ -224,27 +224,15 @@ impl Courier {
     ///
     /// Updates courier's location based on movement speed and simulation step duration.
     /// Returns true if arrived at target.
+    ///
+    /// Delegates to [`sim_core::move_towards`] for the shared movement calculation.
     fn move_towards(&mut self, target: Point<f64>, step_duration_secs: f64) -> bool {
-        // Calculate distance to target (simplified Euclidean distance)
-        let dx = target.x() - self.location.x();
-        let dy = target.y() - self.location.y();
-        let distance = (dx * dx + dy * dy).sqrt();
-
-        // Distance we can travel this step
-        let max_travel = self.movement_speed * step_duration_secs;
-
-        if distance <= max_travel {
-            // Arrived at target
-            self.location = target;
-            true
-        } else {
-            // Move towards target
-            let ratio = max_travel / distance;
-            let new_x = self.location.x() + dx * ratio;
-            let new_y = self.location.y() + dy * ratio;
-            self.location = Point::new(new_x, new_y);
-            false
-        }
+        move_towards(
+            &mut self.location,
+            target,
+            self.movement_speed,
+            step_duration_secs,
+        )
     }
 }
 
@@ -265,11 +253,10 @@ impl Agent for Courier {
         Some(self.location)
     }
 
-    fn tick(&mut self, _ctx: &SimulationContext) -> Result<AgentTickResult> {
+    fn tick(&mut self, ctx: &SimulationContext) -> Result<AgentTickResult> {
         let mut result = AgentTickResult::default();
 
-        // Simulation step duration (30 seconds default)
-        let step_duration = 30.0;
+        let step_duration = ctx.time_step().num_seconds() as f64;
 
         match &self.state.clone() {
             CourierState::Idle => {
@@ -533,6 +520,8 @@ mod tests {
     use super::*;
     use sim_core::SimulationConfig;
 
+    const STEP_SECS: f64 = 30.0;
+
     #[test]
     fn test_courier_creation() {
         let home = Point::new(-122.4, 37.8);
@@ -664,7 +653,7 @@ mod tests {
         let target = Point::new(100.0, 0.0);
 
         // Move towards target (30 second step, 12 m/s = 360m travel)
-        let arrived = courier.move_towards(target, 30.0);
+        let arrived = courier.move_towards(target, STEP_SECS);
 
         // Should arrive (distance is 100, can travel 360)
         assert!(arrived);
@@ -679,7 +668,7 @@ mod tests {
         let target = Point::new(1000.0, 0.0);
 
         // Move towards target (can only travel 360m)
-        let arrived = courier.move_towards(target, 30.0);
+        let arrived = courier.move_towards(target, STEP_SECS);
 
         // Should not arrive yet
         assert!(!arrived);

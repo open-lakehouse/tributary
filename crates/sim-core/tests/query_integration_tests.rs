@@ -11,7 +11,8 @@ use sim_core::resources::LeastLoaded;
 use sim_core::utils::idents::{AgentId, ResourceId, TaskId, WorkflowId, WorkflowInstanceId};
 use sim_core::{
     Agent, AgentStatus, AllocationStrategy, PopulationHandler, Resource, ResourceAllocator,
-    SimulationConfig, SimulationRunner, Task, Workflow, WorkflowEngine, WorkflowStep,
+    SimulationConfig, SimulationRunner, Task, Workflow, WorkflowEngine, WorkflowRegistry,
+    WorkflowStep,
 };
 use std::collections::HashMap;
 
@@ -204,7 +205,11 @@ fn create_test_runner_with_all_components()
     let _ = workflow_engine.start_instance(workflow_id);
     let _ = workflow_engine.start_instance(workflow_id);
 
-    runner.set_workflow_engine(workflow_engine);
+    let mut registry = WorkflowRegistry::new();
+    registry
+        .register("food_prep".to_string(), workflow_engine)
+        .unwrap();
+    runner.set_workflow_registry(registry);
 
     runner
 }
@@ -367,8 +372,12 @@ async fn test_query_complex_three_way_join() {
     let mut runner = create_test_runner_with_all_components();
 
     // Add tasks with workflow instance IDs
-    let workflows = runner.workflows().unwrap();
-    let instances: Vec<_> = workflows
+    let engine = runner
+        .workflow_registry()
+        .unwrap()
+        .get("food_prep")
+        .unwrap();
+    let instances: Vec<_> = engine
         .instance_table
         .export_batch()
         .column(0)

@@ -1,6 +1,6 @@
 # caspers-universe-cli
 
-Command-line interface for running and managing Chef Casper's ghost kitchen simulations.
+Command-line interface for running Chef Casper's ghost kitchen simulations.
 
 ## Installation
 
@@ -14,77 +14,43 @@ cargo build --bin caspers
 caspers <COMMAND> [OPTIONS]
 ```
 
-### Global options
-
-| Option     | Env var        | Default                  | Description |
-| ---------- | -------------- | ------------------------ | ----------- |
-| `--server` | `UC_SERVER_URL` | `http://localhost:8080` | Server URL  |
-
-### `caspers init`
-
-Bootstrap a new simulation environment. Interactively selects sites (Amsterdam,
-Berlin, London) and brands (Asian, Fast Food, Mexican) to include, then writes
-the initial data to the working directory.
-
-```bash
-caspers init --working-directory .caspers/
-```
-
-| Flag                    | Short | Default | Description                              |
-| ----------------------- | ----- | ------- | ---------------------------------------- |
-| `--working-directory`   | `-w`  | —       | Path where simulation data is stored     |
-| `--template`            | `-t`  | `true`  | Use built-in site/brand templates        |
-
 ### `caspers run`
 
-Run a simulation. Prompts you to select a simulation and snapshot, then
-executes the simulation in a background thread while displaying a live TUI
-dashboard with:
+Run a simulation in a background thread while displaying a live TUI dashboard with:
 
 - A progress bar showing the current step and simulation time
 - Cumulative event totals grouped by type
 - A scrolling event log with color-coded entries
 
 ```bash
-caspers run --duration 200 --working-directory .caspers/
+caspers run [OPTIONS]
 ```
 
-| Flag                    | Short | Default | Description                              |
-| ----------------------- | ----- | ------- | ---------------------------------------- |
-| `--duration`            | `-d`  | `100`   | Number of simulation steps to run        |
-| `--working-directory`   | `-w`  | —       | Path where simulation data is stored     |
-| `--dry-run`             | —     | `false` | Skip writing the final snapshot to disk  |
+| Flag | Short | Default | Description |
+| ---- | ----- | ------- | ----------- |
+| `--duration` | `-d` | `100` | Number of simulation steps to run |
+| `--num-kitchens` | — | `3` | Number of ghost kitchens |
+| `--kitchen-capacity` | — | `5` | Max concurrent orders per kitchen |
+| `--num-customers` | — | `20` | Number of customer agents |
 
 **Keyboard shortcuts (during simulation):**
 
-| Key          | Action                  |
-| ------------ | ----------------------- |
-| `q` / `Esc`  | Quit                   |
-| `Ctrl+C`     | Quit                   |
-
-### `caspers server`
-
-Start the web server that serves the UI and documentation assets.
-
-```bash
-caspers server
-```
-
-| Flag       | Env var              | Default          | Description              |
-| ---------- | -------------------- | ---------------- | ------------------------ |
-| `--server` | `CASPERS_SERVER_URL` | `0.0.0.0:8000`  | Address to listen on     |
+| Key | Action |
+| --- | ------ |
+| `q` / `Esc` | Quit |
+| `Ctrl+C` | Quit |
 
 ## Quick start
 
 ```bash
-# 1. Initialize a simulation with default templates
-caspers init -w .caspers/
+# Run for 100 steps with defaults (3 kitchens, 20 customers)
+cargo run --bin caspers -- run
 
-# 2. Run for 200 steps
-caspers run -d 200 -w .caspers/
+# Run 50 steps with 10 customers
+cargo run --bin caspers -- run --duration 50 --num-customers 10
 
-# 3. (Optional) Start the web server
-caspers server
+# Run with custom kitchen config
+cargo run --bin caspers -- run --duration 200 --num-kitchens 5 --kitchen-capacity 8
 ```
 
 ## Telemetry

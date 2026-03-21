@@ -2,6 +2,21 @@
 
 All notable changes to `sim-events` will be documented in this file.
 
+## [Unreleased] - 2026-03-21
+
+### Added
+- **`EventProcessor` trait**: Pluggable, non-blocking event processors (`handles(&str) -> bool`, `process(&Event)`)
+- **`EventDispatcher::register_processor`**: Register processors at startup; `emit()` routes to all matching processors
+- **`ChannelSenderProcessor`**: Forwards matching events as CloudEvents JSON on a `tokio::mpsc::UnboundedSender`
+- **`ParquetEventProcessor`**: Buffers events with interior mutability and writes to Parquet on `flush()`
+- **Tick index**: `mark_tick_start()` / `current_tick_events()` for efficient per-tick event slicing in hooks
+
+### Deprecated
+- `EventDispatcher::flush_to_parquet()` — use `ParquetEventProcessor` instead
+- `EventDispatcher::flush_to_jsonl()` — use a custom `EventProcessor` instead
+
+---
+
 ## [0.0.1] - 2026-03-16
 
 ### Added

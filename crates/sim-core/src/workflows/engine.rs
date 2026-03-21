@@ -345,7 +345,7 @@ impl<W: Workflow> WorkflowEngine<W> {
     ///
     /// // Query instances for a specific workflow
     /// let workflow_instances = engine.query(
-    ///     "SELECT id, status FROM instances WHERE workflow_id = X'...'
+    ///     "SELECT id, status FROM instances WHERE workflow_id = X'...'"
     /// ).await?;
     ///
     /// // Count instances by status
