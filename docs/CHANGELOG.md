@@ -9,6 +9,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] - 2026-03-21
 
+### Added — Interactive TUI with Bidirectional Control Channel
+
+#### sim-core: Control Channel Enhancements
+- `SimEvent::TickCompleted` now carries `event_counts: HashMap<String, u64>` — per-tick domain event deltas flow through the same channel, eliminating a second side-channel
+- `SimulationRunner` gains three public methods: `process_control_commands()`, `is_paused()`, `emit_event()` — enabling domain wrappers to drive the control loop around their own `step()` implementations
+
+#### sim-kitchen: `run_controlled_for()`
+- New `KitchenSimulation::run_controlled_for(max_steps)` drives the simulation via the control channel while preserving full domain bookkeeping (order delivery, artifact generation, customer state)
+- Removed `SimulationMessage`, `tui_tx`, `tui_total_steps`, and `set_tui_channel()` — the control channel is now the single transport for all simulation events
+
+#### CLI TUI: Interactive Controls
+All time modes (Range, Live, Catchup) now use a unified sim thread via `run_controlled_for()`.
+
+New keyboard controls:
+| Key | Action |
+|-----|--------|
+| `Space` | Pause / Resume |
+| `s` | Step 1 tick (while paused) |
+| `f` | Step 10 ticks (while paused) |
+| `m` | Cycle time mode: Range → Live → Catchup → Range |
+| `q` / `Esc` / `^C` | Stop and quit |
+
+UI additions:
+- Progress bar title shows current time mode badge (`[Range]`, `[Live]`, `[Catchup]`) and `[■ PAUSED]` indicator
+- Gauge turns yellow when paused
+- New **Controls** status bar at bottom with context-sensitive key hints
+
+
+
 ### Added — Realistic Multi-Type Data Artifact Generation
 
 #### New Crate: `sim-artifacts`

@@ -179,6 +179,7 @@ pub trait SimulationHooks: Send + Sync + 'static {
 - **Events**: `io.kitchen.order.{created,assigned,completed}`, `io.kitchen.customer.{eating,done}`
 - **Artifacts**: payment authorizations, order confirmations, web events, inventory reports
 - **Entry points**: `KitchenSimulation::new(num_kitchens, capacity, verbose)` or `build_simulation()`
+- **Run methods**: `run_for_steps(n)` (no channel) or `run_controlled_for(max)` (control channel, all modes)
 
 ### sim-logistics (Package Delivery)
 
@@ -203,10 +204,15 @@ GPG commit signing is required on this repository. The GPG PIN prompt requires a
 
 1. Run `cargo clippy --workspace --fix --allow-dirty` to apply automatic lint fixes (may change code)
 2. Run `cargo fmt --all` to format all code (including anything clippy rewrote)
-3. Stage files with `git add <specific files>` — do this programmatically (via Bash tool)
-4. Output a ready-to-paste `git commit` command for the user to run in their terminal
+3. **Update documentation** — before staging, check and update any affected docs:
+   - `docs/CHANGELOG.md` — add an entry under `[Unreleased]` for every user-visible change
+   - `docs/api-reference/` — update API signatures for any changed public interfaces
+   - `CLAUDE.md` — update if commands, rules, or public APIs documented here have changed
+   - `README.md` — update if project-level usage or entry points changed
+4. Stage files with `git add <specific files>` — do this programmatically (via Bash tool)
+5. Output a ready-to-paste `git commit` command for the user to run in their terminal
 
-Steps 1 and 2 must always run in this order before staging — clippy may rewrite code that then needs formatting, and the pre-commit hook enforces `cargo fmt`. Step 3 (staging) must be done by the agent so the user only needs to paste and run a single commit command.
+Steps 1 and 2 must always run in this order before staging — clippy may rewrite code that then needs formatting, and the pre-commit hook enforces `cargo fmt`. Documentation updates (step 3) must happen before staging so all changes land in the same commit. Step 4 (staging) must be done by the agent so the user only needs to paste and run a single commit command.
 
 ### Template
 
