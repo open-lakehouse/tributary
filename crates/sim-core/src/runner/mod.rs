@@ -23,13 +23,15 @@
 //! runner.run_for_steps(100)?;
 //! ```
 
+pub mod control;
 mod queries;
 pub mod telemetry;
 
+pub use control::{ControlCommand, SimEvent, SimulationController, control_channel};
 pub use queries::query_simulation;
 
 use crate::Result;
-use crate::context::{SimulationConfig, SimulationContext};
+use crate::context::{SimulationConfig, SimulationContext, TickResult};
 use crate::demand::DemandGenerator;
 use crate::population::{Agent, AgentTickResult, Demand, PopulationHandler};
 use crate::resources::{
@@ -38,6 +40,7 @@ use crate::resources::{
 use crate::snapshot::{SnapshotBackend, SnapshotData, SnapshotManager, SnapshotMetadata};
 use crate::workflows::{Workflow, WorkflowRegistry, WorkflowStepEvent};
 use arrow::array::RecordBatch;
+pub use control::ControlReceiver;
 use std::marker::PhantomData;
 
 /// Lifecycle hooks for simulation events
@@ -169,6 +172,10 @@ where
     stats: SimulationStats,
     /// Snapshot manager for state persistence
     snapshot_manager: Option<SnapshotManager>,
+    /// Optional control channel receiver (attached via `attach_control`)
+    control: Option<ControlReceiver>,
+    /// Whether the simulation is currently in the paused state
+    paused: bool,
     /// Type markers
     _phantom: PhantomData<(A, R, T, W)>,
 }
@@ -204,7 +211,9 @@ where
             demand_generator: None,
             hooks: Box::new(NoOpHooks),
             stats: SimulationStats::default(),
-            snapshot_manager: None, // Lazy initialization
+            snapshot_manager: None,
+            control: None,
+            paused: false,
             _phantom: PhantomData,
         }
     }
@@ -223,7 +232,9 @@ where
             demand_generator: None,
             hooks: Box::new(NoOpHooks),
             stats: SimulationStats::default(),
-            snapshot_manager: None, // Lazy initialization
+            snapshot_manager: None,
+            control: None,
+            paused: false,
             _phantom: PhantomData,
         }
     }
@@ -326,8 +337,10 @@ where
     ///
     /// # Returns
     ///
-    /// Ok(()) if the tick completed successfully
-    pub fn tick(&mut self) -> Result<()> {
+    /// `Ok(TickResult)` describing whether the simulation should continue,
+    /// has reached its configured end time, or has transitioned from Catchup
+    /// to Live mode.
+    pub fn tick(&mut self) -> Result<TickResult> {
         // Call before-tick hook
         self.hooks.on_before_tick(&self.context)?;
 
@@ -415,12 +428,186 @@ where
                 .on_workflow_step_completed(&self.context, &event)?;
         }
 
-        // Advance time
-        self.context.advance_time();
+        // Advance time according to current TimeMode
+        let tick_result = self.context.advance();
         self.stats.total_steps += 1;
 
         // Call after-tick hook
         self.hooks.on_after_tick(&self.context)?;
+
+        // Sleep if Live/Catchup-post-transition mode requests it
+        self.post_tick_sleep();
+
+        Ok(tick_result)
+    }
+
+    /// Sleep for the duration requested by the context's time mode, if any.
+    ///
+    /// This is called automatically at the end of every `tick()`.  It is a
+    /// no-op in `Range` and pre-transition `Catchup` modes.
+    fn post_tick_sleep(&self) {
+        if let Some(dur) = self.context.sleep_duration() {
+            std::thread::sleep(dur);
+        }
+    }
+
+    /// Set the time mode on the underlying context.
+    ///
+    /// Convenience wrapper so callers don't need to call `context_mut()`.
+    pub fn set_time_mode(&mut self, mode: crate::context::TimeMode) {
+        self.context.set_time_mode(mode);
+    }
+
+    /// Attach a [`ControlReceiver`] to this runner.
+    ///
+    /// Must be called before [`Self::run_controlled`].  Only one receiver can
+    /// be attached at a time; calling this again replaces the previous one.
+    pub fn attach_control(&mut self, rx: ControlReceiver) {
+        self.control = Some(rx);
+    }
+
+    /// Drain pending [`ControlCommand`]s and apply them.
+    ///
+    /// Returns `true` if a `Stop` command was received (caller should break).
+    fn apply_control_commands(&mut self) -> Result<bool> {
+        let control = match &self.control {
+            Some(c) => c,
+            None => return Ok(false),
+        };
+
+        let commands = control.drain_commands();
+
+        for cmd in commands {
+            match cmd {
+                ControlCommand::Stop => {
+                    return Ok(true);
+                }
+                ControlCommand::Pause => {
+                    if !self.paused {
+                        self.paused = true;
+                        let step = self.context.step();
+                        if let Some(c) = &self.control {
+                            c.emit(SimEvent::Paused { at_step: step });
+                        }
+                    }
+                }
+                ControlCommand::Resume => {
+                    self.paused = false;
+                }
+                ControlCommand::StepN(n) => {
+                    // Execute N steps regardless of paused state, then re-pause
+                    for _ in 0..n {
+                        let result = self.tick()?;
+                        let step = self.context.step();
+                        let sim_time = self.context.current_time();
+                        if let Some(c) = &self.control {
+                            c.emit(SimEvent::TickCompleted { step, sim_time });
+                            if result == TickResult::SwitchedToLive {
+                                c.emit(SimEvent::ModeChanged {
+                                    mode: "live".to_string(),
+                                });
+                            }
+                        }
+                        if result == TickResult::ReachedEnd {
+                            return Ok(true); // treat as stop
+                        }
+                    }
+                    // Re-pause after stepping
+                    let step = self.context.step();
+                    if let Some(c) = &self.control {
+                        c.emit(SimEvent::Paused { at_step: step });
+                    }
+                }
+                ControlCommand::SetMode(mode) => {
+                    let mode_str = format!("{mode:?}");
+                    self.context.set_time_mode(mode);
+                    if let Some(c) = &self.control {
+                        c.emit(SimEvent::ModeChanged { mode: mode_str });
+                    }
+                }
+                ControlCommand::Start => {
+                    // No-op: already running
+                }
+            }
+        }
+
+        Ok(false)
+    }
+
+    /// Run the simulation driven by the attached control channel.
+    ///
+    /// The caller must have called [`Self::attach_control`] first.  The run
+    /// loop continues until a [`ControlCommand::Stop`] is received, the time
+    /// mode signals [`TickResult::ReachedEnd`], or an error occurs.
+    ///
+    /// This method calls `on_start` and `on_end` hooks internally.
+    pub fn run_controlled(&mut self) -> Result<()> {
+        self.run_controlled_for(usize::MAX)
+    }
+
+    /// Like [`Self::run_controlled`] but stops after at most `max_steps` ticks.
+    ///
+    /// Primarily useful for testing without an explicit Stop command.
+    pub fn run_controlled_for(&mut self, max_steps: usize) -> Result<()> {
+        self.hooks.on_start(&self.context)?;
+
+        let mut steps_taken = 0;
+
+        loop {
+            if steps_taken >= max_steps {
+                break;
+            }
+
+            // If paused, spin waiting for commands (low-CPU wait)
+            if self.paused {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+                if self.apply_control_commands()? {
+                    break;
+                }
+                continue;
+            }
+
+            // Process any pending commands before the tick
+            if self.apply_control_commands()? {
+                break;
+            }
+
+            // Re-check pause (a command above may have paused us)
+            if self.paused {
+                continue;
+            }
+
+            // Execute one tick
+            let result = self.tick()?;
+            steps_taken += 1;
+
+            let step = self.context.step();
+            let sim_time = self.context.current_time();
+
+            if let Some(c) = &self.control {
+                c.emit(SimEvent::TickCompleted { step, sim_time });
+                if result == TickResult::SwitchedToLive {
+                    c.emit(SimEvent::ModeChanged {
+                        mode: "live".to_string(),
+                    });
+                }
+            }
+
+            if result == TickResult::ReachedEnd {
+                break;
+            }
+        }
+
+        self.hooks.on_end(&self.context)?;
+
+        let total_steps = self.context.step();
+        let final_time = self.context.current_time();
+        if let Some(c) = &self.control {
+            c.emit(SimEvent::SimulationEnded {
+                total_steps,
+                final_time,
+            });
+        }
 
         Ok(())
     }
@@ -458,14 +645,16 @@ where
     ///
     /// # Returns
     ///
-    /// Ok(()) if all steps completed successfully
+    /// Ok(()) if all steps completed successfully (may stop early if `ReachedEnd`)
     pub fn run_for_steps(&mut self, steps: usize) -> Result<()> {
         // Call start hook
         self.hooks.on_start(&self.context)?;
 
         // Execute ticks
         for _ in 0..steps {
-            self.tick()?;
+            if self.tick()? == TickResult::ReachedEnd {
+                break;
+            }
         }
 
         // Call end hook
@@ -490,9 +679,11 @@ where
         // Call start hook
         self.hooks.on_start(&self.context)?;
 
-        // Execute ticks until condition met
+        // Execute ticks until condition met or ReachedEnd
         while !condition(&self.context, &self.stats) {
-            self.tick()?;
+            if self.tick()? == TickResult::ReachedEnd {
+                break;
+            }
         }
 
         // Call end hook

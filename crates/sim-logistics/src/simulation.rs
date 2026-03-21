@@ -278,8 +278,8 @@ impl LogisticsSimulation {
     /// 2. Drains pending shipment workflows from hooks and registers them
     /// 3. Allocates tasks to resources
     pub fn step(&mut self) -> crate::Result<()> {
-        // Tick agents + workflow registry + advance time
-        self.runner.tick()?;
+        // Tick agents + workflow registry + advance time (TickResult handled by caller if needed)
+        let _ = self.runner.tick()?;
 
         // Drain pending shipments enqueued via create_package(), register as instances
         let pending = if let Some(hooks) = self.runner.hooks_as_mut::<LogisticsSimulationHooks>() {

@@ -1087,6 +1087,86 @@ impl KitchenSimulation {
         add_customers(&mut self.runner, num_customers);
     }
 
+    /// Execute one complete simulation step.
+    ///
+    /// This is the per-tick entry point used by [`Self::run_for_steps`] and
+    /// available for callers that want fine-grained control (e.g., a control
+    /// channel loop).  It does **not** call `on_start` / `on_end` hooks or
+    /// flush artifacts — those are the caller's responsibility.
+    ///
+    /// Steps performed:
+    /// 1. Tick agents + emit hooks
+    /// 2. Free kitchen capacity for completed orders
+    /// 3. Drain pending orders into the resource allocator
+    /// 4. Allocate orders to kitchens
+    /// 5. Deliver completed orders to customers
+    /// 6. Emit `CustomerDoneEvent` for newly-done customers
+    /// 7. Prune stale state for customers that reset to Idle
+    pub fn step(&mut self) -> sim_core::Result<()> {
+        // 1. Tick agents, invoke hooks (TickResult handled by caller if needed)
+        let _ = self.runner.tick()?;
+
+        // 1b. Free kitchen capacity for orders that completed this tick
+        let completed_task_ids =
+            if let Some(hooks) = self.runner.hooks_as_mut::<KitchenSimulationHooks>() {
+                hooks.drain_pending_completions()
+            } else {
+                vec![]
+            };
+        if !completed_task_ids.is_empty()
+            && let Some(allocator) = self.runner.resources_mut()
+        {
+            for task_id in completed_task_ids {
+                let _ = allocator.complete_task(task_id);
+            }
+        }
+
+        // 2. Drain pending orders from hooks into the resource allocator
+        if let Some(hooks) = self.runner.hooks_as_mut::<KitchenSimulationHooks>() {
+            let new_orders = hooks.drain_pending_orders();
+            if !new_orders.is_empty()
+                && let Some(allocator) = self.runner.resources_mut()
+            {
+                for order in new_orders {
+                    let _ = allocator.add_task(order);
+                }
+            }
+        }
+
+        // 3. Allocate orders to kitchens
+        let _ = self.runner.allocate_resources(&LeastLoaded);
+
+        // 4. Deliver completed orders to customers
+        self.deliver_completed_orders()?;
+
+        // 5. Emit CustomerDoneEvent for newly-done customers
+        self.check_done_customers()?;
+
+        // 5a. Remove IDs of customers who reset back to Idle
+        self.prune_done_emitted();
+
+        // 5b. Prune stale order entries for customers who have reset to Idle
+        let idle_ids: Vec<AgentId> = self
+            .runner
+            .population()
+            .map(|pop| {
+                pop.iter()
+                    .filter(|c| matches!(c.status, CustomerStatus::Idle))
+                    .map(|c| c.id)
+                    .collect()
+            })
+            .unwrap_or_default();
+        if !idle_ids.is_empty()
+            && let Some(hooks) = self.runner.hooks_as_mut::<KitchenSimulationHooks>()
+        {
+            hooks
+                .orders
+                .retain(|_order_id, info| !idle_ids.contains(&info.customer_id));
+        }
+
+        Ok(())
+    }
+
     /// Run the simulation with full lifecycle management
     pub fn run_for_steps(&mut self, steps: usize) -> sim_core::Result<()> {
         for _ in 0..steps {
@@ -1098,72 +1178,9 @@ impl KitchenSimulation {
                 .unwrap_or_default();
             let own_before = self.event_dispatcher.event_counts().clone();
 
-            // 1. Tick agents, invoke hooks (on_agents_ticked creates OrderCreatedEvent
-            //    and collects Order tasks in pending_orders)
-            self.runner.tick()?;
+            self.step()?;
 
-            // 1b. Free kitchen capacity for orders that completed this tick
-            let completed_task_ids =
-                if let Some(hooks) = self.runner.hooks_as_mut::<KitchenSimulationHooks>() {
-                    hooks.drain_pending_completions()
-                } else {
-                    vec![]
-                };
-            if !completed_task_ids.is_empty()
-                && let Some(allocator) = self.runner.resources_mut()
-            {
-                for task_id in completed_task_ids {
-                    let _ = allocator.complete_task(task_id);
-                }
-            }
-
-            // 2. Drain pending orders from hooks into the resource allocator
-            if let Some(hooks) = self.runner.hooks_as_mut::<KitchenSimulationHooks>() {
-                let new_orders = hooks.drain_pending_orders();
-                if !new_orders.is_empty()
-                    && let Some(allocator) = self.runner.resources_mut()
-                {
-                    for order in new_orders {
-                        let _ = allocator.add_task(order);
-                    }
-                }
-            }
-
-            // 3. Allocate orders to kitchens (triggers on_resources_allocated →
-            //    OrderAssignedEvent, inventory events)
-            let _ = self.runner.allocate_resources(&LeastLoaded);
-
-            // 4. Deliver completed orders to customers (only those the hooks
-            //    marked as completed via on_after_tick)
-            self.deliver_completed_orders()?;
-
-            // 5. Emit CustomerDoneEvent for newly-done customers (once per customer)
-            self.check_done_customers()?;
-
-            // 5a. Remove IDs of customers who reset back to Idle so their next
-            //     Done transition re-emits the event.
-            self.prune_done_emitted();
-
-            // 5b. Prune stale order entries for customers who have reset to Idle
-            let idle_ids: Vec<AgentId> = self
-                .runner
-                .population()
-                .map(|pop| {
-                    pop.iter()
-                        .filter(|c| matches!(c.status, CustomerStatus::Idle))
-                        .map(|c| c.id)
-                        .collect()
-                })
-                .unwrap_or_default();
-            if !idle_ids.is_empty()
-                && let Some(hooks) = self.runner.hooks_as_mut::<KitchenSimulationHooks>()
-            {
-                hooks
-                    .orders
-                    .retain(|_order_id, info| !idle_ids.contains(&info.customer_id));
-            }
-
-            // 6. Send per-step progress to TUI if a channel is attached
+            // Send per-step progress to TUI if a channel is attached
             if let Some(tx) = &self.tui_tx {
                 let current_step = self.runner.context().step();
                 let sim_time = self.runner.context().current_time();
@@ -2625,5 +2642,27 @@ mod tests {
 
         let manager = hooks.inventory_managers.get(&kitchen_id).unwrap();
         assert_eq!(manager.get_quantity("oil"), Some(125)); // 25 + 100
+    }
+
+    #[test]
+    fn test_step_n_equals_run_for_steps_n() {
+        // Running N times via step() should produce the same step count as run_for_steps(N)
+        let n = 5;
+
+        let mut sim_a = KitchenSimulation::new(2, 5, false);
+        sim_a.add_customers(3);
+        sim_a.run_for_steps(n).unwrap();
+        let steps_a = sim_a.runner().context().step();
+
+        let mut sim_b = KitchenSimulation::new(2, 5, false);
+        sim_b.add_customers(3);
+        for _ in 0..n {
+            sim_b.step().unwrap();
+        }
+        let steps_b = sim_b.runner().context().step();
+
+        assert_eq!(steps_a, n, "run_for_steps should advance step counter by N");
+        assert_eq!(steps_b, n, "step() x N should advance step counter by N");
+        assert_eq!(steps_a, steps_b);
     }
 }

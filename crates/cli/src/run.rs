@@ -1,10 +1,24 @@
+use chrono::{DateTime, Utc};
 use crossterm::event::{Event, KeyCode, KeyEventKind};
+use sim_core::{ControlCommand, TimeMode, control_channel};
 use sim_kitchen::{KitchenSimulation, SimulationMessage};
 use tokio::sync::mpsc;
 
 use crate::app::App;
 use crate::error::Result;
 use crate::tui::Tui;
+
+/// Time mode for the simulation run
+#[derive(Debug, Clone, Default, clap::ValueEnum)]
+pub enum RunMode {
+    /// Advance by time_step each tick; stop at --end-time if given (default)
+    #[default]
+    Range,
+    /// Simulation time tracks wall clock; sleeps between ticks
+    Live,
+    /// Fast-forward from --start-time to now, then switch to Live
+    Catchup,
+}
 
 #[derive(Debug, Clone, clap::Parser)]
 pub(crate) struct RunArgs {
@@ -19,21 +33,118 @@ pub(crate) struct RunArgs {
 
     #[arg(long, default_value_t = 20)]
     num_customers: usize,
+
+    /// Time mode: range (default), live, or catchup
+    #[arg(long, default_value = "range")]
+    mode: RunMode,
+
+    /// Simulation start time (RFC 3339, e.g. 2026-01-01T00:00:00Z).
+    /// Applies to all modes; defaults to now.
+    #[arg(long)]
+    start_time: Option<String>,
+
+    /// Simulation end time (RFC 3339). Only used with --mode range.
+    #[arg(long)]
+    end_time: Option<String>,
 }
 
 pub(super) async fn handle(args: RunArgs) -> Result<()> {
     let duration = args.duration;
 
+    // Parse optional start/end times
+    let start_time: Option<DateTime<Utc>> = args
+        .start_time
+        .as_deref()
+        .map(|s| {
+            DateTime::parse_from_rfc3339(s)
+                .map(|dt| dt.with_timezone(&Utc))
+                .map_err(|e| crate::error::Error::Other(format!("invalid --start-time: {e}")))
+        })
+        .transpose()?;
+
+    let end_time: Option<DateTime<Utc>> = args
+        .end_time
+        .as_deref()
+        .map(|s| {
+            DateTime::parse_from_rfc3339(s)
+                .map(|dt| dt.with_timezone(&Utc))
+                .map_err(|e| crate::error::Error::Other(format!("invalid --end-time: {e}")))
+        })
+        .transpose()?;
+
+    // Controller lives on the TUI side; receiver goes to the sim thread.
+    let (controller, receiver) = control_channel(128);
     let (event_tx, mut event_rx) = mpsc::unbounded_channel::<SimulationMessage>();
 
+    let mode = args.mode.clone();
     let sim_handle = std::thread::spawn(move || {
         let mut sim = KitchenSimulation::new(args.num_kitchens, args.kitchen_capacity, false);
         sim.add_customers(args.num_customers);
-        sim.set_tui_channel(event_tx.clone(), duration);
 
-        if let Err(e) = sim.run_for_steps(duration) {
-            let _ = event_tx.send(SimulationMessage::Error(e.to_string()));
+        // Apply start time if provided
+        if let Some(st) = start_time {
+            sim.runner_mut().context_mut().set_current_time(st);
         }
+
+        // Configure time mode
+        let time_mode = match mode {
+            RunMode::Range => TimeMode::Range { end_time },
+            RunMode::Live => TimeMode::Live,
+            RunMode::Catchup => TimeMode::Catchup,
+        };
+        sim.runner_mut().set_time_mode(time_mode);
+
+        // For range mode, attach TUI channel so progress messages stream
+        let is_range = matches!(args.mode, RunMode::Range);
+        if is_range {
+            sim.set_tui_channel(event_tx.clone(), duration);
+            if let Err(e) = sim.run_for_steps(duration) {
+                let _ = event_tx.send(SimulationMessage::Error(e.to_string()));
+            }
+            return;
+        }
+
+        // For Live / Catchup: run a step loop, poll control channel for stop
+        // signal, send progress messages manually.
+        let tx = event_tx.clone();
+        for i in 0..duration {
+            // Poll the control receiver for a Stop command
+            {
+                let cmds = receiver.drain_commands();
+                let mut should_stop = false;
+                for cmd in cmds {
+                    if matches!(cmd, ControlCommand::Stop) {
+                        should_stop = true;
+                    }
+                }
+                if should_stop {
+                    break;
+                }
+            }
+
+            match sim.step() {
+                Ok(()) => {
+                    let step = sim.runner().context().step();
+                    let sim_time = sim.runner().context().current_time();
+                    let _ = tx.send(SimulationMessage::StepCompleted {
+                        step,
+                        total_steps: duration,
+                        sim_time,
+                        event_counts: Default::default(),
+                    });
+                }
+                Err(e) => {
+                    let _ = tx.send(SimulationMessage::Error(e.to_string()));
+                    return;
+                }
+            }
+            let _ = i; // step counter used implicitly via range
+        }
+
+        let _ = tx.send(SimulationMessage::Completed {
+            steps: sim.runner().context().step(),
+            final_time: sim.runner().context().current_time(),
+        });
     });
 
     let mut tui = Tui::new()?;
@@ -54,11 +165,13 @@ pub(super) async fn handle(args: RunArgs) -> Result<()> {
                     && key.kind == KeyEventKind::Press {
                         match key.code {
                             KeyCode::Char('q') | KeyCode::Esc => {
+                                let _ = controller.send(ControlCommand::Stop);
                                 app.should_quit = true;
                             }
                             KeyCode::Char('c')
                                 if key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL) =>
                             {
+                                let _ = controller.send(ControlCommand::Stop);
                                 app.should_quit = true;
                             }
                             _ => {}
@@ -82,7 +195,6 @@ pub(super) async fn handle(args: RunArgs) -> Result<()> {
 
     tui.exit()?;
 
-    // Wait for simulation thread and handle any panics
     match sim_handle.join() {
         Ok(_) => {
             if app.error.is_some() {
@@ -161,7 +273,6 @@ fn process_message(app: &mut App, msg: Option<SimulationMessage>) {
             app.mark_completed();
         }
         None => {
-            // Channel closed unexpectedly
             tracing::warn!("Simulation channel closed unexpectedly");
             app.mark_completed();
         }

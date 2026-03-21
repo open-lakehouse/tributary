@@ -69,6 +69,7 @@ impl App {
         self.error = Some(error);
     }
 
+    #[allow(dead_code)]
     pub fn set_thread_panicked(&mut self) {
         self.thread_panicked = true;
     }
