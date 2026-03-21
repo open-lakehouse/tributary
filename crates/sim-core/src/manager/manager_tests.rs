@@ -131,3 +131,37 @@ async fn test_list_snapshots_empty_for_unknown_simulation() {
     let snaps = mgr.list_snapshots(unknown).await.unwrap();
     assert!(snaps.is_empty());
 }
+
+#[tokio::test]
+async fn test_load_round_trip() {
+    let dir = tempfile::tempdir().unwrap();
+    let base = dir.path().to_str().unwrap().to_string();
+
+    // Create and persist a simulation + snapshot
+    {
+        let mut mgr = SimulationManager::new_with_persistence(&base)
+            .await
+            .unwrap();
+        let sim_id = mgr
+            .create_simulation(Some("persist test"), None)
+            .await
+            .unwrap();
+        let meta = make_metadata(sim_id, "snap-persist");
+        mgr.record_snapshot(&meta).await.unwrap();
+    }
+
+    // Load from disk and verify catalog is restored
+    {
+        let mgr = SimulationManager::load(SimulationManagerBackend::Parquet(base.clone()))
+            .await
+            .unwrap();
+        let sims = mgr.list_simulations().await.unwrap();
+        assert_eq!(sims.len(), 1);
+        assert_eq!(sims[0].label.as_deref(), Some("persist test"));
+
+        let snaps = mgr.list_snapshots(sims[0].id).await.unwrap();
+        assert_eq!(snaps.len(), 1);
+        assert_eq!(snaps[0].label.as_deref(), Some("snap-persist"));
+        assert_eq!(snaps[0].agent_count, 10);
+    }
+}

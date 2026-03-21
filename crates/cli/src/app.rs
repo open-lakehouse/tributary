@@ -5,13 +5,48 @@ use ratatui::{
     layout::{Alignment, Constraint, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, Gauge, Paragraph, Wrap},
+    widgets::{Block, Borders, Clear, Gauge, List, ListItem, Paragraph, Wrap},
 };
 use sim_core::{ControlCommand, TimeMode};
+use uuid::Uuid;
 
 use crate::tui::Frame;
 
 const MAX_LOG_ENTRIES: usize = 500;
+
+// ─── Screens ──────────────────────────────────────────────────────────────────
+
+/// Top-level screen the TUI is currently showing.
+pub enum Screen {
+    /// Pre-sim launch screen: list existing simulations or create a new one.
+    Launch,
+    /// Main simulation view (current single-screen implementation).
+    Simulation,
+    /// Snapshot browser for a running simulation.
+    SnapshotBrowser,
+}
+
+// ─── Simulation list entry (CLI-side) ────────────────────────────────────────
+
+/// Summary of one simulation shown on the Launch screen.
+pub struct SimListEntry {
+    pub id: Uuid,
+    pub label: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub snapshot_count: usize,
+}
+
+// ─── Snapshot summary (CLI-side) ─────────────────────────────────────────────
+
+/// Snapshot row shown in the SnapshotBrowser screen.
+pub struct SnapshotSummary {
+    pub id: Uuid,
+    pub label: Option<String>,
+    pub sim_time: DateTime<Utc>,
+    pub created_at: DateTime<Utc>,
+    pub step: usize,
+    pub agent_count: usize,
+}
 
 /// Color palette for different event type categories.
 fn event_color(event_type: &str) -> Color {
@@ -42,6 +77,19 @@ pub enum Dialog {
         input: String,
         error: Option<String>,
     },
+    /// [n] on Launch screen — collect a name for a new simulation
+    NewSimName {
+        input: String,
+    },
+    /// [t] in SnapshotBrowser — collect a label for a new snapshot
+    TakeSnapshot {
+        input: String,
+    },
+    /// [Enter] on a snapshot row — confirm before restoring
+    ConfirmRestore {
+        snapshot_id: Uuid,
+        label: Option<String>,
+    },
 }
 
 pub struct LogEntry {
@@ -70,6 +118,15 @@ pub struct App {
     pub live_speed: f32,
     pub range_end_time: Option<DateTime<Utc>>,
     pub time_step_secs: i64,
+    // ─── Multi-screen state ───────────────────────────────────────────────────
+    pub screen: Screen,
+    pub sim_list: Vec<SimListEntry>,
+    pub sim_list_cursor: usize,
+    pub snapshot_list: Vec<SnapshotSummary>,
+    pub snapshot_list_cursor: usize,
+    pub active_simulation_id: Option<Uuid>,
+    /// Transient notification shown as overlay; auto-clears after 3 seconds.
+    pub notification: Option<(String, std::time::Instant)>,
 }
 
 impl App {
@@ -97,6 +154,43 @@ impl App {
             live_speed: 1.0,
             range_end_time,
             time_step_secs,
+            screen: Screen::Simulation,
+            sim_list: Vec::new(),
+            sim_list_cursor: 0,
+            snapshot_list: Vec::new(),
+            snapshot_list_cursor: 0,
+            active_simulation_id: None,
+            notification: None,
+        }
+    }
+
+    /// Create an App starting on the Launch screen (pre-sim simulation selector).
+    pub fn new_launch(sim_list: Vec<SimListEntry>) -> Self {
+        Self {
+            current_step: 0,
+            total_steps: 0,
+            sim_time: None,
+            sim_start_time: None,
+            log_entries: VecDeque::with_capacity(MAX_LOG_ENTRIES),
+            cumulative_counts: HashMap::new(),
+            completed: false,
+            should_quit: false,
+            scroll_offset: 0,
+            error: None,
+            thread_panicked: false,
+            paused: false,
+            time_mode: "Range".to_string(),
+            dialog: Dialog::None,
+            live_speed: 1.0,
+            range_end_time: None,
+            time_step_secs: 60,
+            screen: Screen::Launch,
+            sim_list,
+            sim_list_cursor: 0,
+            snapshot_list: Vec::new(),
+            snapshot_list_cursor: 0,
+            active_simulation_id: None,
+            notification: None,
         }
     }
 
@@ -252,6 +346,58 @@ impl App {
                 }
                 _ => {}
             },
+
+            // NewSimName: handled by Launch-screen logic in run.rs via a callback;
+            // here we just update the input buffer and dismiss on Esc.
+            Dialog::NewSimName { input } => match key {
+                KeyCode::Char(c) => {
+                    input.push(c);
+                }
+                KeyCode::Backspace => {
+                    input.pop();
+                }
+                KeyCode::Esc => {
+                    self.dialog = Dialog::None;
+                }
+                _ => {}
+            },
+
+            Dialog::TakeSnapshot { input } => match key {
+                KeyCode::Char(c) => {
+                    input.push(c);
+                }
+                KeyCode::Backspace => {
+                    input.pop();
+                }
+                KeyCode::Enter => {
+                    let label = if let Dialog::TakeSnapshot { input } = &self.dialog {
+                        input.clone()
+                    } else {
+                        String::new()
+                    };
+                    let _ = controller.send(ControlCommand::Snapshot(label));
+                    self.dialog = Dialog::None;
+                }
+                KeyCode::Esc => {
+                    self.dialog = Dialog::None;
+                }
+                _ => {}
+            },
+
+            Dialog::ConfirmRestore {
+                snapshot_id,
+                label: _,
+            } => match key {
+                KeyCode::Char('y') | KeyCode::Char('Y') => {
+                    let id = *snapshot_id;
+                    let _ = controller.send(ControlCommand::RestoreSnapshot(id));
+                    self.dialog = Dialog::None;
+                }
+                KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('N') => {
+                    self.dialog = Dialog::None;
+                }
+                _ => {}
+            },
         }
         Ok(())
     }
@@ -301,7 +447,28 @@ impl App {
         ))
     }
 
-    pub fn render(&self, frame: &mut Frame<'_>) {
+    pub fn render(&mut self, frame: &mut Frame<'_>) {
+        // Auto-clear expired notifications
+        if let Some((_, instant)) = &self.notification
+            && instant.elapsed() > std::time::Duration::from_secs(3)
+        {
+            self.notification = None;
+        }
+
+        match self.screen {
+            Screen::Launch => self.render_launch(frame),
+            Screen::Simulation => self.render_simulation(frame),
+            Screen::SnapshotBrowser => self.render_snapshot_browser(frame),
+        }
+
+        // Notification overlay (shown on top of any screen)
+        if self.notification.is_some() {
+            let area = frame.area();
+            self.render_notification(frame, area);
+        }
+    }
+
+    fn render_simulation(&self, frame: &mut Frame<'_>) {
         let area = frame.area();
 
         // Determine layout
@@ -343,6 +510,204 @@ impl App {
         if !matches!(self.dialog, Dialog::None) {
             self.render_dialog(frame, area);
         }
+    }
+
+    fn render_launch(&self, frame: &mut Frame<'_>) {
+        let area = frame.area();
+        let layout = Layout::vertical([
+            Constraint::Length(1), // header
+            Constraint::Min(0),    // list
+            Constraint::Length(1), // help bar
+        ])
+        .split(area);
+
+        // Header
+        let header = Line::from(vec![
+            Span::styled(
+                " Chef Casper's Kitchen Sim",
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                "  — Select or create a simulation",
+                Style::default().fg(Color::DarkGray),
+            ),
+        ]);
+        frame.render_widget(Paragraph::new(header), layout[0]);
+
+        // Simulation list
+        if self.sim_list.is_empty() {
+            let msg = Paragraph::new("  No simulations yet. Press [n] to create one.")
+                .style(Style::default().fg(Color::DarkGray))
+                .block(Block::default().borders(Borders::ALL));
+            frame.render_widget(msg, layout[1]);
+        } else {
+            let items: Vec<ListItem<'_>> = self
+                .sim_list
+                .iter()
+                .enumerate()
+                .map(|(i, entry)| {
+                    let label = entry.label.as_deref().unwrap_or("<unnamed>");
+                    let date = entry.created_at.format("%d %b %Y %H:%M").to_string();
+                    let n = entry.snapshot_count;
+                    let snap_str = if n == 1 {
+                        "1 snapshot".to_string()
+                    } else {
+                        format!("{n} snapshots")
+                    };
+                    let line = Line::from(vec![
+                        Span::styled(
+                            format!("  {label:<30}"),
+                            Style::default()
+                                .fg(if i == self.sim_list_cursor {
+                                    Color::Cyan
+                                } else {
+                                    Color::White
+                                })
+                                .add_modifier(if i == self.sim_list_cursor {
+                                    Modifier::BOLD
+                                } else {
+                                    Modifier::empty()
+                                }),
+                        ),
+                        Span::styled(
+                            format!("created {date}  {snap_str}"),
+                            Style::default().fg(Color::DarkGray),
+                        ),
+                    ]);
+                    if i == self.sim_list_cursor {
+                        ListItem::new(line).style(Style::default().bg(Color::DarkGray))
+                    } else {
+                        ListItem::new(line)
+                    }
+                })
+                .collect();
+
+            let list = List::new(items).block(
+                Block::default()
+                    .title(" Simulations ")
+                    .borders(Borders::ALL),
+            );
+            frame.render_widget(list, layout[1]);
+        }
+
+        // Help bar
+        let help = Paragraph::new(" [n] New  [Enter] Load  [↑/↓] Navigate  [q] Quit")
+            .style(Style::default().fg(Color::DarkGray));
+        frame.render_widget(help, layout[2]);
+
+        // Dialog overlay
+        if !matches!(self.dialog, Dialog::None) {
+            self.render_dialog(frame, area);
+        }
+    }
+
+    fn render_snapshot_browser(&self, frame: &mut Frame<'_>) {
+        let area = frame.area();
+        let layout = Layout::vertical([
+            Constraint::Length(1), // header
+            Constraint::Min(0),    // list
+            Constraint::Length(1), // help bar
+        ])
+        .split(area);
+
+        // Header
+        let sim_label = self
+            .active_simulation_id
+            .map(|id| id.to_string())
+            .unwrap_or_else(|| "unknown".to_string());
+        let header = Line::from(vec![
+            Span::styled(
+                " Snapshots",
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                format!("  — {sim_label}"),
+                Style::default().fg(Color::DarkGray),
+            ),
+        ]);
+        frame.render_widget(Paragraph::new(header), layout[0]);
+
+        // Snapshot list
+        if self.snapshot_list.is_empty() {
+            let msg = Paragraph::new("  No snapshots yet. Press [t] to take one.")
+                .style(Style::default().fg(Color::DarkGray))
+                .block(Block::default().borders(Borders::ALL));
+            frame.render_widget(msg, layout[1]);
+        } else {
+            let items: Vec<ListItem<'_>> = self
+                .snapshot_list
+                .iter()
+                .enumerate()
+                .map(|(i, snap)| {
+                    let label = snap.label.as_deref().unwrap_or("<no label>");
+                    let sim_time = snap.sim_time.format("%H:%M:%S").to_string();
+                    let line = Line::from(vec![
+                        Span::styled(
+                            format!("  {label:<30}"),
+                            Style::default().fg(if i == self.snapshot_list_cursor {
+                                Color::Cyan
+                            } else {
+                                Color::White
+                            }),
+                        ),
+                        Span::styled(
+                            format!(
+                                "sim {}  {} agents  step {}",
+                                sim_time, snap.agent_count, snap.step
+                            ),
+                            Style::default().fg(Color::DarkGray),
+                        ),
+                    ]);
+                    if i == self.snapshot_list_cursor {
+                        ListItem::new(line).style(Style::default().bg(Color::DarkGray))
+                    } else {
+                        ListItem::new(line)
+                    }
+                })
+                .collect();
+
+            let list =
+                List::new(items).block(Block::default().title(" Snapshots ").borders(Borders::ALL));
+            frame.render_widget(list, layout[1]);
+        }
+
+        // Help bar
+        let help =
+            Paragraph::new(" [t] Take snapshot  [Enter] Restore  [↑/↓] Navigate  [Esc] Back")
+                .style(Style::default().fg(Color::DarkGray));
+        frame.render_widget(help, layout[2]);
+
+        // Dialog overlay
+        if !matches!(self.dialog, Dialog::None) {
+            self.render_dialog(frame, area);
+        }
+    }
+
+    fn render_notification(&self, frame: &mut Frame<'_>, area: Rect) {
+        let Some((msg, _)) = &self.notification else {
+            return;
+        };
+        let width = (msg.len() as u16 + 4).min(area.width.saturating_sub(2));
+        let x = area.x + area.width.saturating_sub(width + 1);
+        let popup = Rect {
+            x,
+            y: area.y + 1,
+            width,
+            height: 3,
+        };
+        frame.render_widget(Clear, popup);
+        let para = Paragraph::new(msg.as_str())
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .style(Style::default().fg(Color::Green)),
+            )
+            .alignment(Alignment::Center);
+        frame.render_widget(para, popup);
     }
 
     fn render_header(&self, frame: &mut Frame<'_>, area: Rect) {
@@ -671,12 +1036,13 @@ impl App {
             " [q] Quit".to_string()
         } else if self.paused {
             if is_range {
-                " [q] Quit  [Space] Resume  [s] +1  [f] +10  [m] Mode  [a] Advance".to_string()
+                " [q] Quit  [Space] Resume  [s] +1  [f] +10  [m] Mode  [a] Advance  [S] Snapshots"
+                    .to_string()
             } else {
-                " [q] Quit  [Space] Resume  [s] +1  [f] +10  [m] Mode".to_string()
+                " [q] Quit  [Space] Resume  [s] +1  [f] +10  [m] Mode  [S] Snapshots".to_string()
             }
         } else {
-            let base = " [q] Quit  [Space] Pause  [m] Mode".to_string();
+            let base = " [q] Quit  [Space] Pause  [m] Mode  [S] Snapshots".to_string();
             if is_live {
                 format!("{}  [+/-] Speed {:.3}x", base, self.live_speed)
             } else if is_range {
@@ -829,6 +1195,97 @@ impl App {
                     .title(" Advance Simulation By ")
                     .borders(Borders::ALL)
                     .style(Style::default().fg(Color::White));
+
+                frame.render_widget(Paragraph::new(lines).block(block), popup);
+            }
+
+            Dialog::NewSimName { input } => {
+                let popup = centered_rect(60, 7, area);
+                frame.render_widget(Clear, popup);
+
+                let lines = vec![
+                    Line::from(""),
+                    Line::from(vec![
+                        Span::styled("  Name: ", Style::default().fg(Color::White)),
+                        Span::styled(
+                            format!("{input}_"),
+                            Style::default()
+                                .fg(Color::Cyan)
+                                .add_modifier(Modifier::BOLD),
+                        ),
+                    ]),
+                    Line::from(""),
+                    Line::from(Span::styled(
+                        "  [Enter] Create  [Esc] Cancel",
+                        Style::default().fg(Color::DarkGray),
+                    )),
+                ];
+
+                let block = Block::default()
+                    .title(" New Simulation ")
+                    .borders(Borders::ALL)
+                    .style(Style::default().fg(Color::White));
+
+                frame.render_widget(Paragraph::new(lines).block(block), popup);
+            }
+
+            Dialog::TakeSnapshot { input } => {
+                let popup = centered_rect(60, 7, area);
+                frame.render_widget(Clear, popup);
+
+                let lines = vec![
+                    Line::from(""),
+                    Line::from(vec![
+                        Span::styled("  Label: ", Style::default().fg(Color::White)),
+                        Span::styled(
+                            format!("{input}_"),
+                            Style::default()
+                                .fg(Color::Cyan)
+                                .add_modifier(Modifier::BOLD),
+                        ),
+                    ]),
+                    Line::from(""),
+                    Line::from(Span::styled(
+                        "  [Enter] Take snapshot  [Esc] Cancel",
+                        Style::default().fg(Color::DarkGray),
+                    )),
+                ];
+
+                let block = Block::default()
+                    .title(" Take Snapshot ")
+                    .borders(Borders::ALL)
+                    .style(Style::default().fg(Color::White));
+
+                frame.render_widget(Paragraph::new(lines).block(block), popup);
+            }
+
+            Dialog::ConfirmRestore { label, .. } => {
+                let popup = centered_rect(60, 7, area);
+                frame.render_widget(Clear, popup);
+
+                let label_str = label.as_deref().unwrap_or("<no label>");
+                let lines = vec![
+                    Line::from(""),
+                    Line::from(Span::styled(
+                        format!("  Restore snapshot: {label_str}"),
+                        Style::default().fg(Color::White),
+                    )),
+                    Line::from(""),
+                    Line::from(Span::styled(
+                        "  Simulation will pause at the restored state.",
+                        Style::default().fg(Color::DarkGray),
+                    )),
+                    Line::from(""),
+                    Line::from(Span::styled(
+                        "  [y] Confirm  [n / Esc] Cancel",
+                        Style::default().fg(Color::DarkGray),
+                    )),
+                ];
+
+                let block = Block::default()
+                    .title(" Restore Snapshot? ")
+                    .borders(Borders::ALL)
+                    .style(Style::default().fg(Color::Yellow));
 
                 frame.render_widget(Paragraph::new(lines).block(block), popup);
             }

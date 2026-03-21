@@ -255,6 +255,11 @@ impl SimulationContext {
         self.current_time = time;
     }
 
+    /// Override the simulation ID (used when loading a pre-registered simulation)
+    pub fn set_simulation_id(&mut self, id: Uuid) {
+        self.simulation_id = id;
+    }
+
     /// Calculate elapsed time since start
     pub fn elapsed(&self) -> Duration {
         self.current_time - self.start_time

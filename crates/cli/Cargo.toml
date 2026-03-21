@@ -17,6 +17,7 @@ sim-events = { path = "../sim-events" }
 
 chrono = { workspace = true }
 humantime = { workspace = true }
+uuid = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true, features = ["log"] }

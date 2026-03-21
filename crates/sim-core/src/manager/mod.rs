@@ -18,6 +18,30 @@ use datafusion::execution::context::SessionContext;
 use std::sync::Arc;
 use uuid::Uuid;
 
+// ─── Serde helpers for JSON catalog records ──────────────────────────────────
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct SimulationCatalogRecord {
+    id: String,
+    label: Option<String>,
+    created_at: String,
+    properties: Option<serde_json::Value>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct SnapshotCatalogRecord {
+    id: String,
+    simulation_id: String,
+    label: Option<String>,
+    sim_time: String,
+    created_at: String,
+    agent_count: usize,
+    resource_count: usize,
+    task_count: usize,
+    workflow_instance_count: usize,
+    location_count: usize,
+}
+
 // ─── Public plain-data structs ────────────────────────────────────────────────
 
 /// Record returned by [`SimulationManager::list_simulations`].
@@ -144,6 +168,8 @@ impl SimulationManager {
         self.append_to_table("system_simulations", batch, simulations_schema())
             .await?;
 
+        self.persist_simulation(id, label, properties.as_ref(), now)?;
+
         Ok(id)
     }
 
@@ -238,7 +264,11 @@ impl SimulationManager {
         .map_err(Error::Arrow)?;
 
         self.append_to_table("system_snapshots", batch, snapshots_schema())
-            .await
+            .await?;
+
+        self.persist_snapshot(metadata)?;
+
+        Ok(())
     }
 
     /// List all snapshots for a given simulation.
@@ -344,6 +374,171 @@ impl SimulationManager {
         };
         tokio::runtime::Handle::current()
             .block_on(async move { SnapshotManager::new(backend).await })
+    }
+
+    // ─── Persistence ──────────────────────────────────────────────────────────
+
+    /// Create a manager and load any previously persisted catalog from disk.
+    ///
+    /// With a `Memory` backend this is identical to `new()`. With a `Parquet`
+    /// backend it scans `{base}/system/simulations/` and
+    /// `{base}/system/snapshots/` for JSON records written by earlier runs.
+    pub async fn load(backend: SimulationManagerBackend) -> Result<Self> {
+        let mut mgr = Self::new(backend).await?;
+        if let SimulationManagerBackend::Parquet(ref base) = mgr.backend.clone() {
+            mgr.load_catalog_from_disk(base).await?;
+        }
+        Ok(mgr)
+    }
+
+    /// Convenience constructor: `Parquet(base)` backend + catalog loaded from disk.
+    pub async fn new_with_persistence(base: &str) -> Result<Self> {
+        Self::load(SimulationManagerBackend::Parquet(base.to_string())).await
+    }
+
+    /// Scan disk catalog directories and populate in-memory tables.
+    async fn load_catalog_from_disk(&mut self, base: &str) -> Result<()> {
+        let sims_dir = std::path::Path::new(base)
+            .join("system")
+            .join("simulations");
+        let snaps_dir = std::path::Path::new(base).join("system").join("snapshots");
+
+        if sims_dir.exists() {
+            let entries = std::fs::read_dir(&sims_dir)
+                .map_err(|e| Error::Custom(format!("read_dir simulations: {e}")))?;
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().and_then(|e| e.to_str()) == Some("json")
+                    && let Ok(contents) = std::fs::read_to_string(&path)
+                    && let Ok(rec) = serde_json::from_str::<SimulationCatalogRecord>(&contents)
+                {
+                    let id: Uuid = rec
+                        .id
+                        .parse()
+                        .map_err(|_| Error::InvalidState("bad sim uuid".into()))?;
+                    let created_at: DateTime<Utc> = rec.created_at.parse().unwrap_or_default();
+                    let batch = RecordBatch::try_new(
+                        simulations_schema(),
+                        vec![
+                            Arc::new(StringArray::from(vec![rec.id.clone()])),
+                            Arc::new(StringArray::from(vec![rec.label.clone()])),
+                            Arc::new(
+                                TimestampMillisecondArray::from(vec![
+                                    created_at.timestamp_millis(),
+                                ])
+                                .with_timezone_opt(Some("UTC")),
+                            ),
+                            Arc::new(StringArray::from(vec![
+                                rec.properties.as_ref().map(|v| v.to_string()),
+                            ])),
+                        ],
+                    )
+                    .map_err(Error::Arrow)?;
+                    self.append_to_table("system_simulations", batch, simulations_schema())
+                        .await?;
+                    let _ = id; // used above
+                }
+            }
+        }
+
+        if snaps_dir.exists() {
+            let entries = std::fs::read_dir(&snaps_dir)
+                .map_err(|e| Error::Custom(format!("read_dir snapshots: {e}")))?;
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().and_then(|e| e.to_str()) == Some("json")
+                    && let Ok(contents) = std::fs::read_to_string(&path)
+                    && let Ok(rec) = serde_json::from_str::<SnapshotCatalogRecord>(&contents)
+                {
+                    let sim_time: DateTime<Utc> = rec.sim_time.parse().unwrap_or_default();
+                    let created_at: DateTime<Utc> = rec.created_at.parse().unwrap_or_default();
+                    let batch = RecordBatch::try_new(
+                        snapshots_schema(),
+                        vec![
+                            Arc::new(StringArray::from(vec![rec.id.clone()])),
+                            Arc::new(StringArray::from(vec![rec.simulation_id.clone()])),
+                            Arc::new(StringArray::from(vec![rec.label.clone()])),
+                            Arc::new(
+                                TimestampMillisecondArray::from(vec![sim_time.timestamp_millis()])
+                                    .with_timezone_opt(Some("UTC")),
+                            ),
+                            Arc::new(
+                                TimestampMillisecondArray::from(vec![
+                                    created_at.timestamp_millis(),
+                                ])
+                                .with_timezone_opt(Some("UTC")),
+                            ),
+                            Arc::new(Int64Array::from(vec![rec.agent_count as i64])),
+                            Arc::new(Int64Array::from(vec![rec.resource_count as i64])),
+                            Arc::new(Int64Array::from(vec![rec.task_count as i64])),
+                            Arc::new(Int64Array::from(vec![rec.workflow_instance_count as i64])),
+                            Arc::new(Int64Array::from(vec![rec.location_count as i64])),
+                        ],
+                    )
+                    .map_err(Error::Arrow)?;
+                    self.append_to_table("system_snapshots", batch, snapshots_schema())
+                        .await?;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Write a simulation record to disk as JSON.
+    fn persist_simulation(
+        &self,
+        id: Uuid,
+        label: Option<&str>,
+        properties: Option<&serde_json::Value>,
+        created_at: DateTime<Utc>,
+    ) -> Result<()> {
+        let SimulationManagerBackend::Parquet(ref base) = self.backend else {
+            return Ok(());
+        };
+        let dir = std::path::Path::new(base)
+            .join("system")
+            .join("simulations");
+        std::fs::create_dir_all(&dir)
+            .map_err(|e| Error::Custom(format!("create_dir simulations: {e}")))?;
+        let record = SimulationCatalogRecord {
+            id: id.to_string(),
+            label: label.map(str::to_string),
+            created_at: created_at.to_rfc3339(),
+            properties: properties.cloned(),
+        };
+        let json = serde_json::to_string_pretty(&record)
+            .map_err(|e| Error::Custom(format!("serialize simulation: {e}")))?;
+        std::fs::write(dir.join(format!("{id}.json")), json)
+            .map_err(|e| Error::Custom(format!("write simulation json: {e}")))?;
+        Ok(())
+    }
+
+    /// Write a snapshot record to disk as JSON.
+    fn persist_snapshot(&self, metadata: &SnapshotMetadata) -> Result<()> {
+        let SimulationManagerBackend::Parquet(ref base) = self.backend else {
+            return Ok(());
+        };
+        let dir = std::path::Path::new(base).join("system").join("snapshots");
+        std::fs::create_dir_all(&dir)
+            .map_err(|e| Error::Custom(format!("create_dir snapshots: {e}")))?;
+        let record = SnapshotCatalogRecord {
+            id: metadata.snapshot_id.to_string(),
+            simulation_id: metadata.simulation_id.to_string(),
+            label: metadata.label.clone(),
+            sim_time: metadata.sim_time.to_rfc3339(),
+            created_at: metadata.timestamp.to_rfc3339(),
+            agent_count: metadata.agent_count,
+            resource_count: metadata.resource_count,
+            task_count: metadata.task_count,
+            workflow_instance_count: metadata.workflow_instance_count,
+            location_count: metadata.location_count,
+        };
+        let json = serde_json::to_string_pretty(&record)
+            .map_err(|e| Error::Custom(format!("serialize snapshot: {e}")))?;
+        std::fs::write(dir.join(format!("{}.json", metadata.snapshot_id)), json)
+            .map_err(|e| Error::Custom(format!("write snapshot json: {e}")))?;
+        Ok(())
     }
 
     // ─── Internal helpers ─────────────────────────────────────────────────────

@@ -1,9 +1,13 @@
 use chrono::{DateTime, Utc};
 use crossterm::event::{Event, KeyCode, KeyEventKind};
-use sim_core::{ControlCommand, SimEvent, TimeMode, control_channel};
+use sim_core::{
+    ControlCommand, SimEvent, SimulationManager, SimulationManagerBackend, TimeMode,
+    control_channel,
+};
 use sim_kitchen::KitchenSimulation;
+use uuid::Uuid;
 
-use crate::app::{App, Dialog};
+use crate::app::{App, Dialog, Screen, SimListEntry};
 use crate::error::Result;
 use crate::time_parse::parse_sim_time;
 use crate::tui::Tui;
@@ -71,9 +75,6 @@ pub(super) async fn handle(args: RunArgs) -> Result<()> {
         })
         .transpose()?;
 
-    // Controller lives on the TUI side; receiver goes to the sim thread.
-    let (controller, receiver) = control_channel(128);
-
     let initial_mode_str = match args.mode {
         RunMode::Range => "Range",
         RunMode::Live => "Live",
@@ -84,10 +85,169 @@ pub(super) async fn handle(args: RunArgs) -> Result<()> {
     // Default time_step for kitchen sim is 60s
     let time_step_secs: i64 = 60;
 
+    // ── Phase 1: Launch screen ────────────────────────────────────────────────
+    // Load (or create) the SimulationManager catalog from disk.
+    let mut sim_manager = SimulationManager::new_with_persistence(".caspers")
+        .await
+        .unwrap_or_else(|_| {
+            // Fall back to in-memory if disk is unavailable
+            tokio::runtime::Handle::current()
+                .block_on(SimulationManager::new(SimulationManagerBackend::Memory))
+                .expect("in-memory manager should always succeed")
+        });
+
+    let existing_sims = sim_manager.list_simulations().await.unwrap_or_default();
+
+    // Build sim list with snapshot counts
+    let mut sim_list: Vec<SimListEntry> = Vec::new();
+    for rec in &existing_sims {
+        let snap_count = sim_manager
+            .list_snapshots(rec.id)
+            .await
+            .map(|s| s.len())
+            .unwrap_or(0);
+        sim_list.push(SimListEntry {
+            id: rec.id,
+            label: rec.label.clone(),
+            created_at: rec.created_at,
+            snapshot_count: snap_count,
+        });
+    }
+
+    // Enter the TUI for the Launch screen
+    let mut tui = Tui::new()?;
+    tui.enter()?;
+
+    let mut app = crate::app::App::new_launch(sim_list);
+    let tick_rate = std::time::Duration::from_millis(50);
+
+    // Oneshot channel fired when the user confirms a simulation choice
+    let (sim_start_tx, mut sim_start_rx) =
+        tokio::sync::oneshot::channel::<(Uuid, Option<String>)>();
+    let mut sim_start_tx = Some(sim_start_tx);
+
+    // Run the Launch screen loop until user selects/creates a sim
+    'launch: loop {
+        tui.draw(|f| app.render(f))?;
+
+        let timeout = tokio::time::sleep(tick_rate);
+        tokio::pin!(timeout);
+
+        tokio::select! {
+            event = tui.next_event() => {
+                if let Some(Event::Key(key)) = event
+                    && key.kind == KeyEventKind::Press {
+                        if !matches!(app.dialog, Dialog::None) {
+                            // NewSimName dialog — enter key creates sim and fires channel
+                            if matches!(app.dialog, Dialog::NewSimName { .. }) {
+                                match key.code {
+                                    KeyCode::Char(c) => {
+                                        if let Dialog::NewSimName { input } = &mut app.dialog {
+                                            input.push(c);
+                                        }
+                                    }
+                                    KeyCode::Backspace => {
+                                        if let Dialog::NewSimName { input } = &mut app.dialog {
+                                            input.pop();
+                                        }
+                                    }
+                                    KeyCode::Enter => {
+                                        let label = if let Dialog::NewSimName { input } = &app.dialog {
+                                            let s = input.trim().to_string();
+                                            if s.is_empty() { None } else { Some(s) }
+                                        } else {
+                                            None
+                                        };
+                                        let id = sim_manager
+                                            .create_simulation(label.as_deref(), None)
+                                            .await
+                                            .unwrap_or_else(|_| Uuid::now_v7());
+                                        app.active_simulation_id = Some(id);
+                                        app.dialog = Dialog::None;
+                                        if let Some(tx) = sim_start_tx.take() {
+                                            let _ = tx.send((id, label));
+                                        }
+                                        break 'launch;
+                                    }
+                                    KeyCode::Esc => {
+                                        app.dialog = Dialog::None;
+                                    }
+                                    _ => {}
+                                }
+                            } else {
+                                // dummy controller — dialogs here don't need it
+                                let (dummy_ctrl, _dummy_rx) = control_channel(1);
+                                let _ = app.handle_dialog_key(key.code, &dummy_ctrl);
+                            }
+                        } else {
+                            match key.code {
+                                KeyCode::Char('q') | KeyCode::Esc => {
+                                    app.should_quit = true;
+                                    break 'launch;
+                                }
+                                KeyCode::Char('n') => {
+                                    app.dialog = Dialog::NewSimName { input: String::new() };
+                                }
+                                KeyCode::Up => {
+                                    app.sim_list_cursor = app.sim_list_cursor.saturating_sub(1);
+                                }
+                                KeyCode::Down => {
+                                    if !app.sim_list.is_empty() {
+                                        app.sim_list_cursor = (app.sim_list_cursor + 1)
+                                            .min(app.sim_list.len() - 1);
+                                    }
+                                }
+                                KeyCode::Enter if !app.sim_list.is_empty() => {
+                                    let entry = &app.sim_list[app.sim_list_cursor];
+                                    let id = entry.id;
+                                    let label = entry.label.clone();
+                                    app.active_simulation_id = Some(id);
+                                    if let Some(tx) = sim_start_tx.take() {
+                                        let _ = tx.send((id, label));
+                                    }
+                                    break 'launch;
+                                }
+                                _ => {}
+                            }
+                        }
+                }
+            }
+            _ = &mut timeout => {}
+        }
+    }
+
+    if app.should_quit {
+        tui.exit()?;
+        return Ok(());
+    }
+
+    // Get the confirmed simulation ID
+    let sim_id = match sim_start_rx.try_recv() {
+        Ok((id, _)) => id,
+        Err(_) => {
+            tui.exit()?;
+            return Ok(());
+        }
+    };
+
+    // Transition app to Simulation screen
+    app.screen = Screen::Simulation;
+    app.total_steps = duration;
+    app.time_mode = initial_mode_str.clone();
+    app.time_step_secs = time_step_secs;
+    app.range_end_time = end_time;
+
+    // ── Phase 2: Spawn simulation thread ─────────────────────────────────────
+    // Controller lives on the TUI side; receiver goes to the sim thread.
+    let (controller, receiver) = control_channel(128);
+
     let mode = args.mode.clone();
     let sim_handle = std::thread::spawn(move || {
         let mut sim = KitchenSimulation::new(args.num_kitchens, args.kitchen_capacity, false);
         sim.add_customers(args.num_customers);
+
+        // Inject the pre-registered simulation ID
+        sim.runner_mut().context_mut().set_simulation_id(sim_id);
 
         // Apply start time if provided
         if let Some(st) = start_time {
@@ -114,11 +274,6 @@ pub(super) async fn handle(args: RunArgs) -> Result<()> {
             sim.runner_mut().emit_event(SimEvent::Error(e.to_string()));
         }
     });
-
-    let mut tui = Tui::new()?;
-    tui.enter()?;
-
-    let mut app = App::new(duration, initial_mode_str, end_time, time_step_secs);
     let tick_rate = std::time::Duration::from_millis(50);
 
     loop {
@@ -135,57 +290,101 @@ pub(super) async fn handle(args: RunArgs) -> Result<()> {
                         if !matches!(app.dialog, Dialog::None) {
                             app.handle_dialog_key(key.code, &controller)?;
                         } else {
-                            // Global key dispatch
-                            match key.code {
-                                KeyCode::Char('q') | KeyCode::Esc => {
-                                    let _ = controller.send(ControlCommand::Stop);
-                                    app.should_quit = true;
-                                }
-                                KeyCode::Char('c')
-                                    if key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL) =>
-                                {
-                                    let _ = controller.send(ControlCommand::Stop);
-                                    app.should_quit = true;
-                                }
-                                KeyCode::Char(' ') if !app.completed => {
-                                    if app.paused {
-                                        let _ = controller.send(ControlCommand::Resume);
-                                        app.paused = false;
-                                    } else {
-                                        let _ = controller.send(ControlCommand::Pause);
+                            match &app.screen {
+                                Screen::Simulation => {
+                                    match key.code {
+                                        KeyCode::Char('q') | KeyCode::Esc => {
+                                            let _ = controller.send(ControlCommand::Stop);
+                                            app.should_quit = true;
+                                        }
+                                        KeyCode::Char('c')
+                                            if key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL) =>
+                                        {
+                                            let _ = controller.send(ControlCommand::Stop);
+                                            app.should_quit = true;
+                                        }
+                                        KeyCode::Char(' ') if !app.completed => {
+                                            if app.paused {
+                                                let _ = controller.send(ControlCommand::Resume);
+                                                app.paused = false;
+                                            } else {
+                                                let _ = controller.send(ControlCommand::Pause);
+                                            }
+                                        }
+                                        KeyCode::Char('s') if app.paused => {
+                                            let _ = controller.send(ControlCommand::StepN(1));
+                                        }
+                                        KeyCode::Char('f') if app.paused => {
+                                            let _ = controller.send(ControlCommand::StepN(10));
+                                        }
+                                        KeyCode::Char('m') if !app.completed => {
+                                            app.dialog = Dialog::ModeSelect;
+                                        }
+                                        KeyCode::Char('a')
+                                            if !app.completed && app.time_mode == "Range" =>
+                                        {
+                                            app.dialog = Dialog::AdvanceBy {
+                                                input: String::new(),
+                                                error: None,
+                                            };
+                                        }
+                                        KeyCode::Char('S') if !app.completed => {
+                                            app.screen = Screen::SnapshotBrowser;
+                                        }
+                                        // Speed controls (Live mode only, not completed)
+                                        KeyCode::Char('+') | KeyCode::Char('=')
+                                            if !app.completed && app.time_mode == "Live" =>
+                                        {
+                                            let new_speed = (app.live_speed * 2.0).min(16.0);
+                                            let _ = controller.send(ControlCommand::SetSpeed(new_speed));
+                                            app.live_speed = new_speed;
+                                        }
+                                        KeyCode::Char('-')
+                                            if !app.completed && app.time_mode == "Live" =>
+                                        {
+                                            let new_speed = (app.live_speed / 2.0).max(0.125);
+                                            let _ = controller.send(ControlCommand::SetSpeed(new_speed));
+                                            app.live_speed = new_speed;
+                                        }
+                                        _ => {}
                                     }
                                 }
-                                KeyCode::Char('s') if app.paused => {
-                                    let _ = controller.send(ControlCommand::StepN(1));
+                                Screen::SnapshotBrowser => {
+                                    match key.code {
+                                        KeyCode::Esc => {
+                                            app.screen = Screen::Simulation;
+                                        }
+                                        KeyCode::Up => {
+                                            app.snapshot_list_cursor =
+                                                app.snapshot_list_cursor.saturating_sub(1);
+                                        }
+                                        KeyCode::Down => {
+                                            if !app.snapshot_list.is_empty() {
+                                                app.snapshot_list_cursor = (app.snapshot_list_cursor + 1)
+                                                    .min(app.snapshot_list.len() - 1);
+                                            }
+                                        }
+                                        KeyCode::Char('t') => {
+                                            app.dialog = Dialog::TakeSnapshot {
+                                                input: String::new(),
+                                            };
+                                        }
+                                        KeyCode::Enter if !app.snapshot_list.is_empty() => {
+                                            let snap = &app.snapshot_list[app.snapshot_list_cursor];
+                                            app.dialog = Dialog::ConfirmRestore {
+                                                snapshot_id: snap.id,
+                                                label: snap.label.clone(),
+                                            };
+                                        }
+                                        _ => {}
+                                    }
                                 }
-                                KeyCode::Char('f') if app.paused => {
-                                    let _ = controller.send(ControlCommand::StepN(10));
+                                Screen::Launch => {
+                                    // Launch screen key handling (used before sim starts)
+                                    if let KeyCode::Char('q') = key.code {
+                                        app.should_quit = true;
+                                    }
                                 }
-                                KeyCode::Char('m') if !app.completed => {
-                                    app.dialog = Dialog::ModeSelect;
-                                }
-                                KeyCode::Char('a') if !app.completed && app.time_mode == "Range" => {
-                                    app.dialog = Dialog::AdvanceBy {
-                                        input: String::new(),
-                                        error: None,
-                                    };
-                                }
-                                // Speed controls (Live mode only, not completed)
-                                KeyCode::Char('+') | KeyCode::Char('=')
-                                    if !app.completed && app.time_mode == "Live" =>
-                                {
-                                    let new_speed = (app.live_speed * 2.0).min(16.0);
-                                    let _ = controller.send(ControlCommand::SetSpeed(new_speed));
-                                    app.live_speed = new_speed;
-                                }
-                                KeyCode::Char('-')
-                                    if !app.completed && app.time_mode == "Live" =>
-                                {
-                                    let new_speed = (app.live_speed / 2.0).max(0.125);
-                                    let _ = controller.send(ControlCommand::SetSpeed(new_speed));
-                                    app.live_speed = new_speed;
-                                }
-                                _ => {}
                             }
                         }
                     }
@@ -296,9 +495,41 @@ fn process_sim_event(app: &mut App, event: SimEvent) {
             app.live_speed = multiplier;
         }
         SimEvent::SnapshotSaved {
-            snapshot_id, label, ..
+            snapshot_id,
+            label,
+            sim_time,
+            step,
         } => {
             tracing::info!("snapshot saved: {snapshot_id} ({label})");
+            app.notification = Some((
+                format!("Snapshot saved: {label}"),
+                std::time::Instant::now(),
+            ));
+            // Add to snapshot list
+            app.snapshot_list.push(crate::app::SnapshotSummary {
+                id: snapshot_id,
+                label: Some(label),
+                sim_time,
+                created_at: chrono::Utc::now(),
+                step,
+                agent_count: 0,
+            });
+        }
+        SimEvent::SnapshotRestored {
+            snapshot_id,
+            label,
+            sim_time,
+            step,
+        } => {
+            tracing::info!("snapshot restored: {snapshot_id}");
+            let label_str = label.as_deref().unwrap_or("snapshot");
+            app.notification = Some((format!("Restored: {label_str}"), std::time::Instant::now()));
+            app.sim_time = Some(sim_time);
+            app.current_step = step;
+        }
+        SimEvent::SnapshotsUpdated { .. } => {
+            // Snapshot list updates are handled via SnapshotSaved/SnapshotRestored events.
+            // This event is a signal that a refresh occurred; no additional action needed here.
         }
     }
 }

@@ -52,6 +52,9 @@ pub enum ControlCommand {
     /// Request an immediate snapshot. The runner generates a Uuid v7, saves
     /// state, and emits [`SimEvent::SnapshotSaved`] with the ID on success.
     Snapshot(String),
+    /// Request restoration of a previously saved snapshot. The runner pauses
+    /// after restoring and emits [`SimEvent::SnapshotRestored`] on success.
+    RestoreSnapshot(Uuid),
 }
 
 // ─── Events (runner → caller) ─────────────────────────────────────────────────
@@ -85,6 +88,26 @@ pub enum SimEvent {
         sim_time: DateTime<Utc>,
         step: usize,
     },
+    /// Emitted after a snapshot is successfully restored via [`ControlCommand::RestoreSnapshot`].
+    SnapshotRestored {
+        snapshot_id: Uuid,
+        label: Option<String>,
+        sim_time: DateTime<Utc>,
+        step: usize,
+    },
+    /// Emitted after any snapshot operation to push the refreshed snapshot list.
+    SnapshotsUpdated { snapshots: Vec<SnapshotSummary> },
+}
+
+/// Lightweight summary of a snapshot, used in [`SimEvent::SnapshotsUpdated`].
+#[derive(Debug, Clone)]
+pub struct SnapshotSummary {
+    pub id: Uuid,
+    pub label: Option<String>,
+    pub sim_time: DateTime<Utc>,
+    pub created_at: DateTime<Utc>,
+    pub step: usize,
+    pub agent_count: usize,
 }
 
 // ─── Public controller (caller side) ─────────────────────────────────────────

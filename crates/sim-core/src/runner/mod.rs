@@ -584,11 +584,38 @@ where
                                     sim_time,
                                     step,
                                 });
+                                c.emit(SimEvent::SnapshotsUpdated { snapshots: vec![] });
                             }
                         }
                         Err(e) => {
                             if let Some(c) = &self.control {
                                 c.emit(SimEvent::Error(format!("Snapshot failed: {e}")));
+                            }
+                        }
+                    }
+                }
+                ControlCommand::RestoreSnapshot(snapshot_id) => {
+                    match tokio::runtime::Handle::current()
+                        .block_on(self.restore_snapshot(&snapshot_id.to_string()))
+                    {
+                        Ok(_metadata) => {
+                            self.paused = true;
+                            let step = self.context.step();
+                            let sim_time = self.context.current_time();
+                            if let Some(c) = &self.control {
+                                c.emit(SimEvent::SnapshotRestored {
+                                    snapshot_id,
+                                    label: None,
+                                    sim_time,
+                                    step,
+                                });
+                                c.emit(SimEvent::Paused { at_step: step });
+                                c.emit(SimEvent::SnapshotsUpdated { snapshots: vec![] });
+                            }
+                        }
+                        Err(e) => {
+                            if let Some(c) = &self.control {
+                                c.emit(SimEvent::Error(format!("Restore failed: {e}")));
                             }
                         }
                     }

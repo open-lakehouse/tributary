@@ -9,6 +9,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] - 2026-03-21
 
+### Added — TUI Simulation & Snapshot Management
+
+#### sim-core: Context
+- `SimulationContext::set_simulation_id(id)` — override the generated UUID when loading a pre-registered simulation from the catalog
+
+#### sim-core: Control Protocol
+- `ControlCommand::RestoreSnapshot(Uuid)` — request restoration of a previously saved snapshot; runner pauses after restore
+- `SimEvent::SnapshotRestored { snapshot_id, label, sim_time, step }` — emitted after successful restore
+- `SimEvent::SnapshotsUpdated { snapshots }` — pushed after any snapshot operation so callers can refresh their list
+- `SnapshotSummary` — lightweight struct carried by `SnapshotsUpdated`
+
+#### sim-core: SimulationManager persistence
+- `SimulationManager::load(backend)` — loads catalog from disk (JSON files) after calling `new()`; no-op for Memory backend
+- `SimulationManager::new_with_persistence(base)` — convenience alias for `load(Parquet(base))`
+- `SimulationManager::load_catalog_from_disk(base)` — scans `{base}/system/simulations/` and `{base}/system/snapshots/` JSON files and repopulates in-memory tables
+- `persist_simulation` / `persist_snapshot` — write JSON records to `.caspers/system/{simulations,snapshots}/` on every `create_simulation` / `record_snapshot` call
+
+#### cli: Multi-screen TUI
+- `Screen::{Launch, Simulation, SnapshotBrowser}` — top-level enum; `App::render()` dispatches on current screen
+- `App::new_launch(sim_list)` — creates an App starting on the Launch screen
+- `Dialog::{NewSimName, TakeSnapshot, ConfirmRestore}` — new modal dialogs for snapshot/sim operations
+- Launch screen: lists existing simulations, `[n]` creates new, `[Enter]` loads selected, `[↑/↓]` navigates
+- Snapshot browser (`[S]` from simulation screen): lists snapshots, `[t]` takes snapshot, `[Enter]` triggers restore confirm, `[Esc]` returns to simulation
+- `ConfirmRestore` dialog: `[y]` sends `ControlCommand::RestoreSnapshot`, `[n/Esc]` cancels
+- Notification overlay: auto-dismissing 3-second notification shown after snapshot saved/restored
+- `[S] Snapshots` hint added to simulation screen help bar
+
 ### Added — Snapshot Management & SimulationManager
 
 #### sim-core: Structured Snapshot IDs
