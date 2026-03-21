@@ -23,12 +23,11 @@ sim-events/
 │   ├── payload.rs     EventPayload trait
 │   └── record.rs      EventRecord serialization
 │
-├── dispatcher/        Event emission
-│   └── dispatcher.rs  EventDispatcher
+├── dispatcher/        Event emission and routing
+│   └── mod.rs         EventDispatcher + EventProcessor trait
 │
 └── storage/           Persistence
-    ├── parquet.rs     Parquet writer
-    └── jsonl.rs       JSON Lines writer
+    └── mod.rs         ParquetEventWriter
 ```
 
 ## CloudEvents Schema
@@ -66,7 +65,37 @@ pub trait EventPayload: Debug + Send + Sync {
 
 ```
 Domain Event -> EventPayload impl -> Event wrapper -> EventDispatcher
-    -> Buffer (in-memory) -> Flush -> Parquet/JSON file
+    -> Route to registered EventProcessors (non-blocking)
+    -> Buffer (in-memory)
+    -> [Optional] fire on mpsc channel for async consumers
+```
+
+## EventProcessor Pipeline
+
+`EventDispatcher` supports pluggable processors registered at startup:
+
+```rust
+pub trait EventProcessor: Send + Sync {
+    fn handles(&self, event_type: &str) -> bool;
+    fn process(&self, event: &Event);
+}
+```
+
+Built-in processors:
+- **`ChannelSenderProcessor`** — forwards matching events as JSON on an `mpsc` channel
+- **`ParquetEventProcessor`** — buffers and flushes raw events to Parquet
+
+Downstream processors (in their own crates):
+- **`ArtifactCollectorProcessor<P>`** in `sim-artifacts` — routes events to artifact generators
+- **`TelemetryCollectorProcessor`** in `sim-telemetry` — routes events to telemetry generators
+
+### Tick Index
+
+`EventDispatcher` tracks a `tick_start_index` so hooks can efficiently slice only the current tick's events:
+
+```rust
+dispatcher.mark_tick_start();           // call in on_before_tick
+dispatcher.current_tick_events()        // returns &[Event] since last mark
 ```
 
 ## Parquet Schema
@@ -106,3 +135,5 @@ Schema:
 | Parquet storage | Analytical queries | Write amplification |
 | In-memory buffering | Minimize I/O | Memory usage |
 | UUID v7 | Time-ordered, unique | Slightly larger than sequential IDs |
+| `EventProcessor` uses `&self` | Allows multiple borrows; processors use interior mutability | Requires `Mutex`/`Arc` for mutable state |
+| Persistence via processors | Decouples I/O from dispatch loop; composable | Callers must register processors explicitly |

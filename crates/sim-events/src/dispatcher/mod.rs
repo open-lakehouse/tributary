@@ -1,14 +1,93 @@
 //! Event dispatcher for collecting and emitting events
 
 use crate::core::{Event, EventRecord};
-use crate::storage::ParquetEventWriter;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+/// Trait for processing events as they are emitted.
+/// Processors must not block — use channels for expensive work.
+pub trait EventProcessor: Send + Sync {
+    /// Return true if this processor handles the given event type.
+    fn handles(&self, event_type: &str) -> bool;
+    /// Process the event synchronously. Must not block.
+    fn process(&self, event: &Event);
+}
+
+/// A processor that forwards matching events through an unbounded mpsc channel.
+pub struct ChannelSenderProcessor {
+    sender: tokio::sync::mpsc::UnboundedSender<serde_json::Value>,
+    filter: Option<String>, // None = send all
+}
+
+impl ChannelSenderProcessor {
+    pub fn new(
+        sender: tokio::sync::mpsc::UnboundedSender<serde_json::Value>,
+        filter: Option<String>,
+    ) -> Self {
+        Self { sender, filter }
+    }
+}
+
+impl EventProcessor for ChannelSenderProcessor {
+    fn handles(&self, event_type: &str) -> bool {
+        match &self.filter {
+            None => true,
+            Some(prefix) => event_type.starts_with(prefix.as_str()),
+        }
+    }
+
+    fn process(&self, event: &Event) {
+        let json = event.to_cloudevents_json();
+        let _ = self.sender.send(json); // ignore send errors (receiver dropped)
+    }
+}
+
+/// A processor that buffers events and can flush them to a Parquet file.
+/// Replaces the direct `flush_to_parquet` method on `EventDispatcher`.
+pub struct ParquetEventProcessor {
+    path: std::path::PathBuf,
+    buffer: std::sync::Mutex<Vec<crate::core::EventRecord>>,
+}
+
+impl ParquetEventProcessor {
+    pub fn new(path: impl Into<std::path::PathBuf>) -> Self {
+        Self {
+            path: path.into(),
+            buffer: std::sync::Mutex::new(Vec::new()),
+        }
+    }
+
+    pub fn flush(&mut self) -> crate::Result<usize> {
+        use crate::storage::ParquetEventWriter;
+        let records = {
+            let mut buf = self.buffer.lock().unwrap();
+            std::mem::take(&mut *buf)
+        };
+        let count = records.len();
+        if count > 0 {
+            let mut writer = ParquetEventWriter::new(self.path.clone())?;
+            writer.write_events(&records)?;
+            writer.close()?;
+        }
+        Ok(count)
+    }
+}
+
+impl EventProcessor for ParquetEventProcessor {
+    fn handles(&self, _event_type: &str) -> bool {
+        true
+    }
+
+    fn process(&self, event: &Event) {
+        let record = event.to_record();
+        self.buffer.lock().unwrap().push(record);
+    }
+}
+
 /// Collects and dispatches events
 ///
-/// The dispatcher buffers events in memory and can write them to storage
-/// using various writers (Parquet, JSON, etc.).
+/// The dispatcher buffers events in memory and routes them to registered
+/// `EventProcessor` implementations. Persistence is handled by processors.
 ///
 /// # Example
 ///
@@ -18,17 +97,18 @@ use std::path::PathBuf;
 /// let mut dispatcher = EventDispatcher::new();
 ///
 /// // Emit events
-/// dispatcher.emit(event1)?;
-/// dispatcher.emit(event2)?;
-///
-/// // Write to storage
-/// dispatcher.flush_to_parquet("events.parquet")?;
+/// dispatcher.emit(event1);
+/// dispatcher.emit(event2);
 /// ```
 pub struct EventDispatcher {
     /// Buffered events
     buffer: Vec<Event>,
     /// Event counts by type
     counts: HashMap<String, usize>,
+    /// Registered event processors
+    processors: Vec<Box<dyn EventProcessor>>,
+    /// Index into `buffer` marking the start of the current tick
+    tick_start_index: usize,
 }
 
 impl EventDispatcher {
@@ -37,17 +117,43 @@ impl EventDispatcher {
         Self {
             buffer: Vec::new(),
             counts: HashMap::new(),
+            processors: Vec::new(),
+            tick_start_index: 0,
         }
+    }
+
+    /// Register an event processor
+    pub fn register_processor(&mut self, processor: Box<dyn EventProcessor>) {
+        self.processors.push(processor);
+    }
+
+    /// Mark the start of the current simulation tick.
+    ///
+    /// After this call, `current_tick_events()` returns only events emitted
+    /// since the most recent call to `mark_tick_start`.
+    pub fn mark_tick_start(&mut self) {
+        self.tick_start_index = self.buffer.len();
+    }
+
+    /// Return a slice of events emitted since the last `mark_tick_start`.
+    pub fn current_tick_events(&self) -> &[Event] {
+        &self.buffer[self.tick_start_index..]
     }
 
     /// Emit a single event
     ///
-    /// The event is added to the buffer. Call `flush()` to persist.
+    /// The event is added to the buffer and routed to matching processors.
     pub fn emit(&mut self, event: Event) {
         *self
             .counts
             .entry(event.event_type().to_string())
             .or_insert(0) += 1;
+        // Route to matching processors before buffering
+        for processor in &self.processors {
+            if processor.handles(event.event_type()) {
+                processor.process(&event);
+            }
+        }
         self.buffer.push(event);
     }
 
@@ -77,6 +183,7 @@ impl EventDispatcher {
     pub fn clear(&mut self) {
         self.buffer.clear();
         self.counts.clear();
+        self.tick_start_index = 0;
     }
 
     /// Get all buffered events
@@ -89,32 +196,33 @@ impl EventDispatcher {
         self.buffer.iter().map(|e| e.to_record()).collect()
     }
 
-    /// Flush events to Parquet file
+    /// Flush events to Parquet file.
     ///
-    /// # Arguments
+    /// # Deprecated
     ///
-    /// * `path` - Path to write Parquet file
-    ///
-    /// # Returns
-    ///
-    /// Number of events written
+    /// This method will be removed once all callers migrate to `ParquetEventProcessor`.
+    /// Do not add new usages.
+    #[deprecated(note = "Use ParquetEventProcessor instead")]
     pub fn flush_to_parquet(&mut self, path: impl Into<PathBuf>) -> crate::Result<usize> {
+        use crate::storage::ParquetEventWriter;
         let records = self.to_records();
         let count = records.len();
-
         if count > 0 {
             let mut writer = ParquetEventWriter::new(path.into())?;
             writer.write_events(&records)?;
             writer.close()?;
         }
-
         self.clear();
         Ok(count)
     }
 
-    /// Flush events to JSON Lines file
+    /// Flush events to JSON Lines file.
     ///
-    /// Each line is a CloudEvents JSON object.
+    /// # Deprecated
+    ///
+    /// This method will be removed once all callers migrate to a processor.
+    /// Do not add new usages.
+    #[deprecated(note = "Use an EventProcessor implementation instead")]
     pub fn flush_to_jsonl(&mut self, path: impl Into<PathBuf>) -> crate::Result<usize> {
         let path = path.into();
         let file = std::fs::File::create(path)?;
@@ -358,5 +466,85 @@ mod tests {
         assert_eq!(dispatcher.count_by_type("type.b"), 0);
         assert_eq!(dispatcher.count_by_type("type.c"), 0);
         assert_eq!(dispatcher.event_counts().len(), 0);
+    }
+
+    // --- New Workstream A tests ---
+
+    #[test]
+    fn test_processor_registration() {
+        use std::sync::{Arc, Mutex};
+
+        struct CountingProcessor {
+            count: Arc<Mutex<usize>>,
+        }
+        impl EventProcessor for CountingProcessor {
+            fn handles(&self, _: &str) -> bool {
+                true
+            }
+            fn process(&self, _: &Event) {
+                *self.count.lock().unwrap() += 1;
+            }
+        }
+
+        let count = Arc::new(Mutex::new(0usize));
+        let processor = CountingProcessor {
+            count: count.clone(),
+        };
+
+        let mut dispatcher = EventDispatcher::new();
+        dispatcher.register_processor(Box::new(processor));
+
+        dispatcher.emit(Event::new(Box::new(TestPayload { value: 1 })));
+        dispatcher.emit(Event::new(Box::new(TestPayload { value: 2 })));
+
+        assert_eq!(*count.lock().unwrap(), 2);
+    }
+
+    #[test]
+    fn test_processor_handles_filter() {
+        use std::sync::{Arc, Mutex};
+
+        struct FilteredProcessor {
+            prefix: String,
+            count: Arc<Mutex<usize>>,
+        }
+        impl EventProcessor for FilteredProcessor {
+            fn handles(&self, event_type: &str) -> bool {
+                event_type.starts_with(&self.prefix)
+            }
+            fn process(&self, _: &Event) {
+                *self.count.lock().unwrap() += 1;
+            }
+        }
+
+        let count = Arc::new(Mutex::new(0usize));
+        let processor = FilteredProcessor {
+            prefix: "kitchen.".to_string(),
+            count: count.clone(),
+        };
+
+        let mut dispatcher = EventDispatcher::new();
+        dispatcher.register_processor(Box::new(processor));
+
+        // This should NOT trigger (wrong prefix) — TestPayload emits "test.event"
+        dispatcher.emit(Event::new(Box::new(TestPayload { value: 1 })));
+        assert_eq!(*count.lock().unwrap(), 0);
+    }
+
+    #[test]
+    fn test_mark_tick_start() {
+        let mut dispatcher = EventDispatcher::new();
+
+        dispatcher.emit(Event::new(Box::new(TestPayload { value: 1 })));
+        dispatcher.emit(Event::new(Box::new(TestPayload { value: 2 })));
+        dispatcher.emit(Event::new(Box::new(TestPayload { value: 3 })));
+
+        dispatcher.mark_tick_start();
+
+        dispatcher.emit(Event::new(Box::new(TestPayload { value: 4 })));
+        dispatcher.emit(Event::new(Box::new(TestPayload { value: 5 })));
+
+        let tick_events = dispatcher.current_tick_events();
+        assert_eq!(tick_events.len(), 2);
     }
 }

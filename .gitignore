@@ -40,6 +40,10 @@ coverage/
 .cargo/
 target/
 
+# Simulation output (generated at runtime)
+output/
+crates/sim-kitchen/output/
+
 # environment variables
 .env
 

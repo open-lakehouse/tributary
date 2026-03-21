@@ -54,10 +54,18 @@
 //! ```
 
 use crate::agents::{Customer, CustomerStatus};
+use crate::artifact_generators::{
+    CustomerDoneArtifactGenerator, InventoryArtifactGenerator, OrderCompletedArtifactGenerator,
+    OrderCreatedArtifactGenerator, SupplyOrderArtifactGenerator,
+};
 use crate::events::*;
 use crate::locations::DistributionSite;
+use crate::profiles::ProfileRegistry;
 use crate::resources::{InventoryManager, Kitchen, Order};
 use chrono::{DateTime, Utc};
+use sim_artifacts::{
+    ArtifactCollector, ArtifactCollectorProcessor, LocalEventProcessor, ParquetArtifactStorage,
+};
 use sim_core::{
     AgentId, PopulationHandler, ResourceAllocator, SimulationContext, SimulationHooks,
     SimulationRunner, TaskId,
@@ -249,10 +257,30 @@ pub struct KitchenSimulationHooks {
     pub distribution_sites: Vec<DistributionSite>,
     /// Track supply order metadata (workflow_instance_id -> (kitchen_id, item_type, quantity))
     supply_order_metadata: HashMap<WorkflowInstanceId, (Uuid, String, u32)>,
+    /// Artifact collector processor — generates downstream artifacts from sim events
+    artifact_processor: ArtifactCollectorProcessor<ProfileRegistry>,
+    /// Index into the hooks dispatcher's buffered events slice; tracks which events
+    /// have already been forwarded to the artifact processor this run.
+    last_artifact_processed: usize,
 }
 
 impl KitchenSimulationHooks {
     pub fn new() -> Self {
+        Self::with_artifact_output("output/artifacts")
+    }
+
+    /// Create hooks with a specific artifact output directory.
+    pub fn with_artifact_output(artifact_dir: impl Into<std::path::PathBuf>) -> Self {
+        let mut collector: ArtifactCollector<ProfileRegistry> = ArtifactCollector::new();
+        collector.add_generator(Box::new(OrderCreatedArtifactGenerator::new()));
+        collector.add_generator(Box::new(CustomerDoneArtifactGenerator::new()));
+        collector.add_generator(Box::new(SupplyOrderArtifactGenerator::new()));
+        collector.add_generator(Box::new(InventoryArtifactGenerator::new()));
+        collector.add_generator(Box::new(OrderCompletedArtifactGenerator::new()));
+        let artifact_processor =
+            ArtifactCollectorProcessor::new(collector, ProfileRegistry::new(), "kitchen-sim")
+                .with_storage(Box::new(ParquetArtifactStorage::new(artifact_dir)));
+
         Self {
             dispatcher: EventDispatcher::new(),
             orders: HashMap::new(),
@@ -265,7 +293,33 @@ impl KitchenSimulationHooks {
             pending_supply_orders: HashMap::new(),
             distribution_sites: Vec::new(),
             supply_order_metadata: HashMap::new(),
+            artifact_processor,
+            last_artifact_processed: 0,
         }
+    }
+
+    /// Forward any newly buffered events to the artifact processor.
+    ///
+    /// Called at the end of each simulation tick to process events emitted
+    /// during that tick through all registered artifact generators.
+    pub fn process_new_events_through_artifacts(&mut self) {
+        let events = self.dispatcher.buffered_events();
+        let new_events = &events[self.last_artifact_processed..];
+        for event in new_events {
+            let json = event.to_cloudevents_json();
+            self.artifact_processor.process(&json);
+        }
+        self.last_artifact_processed = events.len();
+    }
+
+    /// Flush all accumulated artifacts to attached storage.
+    pub fn flush_artifacts(&self) -> Result<(), sim_artifacts::ArtifactError> {
+        self.artifact_processor.flush_to_storage()
+    }
+
+    /// Return the number of artifacts accumulated so far.
+    pub fn artifact_count(&self) -> usize {
+        self.artifact_processor.artifact_count()
     }
 
     /// Create default recipe definitions
@@ -548,6 +602,9 @@ impl SimulationHooks for KitchenSimulationHooks {
                 }
             }
         }
+
+        // Forward all newly emitted events to the artifact processor.
+        self.process_new_events_through_artifacts();
 
         Ok(())
     }
@@ -1145,6 +1202,16 @@ impl KitchenSimulation {
                 steps: self.runner.context().step(),
                 final_time: self.runner.context().current_time(),
             });
+        }
+
+        // Flush artifacts generated during the run to the output directory.
+        if let Some(hooks) = self.runner.hooks_as::<KitchenSimulationHooks>() {
+            let artifact_count = hooks.artifact_count();
+            if let Err(e) = hooks.flush_artifacts() {
+                eprintln!("Warning: failed to flush artifacts: {e}");
+            } else if artifact_count > 0 {
+                eprintln!("Flushed {artifact_count} artifacts to output/artifacts/");
+            }
         }
 
         Ok(())

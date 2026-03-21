@@ -320,6 +320,80 @@ impl EventPayload for InventoryReplenishedEvent {
     }
 }
 
+/// Emitted when a recipe step begins at a kitchen station
+#[derive(Debug)]
+pub struct RecipeStepStartedEvent {
+    pub order_id: uuid::Uuid,
+    pub recipe_name: String,
+    pub step_index: usize,
+    pub step_name: String,
+    pub station: String,
+    pub kitchen_id: uuid::Uuid,
+    pub expected_duration_secs: u64,
+}
+
+impl EventPayload for RecipeStepStartedEvent {
+    fn event_type(&self) -> &str {
+        "io.kitchen.recipe.step.started"
+    }
+
+    fn source(&self) -> String {
+        format!("/kitchens/{}/recipes/{}", self.kitchen_id, self.recipe_name)
+    }
+
+    fn subject(&self) -> Option<String> {
+        Some(self.order_id.to_string())
+    }
+
+    fn to_json(&self) -> Value {
+        json!({
+            "order_id": self.order_id,
+            "recipe_name": self.recipe_name,
+            "step_index": self.step_index,
+            "step_name": self.step_name,
+            "station": self.station,
+            "kitchen_id": self.kitchen_id,
+            "expected_duration_secs": self.expected_duration_secs,
+        })
+    }
+}
+
+/// Emitted when a recipe step completes at a kitchen station
+#[derive(Debug)]
+pub struct RecipeStepCompletedEvent {
+    pub order_id: uuid::Uuid,
+    pub recipe_name: String,
+    pub step_index: usize,
+    pub step_name: String,
+    pub kitchen_id: uuid::Uuid,
+    pub actual_duration_secs: u64,
+}
+
+impl EventPayload for RecipeStepCompletedEvent {
+    fn event_type(&self) -> &str {
+        "io.kitchen.recipe.step.completed"
+    }
+
+    fn source(&self) -> String {
+        format!("/kitchens/{}/recipes/{}", self.kitchen_id, self.recipe_name)
+    }
+
+    fn subject(&self) -> Option<String> {
+        Some(self.order_id.to_string())
+    }
+
+    fn to_json(&self) -> Value {
+        json!({
+            "order_id": self.order_id,
+            "recipe_name": self.recipe_name,
+            "step_index": self.step_index,
+            "step_name": self.step_name,
+            "kitchen_id": self.kitchen_id,
+            "actual_duration_secs": self.actual_duration_secs,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

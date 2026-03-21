@@ -14,25 +14,43 @@
 
 ```
 sim-kitchen/
-├── agents/             Agent implementations
-│   ├── customer.rs     Customer state machine
-│   ├── courier.rs      Delivery agents
-│   └── driver.rs       Supply chain drivers
+├── agents/                  Agent implementations
+│   ├── customer.rs          Customer state machine
+│   ├── courier.rs           Delivery agents
+│   └── driver.rs            Supply chain drivers
 │
-├── resources/          Resources and tasks
-│   ├── kitchen.rs      Kitchen resource
-│   ├── order.rs        Order tasks
-│   └── inventory.rs    Inventory management
+├── resources/               Resources and tasks
+│   ├── kitchen.rs           Kitchen resource
+│   ├── order.rs             Order tasks
+│   ├── inventory.rs         Inventory management
+│   └── station.rs           KitchenStation (typed prep stations)
 │
-├── events.rs           CloudEvent payloads
-├── locations/          Geospatial
-│   └── distribution.rs Distribution sites
+├── recipes/                 Recipe system
+│   ├── types.rs             Recipe, RecipeStep, StationKind
+│   └── registry.rs          RecipeRegistry (loads universe templates)
 │
-├── workflows/          Multi-stage processes
-│   ├── supply.rs       Supply chain workflow
-│   └── delivery.rs     Courier delivery workflow
+├── profiles/                Deterministic agent profiles
+│   ├── customer.rs          CustomerProfile (payment, address, loyalty)
+│   ├── courier.rs           CourierProfile
+│   ├── supply_driver.rs     SupplyDriverProfile
+│   └── registry.rs          ProfileRegistry (lazy, seeded by AgentId)
 │
-└── simulation.rs       Orchestration and hooks
+├── artifact_generators/     Business artifact production
+│   ├── order_created.rs     Web events, email, SMS, payment auth
+│   ├── customer_done.rs     Receipt, loyalty transaction, review email
+│   ├── supply_order.rs      Purchase order, vendor API call, AP entry
+│   ├── inventory.rs         Receiving manifest, ledger entry
+│   └── order_completed.rs   Kitchen ticket, ingredient usage, QC record
+│
+├── events.rs                CloudEvent payloads (incl. recipe step events)
+├── locations/               Geospatial
+│   └── distribution.rs      Distribution sites
+│
+├── workflows/               Multi-stage processes
+│   ├── supply.rs            Supply chain workflow
+│   └── delivery.rs          Courier delivery workflow
+│
+└── simulation.rs            Orchestration, hooks, artifact wiring
 ```
 
 ## Customer State Machine
@@ -93,6 +111,42 @@ Location-based order generation using H3 indexing.
 ### Pattern 4: Inventory Management
 Track consumable resources (ingredients) with automatic depletion.
 
+## Artifact Pipeline
+
+Each simulation event is routed through an `ArtifactCollectorProcessor<ProfileRegistry>` which dispatches to registered `ArtifactGenerator` implementations. Generators produce business-realistic artifacts:
+
+```
+EventDispatcher.emit(event)
+  → KitchenSimulationHooks.process_new_events_through_artifacts()
+      → ArtifactCollectorProcessor.process(&json)
+          → OrderCreatedArtifactGenerator  → 8 artifacts (web, email, SMS, payment)
+          → CustomerDoneArtifactGenerator  → 3 artifacts (receipt, loyalty, review)
+          → SupplyOrderArtifactGenerator   → 3 artifacts (PO, vendor API, AP)
+          → InventoryArtifactGenerator     → 2 artifacts (manifest, ledger)
+          → OrderCompletedArtifactGenerator→ 3 artifacts (ticket, usage, QC)
+```
+
+At run end, `flush_artifacts()` writes all artifacts to `output/artifacts/` as JSONL files grouped by type.
+
+## Profile Registry
+
+Agent profiles are generated deterministically from the agent's UUID bytes — same `AgentId` always produces the same profile:
+
+```rust
+let profile = hooks.profiles.customer_profile(agent_id);
+// profile.email, profile.payment.card_last_four, profile.loyalty_tier, ...
+```
+
+## Recipe Registry
+
+Recipes are loaded from the bundled universe brand templates at startup:
+
+```rust
+let registry = RecipeRegistry::load_defaults();
+let recipe = registry.get("burger").unwrap();
+// recipe.steps[0].station == StationKind::Grill
+```
+
 ## Extension Examples
 
 The codebase shows how to extend for:
@@ -100,3 +154,4 @@ The codebase shows how to extend for:
 - Complex workflows (supply chain + delivery)
 - Inventory tracking
 - Distribution networks
+- New artifact generators: implement `ArtifactGenerator<ProfileRegistry>` and register in `KitchenSimulationHooks::new()`

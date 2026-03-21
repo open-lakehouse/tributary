@@ -10,6 +10,7 @@ rust-version.workspace = true
 sim-core = { path = "../sim-core" }
 sim-geo = { path = "../sim-geo" }
 sim-events = { path = "../sim-events" }
+sim-artifacts = { path = "../sim-artifacts" }
 
 chrono = { workspace = true }
 geo = { version = "0.31", features = ["serde"] }
