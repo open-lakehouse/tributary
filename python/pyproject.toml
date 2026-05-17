@@ -14,16 +14,8 @@ classifiers = [
 ]
 dynamic = ["version"]
 dependencies = [
-    "folium>=0.20.0",
-    "geoarrow-pyarrow>=0.1.2",
-    "geoarrow-rust-core>=0.6.0",
-    "geoarrow-rust-io>=0.6.0",
-    "h3>=4.2.2",
-    "networkx>=3.4.2",
-    "osmnx>=2.0.2",
-    "pint>=0.25",
     "pyarrow>=19.0.1",
-    "shapely>=2.1.0",
+    "polars>=1.0.0",
 ]
 
 [tool.maturin]

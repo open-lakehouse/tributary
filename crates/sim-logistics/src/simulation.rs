@@ -126,6 +126,16 @@ impl LogisticsSimulationHooks {
         std::mem::take(&mut self.pending_shipments)
     }
 
+    /// Access the event dispatcher (read-only).
+    pub fn dispatcher(&self) -> &EventDispatcher {
+        &self.dispatcher
+    }
+
+    /// Access the event dispatcher (mutable).
+    pub fn dispatcher_mut(&mut self) -> &mut EventDispatcher {
+        &mut self.dispatcher
+    }
+
     /// Record a new package to be shipped.
     pub fn enqueue_shipment(&mut self, workflow: PackageShipmentWorkflow) {
         self.metrics.packages_created += 1;
@@ -530,6 +540,34 @@ impl LogisticsSimulation {
     /// Get simulation runner stats
     pub fn runner_stats(&self) -> &sim_core::SimulationStats {
         self.runner.stats()
+    }
+
+    /// Save all emitted events to a Parquet file.
+    pub fn save_events(
+        &mut self,
+        path: impl Into<std::path::PathBuf>,
+    ) -> std::result::Result<usize, Box<dyn std::error::Error>> {
+        let path = path.into();
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+
+        let records = if let Some(hooks) = self.runner.hooks_as_mut::<LogisticsSimulationHooks>() {
+            let records = hooks.dispatcher_mut().to_records();
+            hooks.dispatcher_mut().clear();
+            records
+        } else {
+            Vec::new()
+        };
+
+        let count = records.len();
+        if count > 0 {
+            let mut writer = sim_events::storage::ParquetEventWriter::new(path)?;
+            writer.write_events(&records)?;
+            writer.close()?;
+        }
+
+        Ok(count)
     }
 }
 

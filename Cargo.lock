@@ -630,14 +630,11 @@ dependencies = [
 name = "caspers-universe-python"
 version = "0.0.1"
 dependencies = [
- "arrow",
- "caspers-universe",
- "datafusion",
- "object_store",
  "pyo3",
+ "sim-events",
+ "sim-kitchen",
+ "sim-logistics",
  "thiserror 2.0.17",
- "tokio",
- "url",
 ]
 
 [[package]]

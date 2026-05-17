@@ -1,193 +1,71 @@
-class Site:
-    def __init__(
-        self, id: str, name: str, latitude: float, longitude: float
-    ) -> None: ...
+class KitchenResult:
     @property
-    def id(self) -> str:
-        """The unique identifier of the site."""
+    def events_path(self) -> str:
+        """Absolute path to the written events.parquet file."""
 
     @property
-    def name(self) -> str:
-        """The name of the site."""
+    def total_steps(self) -> int:
+        """Number of simulation steps executed."""
 
     @property
-    def latitude(self) -> float:
-        """The latitude coordinate of the site."""
+    def total_agent_ticks(self) -> int:
+        """Total number of agent tick calls across all steps."""
 
     @property
-    def longitude(self) -> float:
-        """The longitude coordinate of the site."""
+    def total_assignments(self) -> int:
+        """Total number of task-to-resource assignments made."""
 
-class SiteSetup:
+class LogisticsResult:
     @property
-    def info(self) -> Site | None:
-        """The site information."""
-
-    @property
-    def kitchens(self) -> list[KitchenSetup]:
-        """The list of kitchens in the site."""
-
-class Kitchen:
-    @property
-    def id(self) -> str:
-        """The unique identifier of the kitchen."""
+    def events_path(self) -> str:
+        """Absolute path to the written events.parquet file."""
 
     @property
-    def name(self) -> str:
-        """The name of the kitchen."""
-
-class KitchenSetup:
-    @property
-    def info(self) -> Kitchen | None:
-        """The kitchen information."""
+    def packages_created(self) -> int:
+        """Total packages created during the simulation."""
 
     @property
-    def stations(self) -> list[Station]:
-        """The list of stations in the kitchen."""
-
-class Station:
-    @property
-    def id(self) -> str:
-        """The unique identifier of the station."""
+    def packages_delivered(self) -> int:
+        """Total packages delivered during the simulation."""
 
     @property
-    def name(self) -> str:
-        """The name of the station."""
+    def driver_utilization_percent(self) -> float:
+        """Average driver utilization as a percentage (0–100)."""
 
     @property
-    def station_type(self) -> str:
-        """The type of the station."""
+    def average_delivery_time_secs(self) -> float:
+        """Average end-to-end delivery time in seconds."""
 
-class Ingredient:
-    @property
-    def id(self) -> str:
-        """The unique identifier of the ingredient."""
-
-    @property
-    def name(self) -> str:
-        """The name of the ingredient."""
-
-    @property
-    def description(self) -> str:
-        """The description of the ingredient."""
-
-    @property
-    def price(self) -> float:
-        """The price of the ingredient."""
-
-    @property
-    def image_url(self) -> str | None:
-        """The image URL of the ingredient."""
-
-class IngredientQuantity:
-    @property
-    def ingredient_ref(self) -> str:
-        """The ingredient reference."""
-
-    @property
-    def quantity(self) -> str:
-        """The quantity of the ingredient."""
-
-class Instruction:
-    @property
-    def step(self) -> str:
-        """The step name of the instruction."""
-
-    @property
-    def description(self) -> str:
-        """The description of the instruction."""
-
-    @property
-    def required_station(self) -> str:
-        """The required station for the instruction."""
-
-    @property
-    def expected_duration(self) -> int:
-        """The expected duration of the instruction."""
-
-class MenuItem:
-    @property
-    def id(self) -> str:
-        """The unique identifier of the menu item."""
-
-    @property
-    def name(self) -> str:
-        """The name of the menu item."""
-
-    @property
-    def description(self) -> str:
-        """The description of the menu item."""
-
-    @property
-    def price(self) -> float:
-        """The price of the menu item."""
-
-    @property
-    def image_url(self) -> str | None:
-        """The image URL of the menu item."""
-
-    @property
-    def ingredients(self) -> list[IngredientQuantity]:
-        """The list of ingredients for the menu item."""
-
-    @property
-    def instructions(self) -> list[Instruction]:
-        """The list of instructions for the menu item."""
-
-class Brand:
-    @property
-    def id(self) -> str:
-        """The unique identifier of the brand."""
-
-    @property
-    def name(self) -> str:
-        """The name of the brand."""
-
-    @property
-    def description(self) -> str:
-        """The description of the brand."""
-
-    @property
-    def category(self) -> str:
-        """The category of the brand."""
-
-    @property
-    def items(self) -> list[MenuItem]:
-        """The list of menu items for the brand."""
-
-class SimulationSetup:
-    @property
-    def sites(self) -> list[SiteSetup]:
-        """The list of sites in the simulation."""
-
-    @property
-    def brands(self) -> list[str]:
-        """The list of brands in the simulation."""
-
-def load_simulation_setup(
-    directory: str, options: dict[str, str] | None = None
-) -> SimulationSetup:
-    """Load a simulation setup from file structure.
+def run_kitchen_simulation(
+    steps: int = 100,
+    num_kitchens: int = 3,
+    kitchen_capacity: int = 5,
+    num_customers: int = 20,
+    output_dir: str = ".caspers/sim-kitchen",
+) -> KitchenResult:
+    """Run the ghost kitchen simulation and write events to Parquet.
 
     Args:
-        directory: fully qualified url for directory containing the simulation setup files.
-        options: Optional dictionary of options passed to object store.
+        steps: Number of simulation steps to run.
+        num_kitchens: Number of kitchens.
+        kitchen_capacity: Concurrent order capacity per kitchen.
+        num_customers: Number of customer agents.
+        output_dir: Directory to write events.parquet into.
 
     Returns:
-        A SimulationSetup object representing the loaded simulation setup.
+        KitchenResult with events_path and run statistics.
     """
 
-def run_simulation(
-    duration: int,
-    output_location: str,
-    routing_location: str,
-    dry_run: bool = False,
-) -> None:
-    """Run a simulation using the provided setup.
+def run_logistics_simulation(
+    steps: int = 120,
+    output_dir: str = ".caspers/sim-logistics",
+) -> LogisticsResult:
+    """Run the logistics (package delivery) simulation and write events to Parquet.
 
     Args:
-        duration: The duration of the simulation in seconds.
-        output_location: The location to save the simulation output.
-        routing_location: The location where the routing graph is stored.
-        dry_run: Whether to run the simulation in dry run mode.
+        steps: Number of simulation steps (30 seconds each; 120 steps = 1 hour).
+        output_dir: Directory to write events.parquet into.
+
+    Returns:
+        LogisticsResult with events_path and delivery metrics.
     """

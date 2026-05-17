@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased] - 2026-05-17 (Python bindings migration)
+
+### Changed — Python bindings migrated from legacy `universe` crate to `sim-*` framework
+
+#### python: New API
+- `run_kitchen_simulation(steps, num_kitchens, kitchen_capacity, num_customers, output_dir) -> KitchenResult` — runs `KitchenSimulation` headlessly and writes events to Parquet
+- `run_logistics_simulation(steps, output_dir) -> LogisticsResult` — runs `LogisticsSimulation` and writes events to Parquet; returns delivery metrics
+- `KitchenResult` and `LogisticsResult` data classes with typed properties
+- Removed: `Site`, `load_simulation_setup`, `run_simulation` (legacy `universe` wrappers), `prepare_site`, `site_routing_graph`, `plot_site`
+- `python/pyproject.toml` dependencies trimmed to `pyarrow` + `polars` (removed geo/routing stack no longer needed)
+
+#### sim-logistics: Event access
+- `LogisticsSimulationHooks::dispatcher()` / `dispatcher_mut()` — new accessors for the internal `EventDispatcher`
+- `LogisticsSimulation::save_events(path)` — writes emitted events to a Parquet file (mirrors `KitchenSimulation::save_events`)
+- `LogisticsSimulationHooks` now re-exported from crate root
+
+#### notebooks
+- `notebooks/sim_kitchen.py` — new Marimo notebook: sim params as sliders, run button, full event analysis (summary, timeline, order Gantt, duration histograms, raw event browser)
+- `just kitchen` command added to open the new notebook
+- Deleted: `notebooks/prepare.py` (called legacy `run_simulation`)
+
+---
+
 ## [Unreleased] - 2026-05-17
 
 ### Added — Migration completion & CLI validation
