@@ -273,9 +273,7 @@ impl MovementHandler {
                 .iter()
                 .collect::<Vec<_>>();
 
-            let edge_iter = origin_indices
-                .into_iter()
-                .zip(destination_indices.into_iter());
+            let edge_iter = origin_indices.into_iter().zip(destination_indices);
 
             for (person_id, (origin_index, destination_index)) in
                 person_ids.into_iter().zip(edge_iter)
