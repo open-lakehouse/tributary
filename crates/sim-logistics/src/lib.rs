@@ -46,6 +46,9 @@ pub mod resources;
 pub mod simulation;
 pub mod workflows;
 
+#[cfg(test)]
+mod lifecycle_invariant_tests;
+
 // Re-export commonly used types
 pub use agents::{Driver, DriverState, Package, PackagePriority, PackageState};
 pub use events::{

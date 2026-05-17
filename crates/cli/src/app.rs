@@ -43,6 +43,7 @@ pub struct SnapshotSummary {
     pub id: Uuid,
     pub label: Option<String>,
     pub sim_time: DateTime<Utc>,
+    #[allow(dead_code)]
     pub created_at: DateTime<Utc>,
     pub step: usize,
     pub agent_count: usize,
@@ -56,13 +57,34 @@ fn event_color(event_type: &str) -> Color {
         "io.kitchen.order.completed" => Color::Cyan,
         "io.kitchen.customer.eating" => Color::Magenta,
         "io.kitchen.customer.done" => Color::Blue,
-        _ => Color::White,
+        _ => {
+            // Hash-based color for any domain's event types
+            let hash = event_type
+                .bytes()
+                .fold(0u64, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u64));
+            let palette = [
+                Color::Red,
+                Color::LightGreen,
+                Color::LightBlue,
+                Color::LightYellow,
+                Color::LightMagenta,
+                Color::LightCyan,
+                Color::LightRed,
+                Color::White,
+            ];
+            palette[(hash as usize) % palette.len()]
+        }
     }
 }
 
-/// Strip the common `io.kitchen.` prefix for compact display.
-fn short_event_type(event_type: &str) -> &str {
-    event_type.strip_prefix("io.kitchen.").unwrap_or(event_type)
+/// Strip the `io.<domain>.` prefix for compact display.
+pub fn short_event_type(event_type: &str) -> &str {
+    let s = event_type.strip_prefix("io.").unwrap_or(event_type);
+    if let Some(dot) = s.find('.') {
+        &s[dot + 1..]
+    } else {
+        s
+    }
 }
 
 /// Modal dialog state
@@ -127,9 +149,12 @@ pub struct App {
     pub active_simulation_id: Option<Uuid>,
     /// Transient notification shown as overlay; auto-clears after 3 seconds.
     pub notification: Option<(String, std::time::Instant)>,
+    /// Rolling window of per-step event totals (last 10) for throughput calculation.
+    recent_step_totals: VecDeque<u64>,
 }
 
 impl App {
+    #[allow(dead_code)]
     pub fn new(
         total_steps: usize,
         time_mode: String,
@@ -161,6 +186,7 @@ impl App {
             snapshot_list_cursor: 0,
             active_simulation_id: None,
             notification: None,
+            recent_step_totals: VecDeque::with_capacity(10),
         }
     }
 
@@ -191,6 +217,7 @@ impl App {
             snapshot_list_cursor: 0,
             active_simulation_id: None,
             notification: None,
+            recent_step_totals: VecDeque::with_capacity(10),
         }
     }
 
@@ -215,11 +242,13 @@ impl App {
             self.sim_start_time = Some(sim_time);
         }
 
+        let mut step_total = 0u64;
         for (event_type, count) in &counts {
             *self
                 .cumulative_counts
                 .entry(event_type.clone())
                 .or_default() += count;
+            step_total += count;
 
             if self.log_entries.len() >= MAX_LOG_ENTRIES {
                 self.log_entries.pop_front();
@@ -231,6 +260,19 @@ impl App {
                 count: *count,
             });
         }
+
+        if self.recent_step_totals.len() >= 10 {
+            self.recent_step_totals.pop_front();
+        }
+        self.recent_step_totals.push_back(step_total);
+    }
+
+    /// Rolling average events per step over the last 10 steps.
+    pub fn throughput(&self) -> f64 {
+        if self.recent_step_totals.is_empty() {
+            return 0.0;
+        }
+        self.recent_step_totals.iter().sum::<u64>() as f64 / self.recent_step_totals.len() as f64
     }
 
     pub fn mark_completed(&mut self) {
@@ -950,35 +992,117 @@ impl App {
     }
 
     fn render_body(&self, frame: &mut Frame<'_>, area: Rect) {
-        let [left, right] =
-            Layout::horizontal([Constraint::Length(22), Constraint::Min(0)]).areas::<2>(area);
-        self.render_totals(frame, left);
-        self.render_log(frame, right);
+        let [log_area, stats_area] =
+            Layout::horizontal([Constraint::Percentage(65), Constraint::Percentage(35)])
+                .areas::<2>(area);
+        self.render_log(frame, log_area);
+        self.render_stats_panel(frame, stats_area);
     }
 
-    fn render_totals(&self, frame: &mut Frame<'_>, area: Rect) {
-        let mut entries: Vec<_> = self.cumulative_counts.iter().collect();
-        entries.sort_by_key(|(k, _)| (*k).clone());
+    fn render_stats_panel(&self, frame: &mut Frame<'_>, area: Rect) {
+        let throughput = self.throughput();
+        let total_events: u64 = self.cumulative_counts.values().sum();
 
-        let lines: Vec<Line<'_>> = entries
-            .iter()
-            .flat_map(|(event_type, count)| {
-                let color = event_color(event_type);
-                vec![
-                    Line::from(Span::styled(
-                        short_event_type(event_type),
-                        Style::default().fg(color).add_modifier(Modifier::BOLD),
-                    )),
-                    Line::from(Span::styled(
-                        format!(" {count}"),
-                        Style::default().fg(Color::White),
-                    )),
-                ]
-            })
-            .collect();
+        // Compute sanity ratio: look for completed/created pairs in any domain
+        let ratio_line: Option<String> = {
+            let created = self
+                .cumulative_counts
+                .iter()
+                .filter(|(k, _)| k.ends_with(".created"))
+                .map(|(_, v)| v)
+                .sum::<u64>();
+            let completed = self
+                .cumulative_counts
+                .iter()
+                .filter(|(k, _)| k.ends_with(".completed") || k.ends_with(".delivered"))
+                .map(|(_, v)| v)
+                .sum::<u64>();
+            if created > 0 {
+                Some(format!(
+                    "{completed}/{created} = {:.1}%",
+                    completed as f64 / created as f64 * 100.0
+                ))
+            } else {
+                None
+            }
+        };
+
+        let mut lines: Vec<Line<'_>> = vec![
+            Line::from(vec![
+                Span::styled("Step  ", Style::default().fg(Color::DarkGray)),
+                Span::styled(
+                    format!("{} / {}", self.current_step, self.total_steps),
+                    Style::default()
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD),
+                ),
+            ]),
+            Line::from(vec![
+                Span::styled("Time  ", Style::default().fg(Color::DarkGray)),
+                Span::styled(
+                    self.sim_time
+                        .map(|t| t.format("%m-%d %H:%M").to_string())
+                        .unwrap_or_else(|| "—".to_string()),
+                    Style::default().fg(Color::White),
+                ),
+            ]),
+            Line::from(vec![
+                Span::styled("Tput  ", Style::default().fg(Color::DarkGray)),
+                Span::styled(
+                    format!("{throughput:.1} ev/step"),
+                    Style::default().fg(Color::Cyan),
+                ),
+            ]),
+            Line::from(vec![
+                Span::styled("Total ", Style::default().fg(Color::DarkGray)),
+                Span::styled(
+                    format!("{total_events} events"),
+                    Style::default().fg(Color::White),
+                ),
+            ]),
+            Line::from(""),
+            Line::from(Span::styled(
+                "── By Type ──────────────",
+                Style::default().fg(Color::DarkGray),
+            )),
+        ];
+
+        let mut entries: Vec<_> = self.cumulative_counts.iter().collect();
+        entries.sort_by(|a, b| b.1.cmp(a.1));
+        let max_count = entries.first().map(|(_, v)| **v).unwrap_or(1).max(1);
+
+        for (event_type, count) in &entries {
+            let color = event_color(event_type);
+            let bar_len = ((**count as f64 / max_count as f64) * 8.0).round() as usize;
+            let bar: String = "█".repeat(bar_len);
+            lines.push(Line::from(vec![
+                Span::styled(
+                    format!("{:<16}", short_event_type(event_type)),
+                    Style::default().fg(color),
+                ),
+                Span::styled(
+                    format!("{:>5} {}", count, bar),
+                    Style::default().fg(Color::DarkGray),
+                ),
+            ]));
+        }
+
+        if let Some(ratio) = ratio_line {
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                "── Completion ───────────",
+                Style::default().fg(Color::DarkGray),
+            )));
+            lines.push(Line::from(Span::styled(
+                ratio,
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD),
+            )));
+        }
 
         let paragraph =
-            Paragraph::new(lines).block(Block::default().title(" Totals ").borders(Borders::ALL));
+            Paragraph::new(lines).block(Block::default().title(" Stats ").borders(Borders::ALL));
         frame.render_widget(paragraph, area);
     }
 

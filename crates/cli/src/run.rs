@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use chrono::{DateTime, Utc};
 use crossterm::event::{Event, KeyCode, KeyEventKind};
 use sim_core::{
@@ -7,7 +9,7 @@ use sim_core::{
 use sim_kitchen::KitchenSimulation;
 use uuid::Uuid;
 
-use crate::app::{App, Dialog, Screen, SimListEntry};
+use crate::app::{App, Dialog, Screen, SimListEntry, short_event_type};
 use crate::error::Result;
 use crate::time_parse::parse_sim_time;
 use crate::tui::Tui;
@@ -51,9 +53,132 @@ pub(crate) struct RunArgs {
     /// Accepted: now  now+3h  now-30m  2026-01-01  2026-01-01T08:00:00Z
     #[arg(long)]
     end_time: Option<String>,
+
+    /// Skip TUI; print a JSON summary to stdout when done (useful for scripting/CI).
+    #[arg(long)]
+    no_tui: bool,
 }
 
 pub(super) async fn handle(args: RunArgs) -> Result<()> {
+    if args.no_tui {
+        return handle_headless(args).await;
+    }
+    handle_tui(args).await
+}
+
+async fn handle_headless(args: RunArgs) -> Result<()> {
+    let duration = args.duration;
+
+    let start_time: Option<DateTime<Utc>> = args
+        .start_time
+        .as_deref()
+        .map(|s| {
+            parse_sim_time(s)
+                .map_err(|e| crate::error::Error::Other(format!("invalid --start-time: {e}")))
+        })
+        .transpose()?;
+
+    let end_time: Option<DateTime<Utc>> = args
+        .end_time
+        .as_deref()
+        .map(|s| {
+            parse_sim_time(s)
+                .map_err(|e| crate::error::Error::Other(format!("invalid --end-time: {e}")))
+        })
+        .transpose()?;
+
+    let mut sim_manager = SimulationManager::new_with_persistence(".caspers")
+        .await
+        .unwrap_or_else(|_| {
+            tokio::runtime::Handle::current()
+                .block_on(SimulationManager::new(SimulationManagerBackend::Memory))
+                .expect("in-memory manager")
+        });
+
+    let sim_id = sim_manager
+        .create_simulation(None, None)
+        .await
+        .unwrap_or_else(|_| Uuid::now_v7());
+
+    let (controller, receiver) = control_channel(128);
+
+    let mode = args.mode.clone();
+    let sim_handle = std::thread::spawn(move || {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("sim thread runtime");
+        let _guard = rt.enter();
+
+        let mut sim = KitchenSimulation::new(args.num_kitchens, args.kitchen_capacity, false);
+        sim.add_customers(args.num_customers);
+        sim.runner_mut().context_mut().set_simulation_id(sim_id);
+        if let Some(st) = start_time {
+            sim.runner_mut().context_mut().set_current_time(st);
+        }
+        let time_mode = match mode {
+            RunMode::Range => TimeMode::Range { end_time },
+            RunMode::Live => TimeMode::Live,
+            RunMode::Catchup => TimeMode::Catchup,
+        };
+        sim.runner_mut().set_time_mode(time_mode);
+        sim.runner_mut().attach_control(receiver);
+        let max = match args.mode {
+            RunMode::Range => duration,
+            _ => usize::MAX,
+        };
+        let _ = sim.run_controlled_for(max);
+    });
+
+    let mut cumulative: HashMap<String, u64> = HashMap::new();
+    let mut steps = 0usize;
+    let mut sim_time: Option<DateTime<Utc>> = None;
+
+    loop {
+        match controller.try_recv() {
+            Some(SimEvent::TickCompleted {
+                step,
+                sim_time: t,
+                event_counts,
+            }) => {
+                steps = step;
+                sim_time = Some(t);
+                for (k, v) in event_counts {
+                    *cumulative.entry(k).or_default() += v;
+                }
+                if step % 10 == 0 {
+                    eprint!(".");
+                }
+            }
+            Some(SimEvent::SimulationEnded { .. }) => break,
+            Some(SimEvent::Error(e)) => {
+                eprintln!("\nError: {e}");
+                break;
+            }
+            Some(_) => {}
+            None => {
+                if sim_handle.is_finished() {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+        }
+    }
+    eprintln!();
+
+    let _ = sim_handle.join();
+
+    let output = serde_json::json!({
+        "steps": steps,
+        "sim_time": sim_time.map(|t| t.to_rfc3339()),
+        "events_by_type": cumulative,
+    });
+    println!("{}", serde_json::to_string_pretty(&output).unwrap());
+
+    Ok(())
+}
+
+async fn handle_tui(args: RunArgs) -> Result<()> {
     let duration = args.duration;
 
     // Parse optional start/end times using human-friendly parser
@@ -191,12 +316,11 @@ pub(super) async fn handle(args: RunArgs) -> Result<()> {
                                 KeyCode::Up => {
                                     app.sim_list_cursor = app.sim_list_cursor.saturating_sub(1);
                                 }
-                                KeyCode::Down => {
-                                    if !app.sim_list.is_empty() {
+                                KeyCode::Down
+                                    if !app.sim_list.is_empty() => {
                                         app.sim_list_cursor = (app.sim_list_cursor + 1)
                                             .min(app.sim_list.len() - 1);
                                     }
-                                }
                                 KeyCode::Enter if !app.sim_list.is_empty() => {
                                     let entry = &app.sim_list[app.sim_list_cursor];
                                     let id = entry.id;
@@ -243,6 +367,14 @@ pub(super) async fn handle(args: RunArgs) -> Result<()> {
 
     let mode = args.mode.clone();
     let sim_handle = std::thread::spawn(move || {
+        // Build a dedicated single-threaded tokio runtime for snapshot I/O.
+        // The sim thread has no ambient runtime; Handle::current() panics without this.
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("sim thread runtime");
+        let _guard = rt.enter();
+
         let mut sim = KitchenSimulation::new(args.num_kitchens, args.kitchen_capacity, false);
         sim.add_customers(args.num_customers);
 
@@ -261,6 +393,16 @@ pub(super) async fn handle(args: RunArgs) -> Result<()> {
             RunMode::Catchup => TimeMode::Catchup,
         };
         sim.runner_mut().set_time_mode(time_mode);
+
+        // Initialize snapshot manager with Parquet storage for this simulation
+        rt.block_on(async {
+            let backend =
+                sim_core::SnapshotBackend::Parquet(format!(".caspers/snapshots/{sim_id}"));
+            sim.runner_mut()
+                .set_snapshot_backend(backend)
+                .await
+                .expect("snapshot manager init");
+        });
 
         // Attach control channel
         sim.runner_mut().attach_control(receiver);
@@ -358,12 +500,11 @@ pub(super) async fn handle(args: RunArgs) -> Result<()> {
                                             app.snapshot_list_cursor =
                                                 app.snapshot_list_cursor.saturating_sub(1);
                                         }
-                                        KeyCode::Down => {
-                                            if !app.snapshot_list.is_empty() {
+                                        KeyCode::Down
+                                            if !app.snapshot_list.is_empty() => {
                                                 app.snapshot_list_cursor = (app.snapshot_list_cursor + 1)
                                                     .min(app.snapshot_list.len() - 1);
                                             }
-                                        }
                                         KeyCode::Char('t') => {
                                             app.dialog = Dialog::TakeSnapshot {
                                                 input: String::new(),
@@ -428,6 +569,9 @@ pub(super) async fn handle(args: RunArgs) -> Result<()> {
                 );
                 std::process::exit(1);
             } else if app.completed {
+                // Print end-of-run summary before the status line
+                print_run_summary(&app);
+
                 if app.current_step < app.total_steps {
                     eprintln!("\n⚠️  Warning: Simulation completed early!");
                     eprintln!(
@@ -531,5 +675,52 @@ fn process_sim_event(app: &mut App, event: SimEvent) {
             // Snapshot list updates are handled via SnapshotSaved/SnapshotRestored events.
             // This event is a signal that a refresh occurred; no additional action needed here.
         }
+    }
+}
+
+fn print_run_summary(app: &App) {
+    eprintln!("\n=== Simulation Summary ===");
+    eprintln!("Steps completed : {}", app.current_step);
+    if let Some(t) = app.sim_time {
+        eprintln!("Sim time        : {}", t.format("%Y-%m-%d %H:%M UTC"));
+    }
+
+    let mut events: Vec<_> = app.cumulative_counts.iter().collect();
+    events.sort_by(|a, b| b.1.cmp(a.1));
+
+    if events.is_empty() {
+        eprintln!("Events          : (none)");
+    } else {
+        eprintln!("Events:");
+        for (k, v) in &events {
+            eprintln!("  {:<32} {}", short_event_type(k), v);
+        }
+    }
+
+    let total: u64 = events.iter().map(|(_, v)| **v).sum();
+    if app.current_step > 0 {
+        eprintln!(
+            "Throughput      : {:.1} events/step",
+            total as f64 / app.current_step as f64
+        );
+    }
+
+    let created: u64 = app
+        .cumulative_counts
+        .iter()
+        .filter(|(k, _)| k.ends_with(".created"))
+        .map(|(_, v)| v)
+        .sum();
+    let completed: u64 = app
+        .cumulative_counts
+        .iter()
+        .filter(|(k, _)| k.ends_with(".completed") || k.ends_with(".delivered"))
+        .map(|(_, v)| v)
+        .sum();
+    if created > 0 {
+        eprintln!(
+            "Completion      : {completed}/{created} = {:.1}%",
+            completed as f64 / created as f64 * 100.0
+        );
     }
 }

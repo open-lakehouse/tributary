@@ -614,6 +614,7 @@ dependencies = [
  "opentelemetry-otlp",
  "opentelemetry_sdk",
  "ratatui",
+ "serde_json",
  "sim-core",
  "sim-events",
  "sim-kitchen",

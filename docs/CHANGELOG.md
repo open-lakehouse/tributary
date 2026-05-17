@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased] - 2026-05-17
+
+### Added — Migration completion & CLI validation
+
+#### sim-core: Snapshot fidelity
+- `ResourceAllocator::import_batch()` now faithfully restores `allocated_at_millis` (col 8) and `estimated_duration_secs` (col 9) from the task RecordBatch — previously used `Utc::now()` and a hardcoded 10s default, causing tasks to complete at wrong times after a snapshot round-trip
+- Added `test_14_snapshot_round_trip_preserves_timing_fields` verifying tasks do not complete early after restore
+
+#### cli: Result validation
+- Stats panel (right 35% of body area) shows cumulative event counts by type, rolling throughput, and completion ratio
+- `event_color()` now uses a hash-based palette for any domain's event types (`io.logistics.*`, etc.) instead of returning `Color::White`
+- `short_event_type()` strips any `io.<domain>.` prefix, not just `io.kitchen.`
+- `--no-tui` flag: runs simulation headlessly and prints a JSON summary to stdout (`{"steps": N, "events_by_type": {...}}`)
+- End-of-run summary printed to stderr after TUI closes: steps, sim time, per-type event counts, throughput, completion ratio
+
 ## [Unreleased] - 2026-03-21
 
 ### Added — TUI Simulation & Snapshot Management
