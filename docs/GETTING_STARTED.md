@@ -40,7 +40,7 @@ cargo build --release
 ```
 
 Expected output:
-- 649+ tests passing
+- 920 tests passing
 - Zero clippy warnings
 - Successful build
 

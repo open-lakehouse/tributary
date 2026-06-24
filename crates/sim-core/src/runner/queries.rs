@@ -225,13 +225,12 @@ mod tests {
     use super::*;
     use crate::context::SimulationConfig;
     use crate::population::{Agent, AgentStatus, AgentTickResult, PopulationHandler};
-    use crate::resources::{AllocationStrategy, Resource, ResourceAllocator, Task};
+    use crate::resources::{Resource, Task};
     use crate::runner::SimulationRunner;
     use crate::utils::idents::{AgentId, ResourceId, TaskId, WorkflowId, WorkflowInstanceId};
-    use crate::workflows::{Workflow, WorkflowEngine, WorkflowStep};
-    use arrow::array::{Array, StringArray};
+    use crate::workflows::{Workflow, WorkflowStep};
+
     use geo::Point;
-    use std::collections::HashMap;
 
     // Test types
     #[derive(Debug, Clone)]

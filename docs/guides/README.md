@@ -107,7 +107,7 @@ Comprehensive testing patterns and practices.
 - Integration testing
 - Mocking and fixtures
 - Coverage goals (> 85% overall, > 90% critical paths)
-- Examples from 649+ test suite
+- Examples from the workspace test suite
 
 **Target Audience:** All developers (essential reading)
 
@@ -148,9 +148,9 @@ The **logistics domain simulation** serves as the primary reference for all guid
 **Characteristics:**
 - Built with **ZERO framework modifications**
 - Validates framework generality
-- 649+ comprehensive test suite
+- Comprehensive test suite
 - Complete documentation
-- Production-ready patterns
+- Reusable implementation patterns
 
 **Components:**
 
@@ -211,7 +211,7 @@ The **logistics domain simulation** serves as the primary reference for all guid
 
 **Time:** 1-2 days
 
-**Output:** Production-ready domain simulation
+**Output:** Working domain simulation
 
 ---
 
@@ -410,7 +410,6 @@ From [Performance Tuning](./performance-tuning.md):
 ### Tools and Utilities
 
 - **CLI:** `/crates/cli` - Command-line interface
-- **Universe:** `/crates/universe` - Simulation orchestration
 - **Telemetry:** `/crates/sim-telemetry` - Metrics and observability
 
 ---

@@ -1456,8 +1456,10 @@ mod tests {
 
     #[test]
     fn test_run_for_duration() {
-        let mut config = SimulationConfig::default();
-        config.time_step = chrono::Duration::seconds(60); // 1 minute per step
+        let config = SimulationConfig {
+            time_step: chrono::Duration::seconds(60), // 1 minute per step
+            ..Default::default()
+        };
 
         let mut runner: SimulationRunner<TestAgent, TestResource, TestTask, TestWorkflow> =
             SimulationRunner::new(config);
@@ -1534,11 +1536,13 @@ mod tests {
 
         // Create resource allocator with a resource
         let mut allocator = ResourceAllocator::new();
-        allocator.add_resource(TestResource {
-            id: ResourceId::new(),
-            capacity: 5,
-            load: 0,
-        });
+        allocator
+            .add_resource(TestResource {
+                id: ResourceId::new(),
+                capacity: 5,
+                load: 0,
+            })
+            .unwrap();
 
         // Create a task for the workflow
         let task = TestTask {
@@ -1546,7 +1550,7 @@ mod tests {
             workflow_instance_id: Some(instance_id),
             duration: chrono::Duration::seconds(10),
         };
-        allocator.add_task(task);
+        allocator.add_task(task).unwrap();
 
         runner.set_resource_allocator(allocator);
 
@@ -1715,18 +1719,22 @@ mod tests {
 
         // Create resource allocator
         let mut allocator = ResourceAllocator::new();
-        allocator.add_resource(TestResource {
-            id: ResourceId::new(),
-            capacity: 5,
-            load: 0,
-        });
+        allocator
+            .add_resource(TestResource {
+                id: ResourceId::new(),
+                capacity: 5,
+                load: 0,
+            })
+            .unwrap();
 
         // Create task
-        allocator.add_task(TestTask {
-            id: TaskId::new(),
-            workflow_instance_id: Some(instance_id),
-            duration: chrono::Duration::seconds(10),
-        });
+        allocator
+            .add_task(TestTask {
+                id: TaskId::new(),
+                workflow_instance_id: Some(instance_id),
+                duration: chrono::Duration::seconds(10),
+            })
+            .unwrap();
 
         runner.set_resource_allocator(allocator);
         runner.allocate_resources(&LeastLoaded).unwrap();

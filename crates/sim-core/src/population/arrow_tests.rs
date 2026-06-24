@@ -385,7 +385,13 @@ mod tests {
     }
 
     // Test 9: Performance benchmark - compare with expected characteristics
+    //
+    // Wall-clock timing assertions are inherently flaky on shared CI runners
+    // (noisy neighbours make the O(n) RecordBatch rebuild blow past the bounds),
+    // so this is #[ignore]d by default. Run it explicitly with
+    // `cargo test -- --ignored` when characterising performance locally.
     #[test]
+    #[ignore = "timing-based; flaky on shared CI runners — run locally with --ignored"]
     fn test_performance_characteristics() {
         let mut handler = PopulationHandler::<Worker>::new();
         let mut ids = Vec::new();

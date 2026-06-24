@@ -245,7 +245,7 @@ mod tests {
 
         let demands = generator.generate(&ctx);
         // Should have roughly 3x the base rate, and definitely > 0 with high rate
-        assert!(demands.len() > 0);
+        assert!(!demands.is_empty());
     }
 
     #[test]

@@ -1,6 +1,6 @@
 # Testing Strategies Guide
 
-This guide covers comprehensive testing patterns, practices, test organization, mocking, fixtures, and coverage goals based on the 649+ test suite across the codebase.
+This guide covers comprehensive testing patterns, practices, test organization, mocking, fixtures, and coverage goals based on the workspace test suite across the codebase.
 
 ## Table of Contents
 
@@ -43,7 +43,7 @@ This guide covers comprehensive testing patterns, practices, test organization, 
 
 ### Coverage Goals
 
-From the 649+ test suite:
+From the workspace test suite:
 
 - **Overall**: > 85% line coverage
 - **Critical Paths**: 100% coverage
@@ -522,8 +522,8 @@ fn test_24_hour_simulation() {
 
     assert_eq!(sim.package_count(), 100);
 
-    // Run for 24 hours
-    sim.run_for_hours(24).unwrap();
+    // Run for 24 hours (30 sec/step)
+    sim.run_for_steps(2880).unwrap();
 
     // Verify metrics
     let metrics = sim.get_metrics();
@@ -837,8 +837,8 @@ fn test_24_hour_simulation() {
         sim.create_package(/* ... */).unwrap();
     }
 
-    // Execute: Run 24-hour simulation
-    sim.run_for_hours(24).unwrap();
+    // Execute: Run 24-hour simulation (30 sec/step)
+    sim.run_for_steps(2880).unwrap();
 
     // Verify: Check metrics
     let metrics = sim.get_metrics();

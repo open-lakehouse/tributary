@@ -480,8 +480,7 @@ impl MyDomainSimulation {
         }
     }
 
-    pub fn run_for_hours(&mut self, hours: u64) -> Result<()> {
-        let steps = hours * 120; // 30 sec/step
+    pub fn run_for_steps(&mut self, steps: u64) -> Result<()> {
         for _ in 0..steps {
             self.step()?;
         }
@@ -526,8 +525,8 @@ fn test_24_hour_simulation() {
     // Setup initial state
     sim.create_agents(100);
 
-    // Run simulation
-    sim.run_for_hours(24).unwrap();
+    // Run simulation (24 hours at 30 sec/step)
+    sim.run_for_steps(2880).unwrap();
 
     // Verify metrics
     let metrics = sim.get_metrics();

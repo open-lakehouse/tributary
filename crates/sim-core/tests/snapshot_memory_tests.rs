@@ -22,7 +22,6 @@ use sim_core::{
 #[derive(Debug, Clone)]
 struct TestAgent {
     id: AgentId,
-    name: String,
     status: TestStatus,
 }
 
@@ -63,7 +62,6 @@ impl Agent for TestAgent {
         );
         Ok(TestAgent {
             id,
-            name: "Restored".to_string(),
             status: TestStatus("active".to_string()),
         })
     }
@@ -152,9 +150,8 @@ impl Workflow for TestWorkflow {
 
 fn create_test_agents(count: usize) -> Vec<TestAgent> {
     (0..count)
-        .map(|i| TestAgent {
+        .map(|_| TestAgent {
             id: AgentId::new(),
-            name: format!("Agent_{}", i),
             status: TestStatus("active".to_string()),
         })
         .collect()

@@ -1,8 +1,7 @@
 # Tributary
 
-[![Quick Checks](https://github.com/open-lakehouse/tributary/workflows/Quick%20Checks/badge.svg?branch=main)](https://github.com/open-lakehouse/tributary/actions/workflows/quick-checks.yml)
-[![Tests](https://github.com/open-lakehouse/tributary/workflows/Tests/badge.svg?branch=main)](https://github.com/open-lakehouse/tributary/actions/workflows/tests.yml)
-[![Release](https://github.com/open-lakehouse/tributary/workflows/Release/badge.svg)](https://github.com/open-lakehouse/tributary/actions/workflows/release.yml)
+[![CI](https://github.com/open-lakehouse/tributary/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/open-lakehouse/tributary/actions/workflows/ci.yml)
+[![Release](https://github.com/open-lakehouse/tributary/actions/workflows/release.yml/badge.svg)](https://github.com/open-lakehouse/tributary/actions/workflows/release.yml)
 
 A Rust-based simulation and geospatial processing framework with Python bindings.
 
@@ -18,9 +17,9 @@ Tributary is a workspace containing multiple crates for building simulations, ev
 - **sim-kitchen** - Ghost kitchen domain — reference implementation
 - **sim-logistics** - Package delivery domain — validates framework generality
 - **sim-telemetry** - Observability and telemetry
-- **caspers-universe-cli** - Command-line interface (TUI runner)
-- **caspers-universe-python** - Python bindings via PyO3
-- **universe** - Legacy simulation engine (not extended; kept for reference)
+- **sim-artifacts** - Artifact generation from events (emails, API calls, web events)
+- **caspers-cli** - Command-line interface (TUI runner; binary `caspers`)
+- **caspers-python** - Python bindings via PyO3
 
 ## Requirements
 
@@ -37,7 +36,7 @@ cargo test --workspace
 cargo bench --workspace
 
 # Build CLI
-cargo build --release -p caspers-universe-cli
+cargo build --release -p caspers-cli
 
 # Run the TUI simulation (100 steps, 3 kitchens, 20 customers)
 cargo run --bin caspers -- run

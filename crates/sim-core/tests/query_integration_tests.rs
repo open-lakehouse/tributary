@@ -10,9 +10,8 @@ use sim_core::population::AgentTickResult;
 use sim_core::resources::LeastLoaded;
 use sim_core::utils::idents::{AgentId, ResourceId, TaskId, WorkflowId, WorkflowInstanceId};
 use sim_core::{
-    Agent, AgentStatus, AllocationStrategy, PopulationHandler, Resource, ResourceAllocator,
-    SimulationConfig, SimulationRunner, Task, Workflow, WorkflowEngine, WorkflowRegistry,
-    WorkflowStep,
+    Agent, AgentStatus, PopulationHandler, Resource, ResourceAllocator, SimulationConfig,
+    SimulationRunner, Task, Workflow, WorkflowEngine, WorkflowRegistry, WorkflowStep,
 };
 use std::collections::HashMap;
 
@@ -342,7 +341,7 @@ async fn test_query_join_agents_tasks() {
 
 #[tokio::test]
 async fn test_query_join_agents_workflows() {
-    let mut runner = create_test_runner_with_all_components();
+    let runner = create_test_runner_with_all_components();
 
     // Query workflow instances (they have agent_id)
     let result = runner
@@ -385,7 +384,7 @@ async fn test_query_complex_three_way_join() {
         .downcast_ref::<arrow::array::BinaryArray>()
         .unwrap()
         .iter()
-        .filter_map(|v| v)
+        .flatten()
         .map(|bytes| WorkflowInstanceId::from_bytes(bytes).unwrap())
         .collect();
 
@@ -420,7 +419,7 @@ async fn test_query_complex_three_way_join() {
 
 #[tokio::test]
 async fn test_query_aggregation_by_agent_type() {
-    let mut runner = create_test_runner_with_all_components();
+    let runner = create_test_runner_with_all_components();
 
     // Query agent type distribution
     let result = runner
@@ -457,7 +456,7 @@ async fn test_query_aggregation_by_agent_type() {
 
 #[tokio::test]
 async fn test_query_subquery() {
-    let mut runner = create_test_runner_with_all_components();
+    let runner = create_test_runner_with_all_components();
 
     // Subquery to find resources with most capacity
     let result = runner

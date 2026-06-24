@@ -1089,12 +1089,12 @@ mod tests {
         // Complete 2 instances
         let running = engine.get_running_instances().unwrap();
         let completion_time = chrono::Utc::now();
-        for i in 0..2 {
+        for instance in running.iter().take(2) {
             engine
-                .advance_instance_step(running[i], completion_time)
+                .advance_instance_step(*instance, completion_time)
                 .unwrap();
             engine
-                .advance_instance_step(running[i], completion_time)
+                .advance_instance_step(*instance, completion_time)
                 .unwrap();
         }
 

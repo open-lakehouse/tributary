@@ -22,24 +22,15 @@ impl RecipeRegistry {
         }
     }
 
-    /// Load default recipes from bundled universe templates.
+    /// Load default recipes from bundled brand templates.
     /// Parses fast_food.json, asian.json, mexican.json etc.
     pub fn load_defaults() -> Self {
         let mut registry = Self::new();
 
         let templates = [
-            (
-                "fast_food",
-                include_str!("../../../universe/templates/base/brands/fast_food.json"),
-            ),
-            (
-                "asian",
-                include_str!("../../../universe/templates/base/brands/asian.json"),
-            ),
-            (
-                "mexican",
-                include_str!("../../../universe/templates/base/brands/mexican.json"),
-            ),
+            ("fast_food", include_str!("data/fast_food.json")),
+            ("asian", include_str!("data/asian.json")),
+            ("mexican", include_str!("data/mexican.json")),
         ];
 
         for (category, json_str) in &templates {

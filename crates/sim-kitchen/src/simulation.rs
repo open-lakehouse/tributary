@@ -1730,15 +1730,17 @@ mod tests {
         // (probabilistic ordering may not happen on first tick)
         sim.run_for_steps(5).unwrap();
 
-        let pop = sim.runner().population().unwrap();
-        if let Some(c) = pop.get_agent(customer_id) {
-            // Should have moved past Idle after several ticks
-            let progressed = !matches!(c.status, CustomerStatus::Idle);
-            if !progressed {
-                // Sometimes RNG doesn't trigger even at 1.0, continue longer
-                drop(pop);
-                sim.run_for_steps(10).unwrap();
-            }
+        // Determine whether the customer progressed inside a scope so the
+        // population borrow ends before we run more steps.
+        let progressed = {
+            let pop = sim.runner().population().unwrap();
+            pop.get_agent(customer_id)
+                .map(|c| !matches!(c.status, CustomerStatus::Idle))
+                .unwrap_or(false)
+        };
+        if !progressed {
+            // Sometimes RNG doesn't trigger even at 1.0, continue longer
+            sim.run_for_steps(10).unwrap();
         }
 
         // Continue simulation to allow full lifecycle
@@ -2605,7 +2607,7 @@ mod tests {
 
         let mut hooks = KitchenSimulationHooks::new();
         let kitchen_id = Uuid::new_v4();
-        let instance_id = WorkflowInstanceId::new();
+        let _instance_id = WorkflowInstanceId::new();
 
         // Setup
         let mut manager = InventoryManager::new();

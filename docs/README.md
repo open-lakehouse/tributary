@@ -21,11 +21,11 @@ Tributary provides a complete toolkit for building domain-agnostic simulations w
 
 ### Performance
 
-- **10-100x** faster bulk operations with Arrow columnar storage
-- **<1ms** average tick time for 1,000+ agents
-- **7µs** routing queries with road network graphs
-- **<1%** telemetry overhead on simulation runtime
-- **9x** compression with Parquet snapshots
+- Faster bulk operations with Arrow columnar storage
+- Sub-millisecond average tick time for 1,000+ agents
+- Fast routing queries with road network graphs
+- Low telemetry overhead on simulation runtime
+- Compact Parquet snapshots
 
 ### Extensibility
 
@@ -34,9 +34,9 @@ Tributary provides a complete toolkit for building domain-agnostic simulations w
 - Two validated domains: kitchen operations and logistics
 - Zero framework modifications needed for new domains
 
-### Production Ready
+### Robust Foundations
 
-- **649+ tests** passing across all crates
+- **920 tests** passing across all crates
 - Zero clippy warnings on library code
 - Comprehensive error handling
 - Type-safe identifiers (UUID v7)
@@ -183,9 +183,9 @@ All state is stored in Apache Arrow RecordBatch format:
 - Locations: id, location_type, position_x, position_y, h3_cell
 
 Benefits:
-- 10-100x faster bulk operations
+- Faster bulk operations
 - SQL queries with DataFusion
-- Efficient Parquet snapshots (9x compression)
+- Efficient Parquet snapshots
 - Arrow-compatible analytics
 
 ## Success Stories
@@ -195,7 +195,7 @@ Benefits:
 - **24-hour simulation** with 2,000+ orders
 - **3 concurrent workflows** (food prep, delivery, supply chain)
 - **Inventory management** with auto-replenishment
-- **0.06ms average tick** (1,667x better than 100ms target)
+- **Sub-millisecond average tick** comfortably under the 100ms target
 - **122 tests** validating all patterns
 
 ### Logistics (sim-logistics)
@@ -240,13 +240,13 @@ Benefits:
 
 ## Performance Targets
 
-| Component | Target | Actual | Status |
-|-----------|--------|--------|--------|
-| Tick time (1k agents) | <100ms | <1ms | ✅ 100x better |
-| Routing query | <1ms | 7µs | ✅ 143x better |
-| Telemetry overhead | <5% | <1% | ✅ 5x better |
-| Snapshot save (10k agents) | <100ms | 15ms | ✅ 6.7x better |
-| Snapshot restore (10k agents) | <100ms | 7ms | ✅ 14x better |
+| Component | Target | Status |
+|-----------|--------|--------|
+| Tick time (1k agents) | <100ms | ✅ Met |
+| Routing query | <1ms | ✅ Met |
+| Telemetry overhead | <5% | ✅ Met |
+| Snapshot save (10k agents) | <100ms | ✅ Met |
+| Snapshot restore (10k agents) | <100ms | ✅ Met |
 
 ## Development Status
 
@@ -283,7 +283,7 @@ See [Migration Status](../migration/README.md) for detailed progress.
 ### Code Quality
 - **Linting** - `cargo clippy --lib --workspace`
 - **Formatting** - `cargo fmt --check`
-- **Coverage** - 649+ tests across all crates
+- **Coverage** - 920 tests across all crates
 
 ## Contributing
 

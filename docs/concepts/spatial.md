@@ -285,7 +285,7 @@ let path = network.shortest_path(node1, node2)?;
 println!("Path length: {} meters", path.total_distance);
 println!("Nodes: {:?}", path.nodes);
 
-// Performance: 7µs per query (143x better than 1ms target)
+// Performance: sub-millisecond per query, well under the 1ms target
 ```
 
 ### FastGraph Caching
@@ -298,7 +298,7 @@ use sim_geo::routing::FastGraph;
 // Create cached graph
 let fast_graph = FastGraph::from_road_network(network);
 
-// Lightning-fast queries: 330ns (5645x speedup over uncached)
+// Sub-millisecond cached routing queries
 let path = fast_graph.route(origin, destination)?;
 ```
 
@@ -386,10 +386,10 @@ impl SimulationHooks for GeoHooks {
 
 Phase 7 road network performance:
 
-- **Graph construction**: 3.5ms for 1,000 nodes (65% better than 10ms target)
-- **Graph loading**: 2.88ms for 100 nodes (94% better than 50ms target)
-- **Routing queries**: 7µs (143x better than 1ms target)
-- **FastGraph cached**: 330ns (5645x speedup)
+- **Graph construction**: Well under the 10ms target for 1,000 nodes
+- **Graph loading**: Well under the 50ms target for 100 nodes
+- **Routing queries**: Sub-millisecond, under the 1ms target
+- **FastGraph cached**: Faster still when cached
 
 ### Optimization Tips
 

@@ -197,9 +197,11 @@ impl SimulationHooks for TestHooks {
 #[test]
 fn test_complete_workflow_lifecycle() {
     // 1. Setup runner with workflows, resources, and task factory
-    let mut config = SimulationConfig::default();
-    config.time_step = Duration::seconds(5); // 5 second steps
-    config.verbose = false;
+    let config = SimulationConfig {
+        time_step: Duration::seconds(5), // 5 second steps
+        verbose: false,
+        ..Default::default()
+    };
 
     let mut runner: SimulationRunner<TestAgent, TestResource, TestTask, TestWorkflow> =
         SimulationRunner::new(config);
@@ -366,9 +368,11 @@ fn test_complete_workflow_lifecycle() {
 #[test]
 fn test_multiple_concurrent_workflows() {
     // Setup runner
-    let mut config = SimulationConfig::default();
-    config.time_step = Duration::seconds(5);
-    config.verbose = false;
+    let config = SimulationConfig {
+        time_step: Duration::seconds(5),
+        verbose: false,
+        ..Default::default()
+    };
 
     let mut runner: SimulationRunner<TestAgent, TestResource, TestTask, TestWorkflow> =
         SimulationRunner::new(config);

@@ -64,7 +64,7 @@ def _(
 ):
     mo.stop(not run_button.value, mo.md("_Press **Run Simulation** to start._"))
 
-    from caspers_universe import run_kitchen_simulation
+    from caspers import run_kitchen_simulation
 
     result = run_kitchen_simulation(
         steps=steps_slider.value,

@@ -58,8 +58,8 @@ fn main() -> Result<()> {
         destination: Point::new(-122.3959, 37.7937),
     });
 
-    // Run
-    sim.run_for_hours(24)?;
+    // Run (24 hours at 30 sec/step)
+    sim.run_for_steps(2880)?;
 
     let metrics = sim.get_metrics();
     println!("Packages delivered: {}", metrics.packages_delivered);

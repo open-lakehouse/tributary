@@ -3,7 +3,7 @@ requires = ["maturin>=1.9,<2.0"]
 build-backend = "maturin"
 
 [project]
-name = "caspers-universe"
+name = "caspers"
 requires-python = ">=3.11"
 readme = "README.md"
 license = "Apache-2.0"
@@ -19,5 +19,5 @@ dependencies = [
 ]
 
 [tool.maturin]
-module-name = "caspers_universe._internal"
+module-name = "caspers._internal"
 features = ["pyo3/extension-module"]

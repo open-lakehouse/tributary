@@ -189,13 +189,13 @@ impl EventInvariantChecker {
 
         for (idx, record) in self.events.iter().enumerate() {
             let etype = record.event_type.as_str();
-            if matches!(etype, ORDER_CREATED | ORDER_ASSIGNED | ORDER_COMPLETED) {
-                if let Some(order_id) = Self::extract_order_id(record) {
-                    order_positions
-                        .entry(order_id)
-                        .or_default()
-                        .push((etype, idx));
-                }
+            if matches!(etype, ORDER_CREATED | ORDER_ASSIGNED | ORDER_COMPLETED)
+                && let Some(order_id) = Self::extract_order_id(record)
+            {
+                order_positions
+                    .entry(order_id)
+                    .or_default()
+                    .push((etype, idx));
             }
         }
 
@@ -221,26 +221,25 @@ impl EventInvariantChecker {
         // Build per-customer list of all eating positions (customers may cycle multiple times)
         let mut customer_eating_positions: HashMap<String, Vec<usize>> = HashMap::new();
         for (idx, record) in self.events.iter().enumerate() {
-            if record.event_type == CUSTOMER_EATING {
-                if let Some(cid) = Self::extract_customer_id(record) {
-                    customer_eating_positions.entry(cid).or_default().push(idx);
-                }
+            if record.event_type == CUSTOMER_EATING
+                && let Some(cid) = Self::extract_customer_id(record)
+            {
+                customer_eating_positions.entry(cid).or_default().push(idx);
             }
         }
 
         // For each done event, verify there is an eating event before it for that customer
         for (idx, record) in self.events.iter().enumerate() {
-            if record.event_type == CUSTOMER_DONE {
-                if let Some(cid) = Self::extract_customer_id(record) {
-                    if let Some(eating_positions) = customer_eating_positions.get(&cid) {
-                        let has_prior_eating = eating_positions.iter().any(|&ep| ep < idx);
-                        assert!(
-                            has_prior_eating,
-                            "Customer {}: done (position {}) before any eating event (eating positions: {:?})",
-                            cid, idx, eating_positions,
-                        );
-                    }
-                }
+            if record.event_type == CUSTOMER_DONE
+                && let Some(cid) = Self::extract_customer_id(record)
+                && let Some(eating_positions) = customer_eating_positions.get(&cid)
+            {
+                let has_prior_eating = eating_positions.iter().any(|&ep| ep < idx);
+                assert!(
+                    has_prior_eating,
+                    "Customer {}: done (position {}) before any eating event (eating positions: {:?})",
+                    cid, idx, eating_positions,
+                );
             }
         }
     }
@@ -560,11 +559,11 @@ fn test_inventory_lifecycle_triggers_supply_events() {
 
         if let Some(hooks) = runner.hooks_as_mut::<KitchenSimulationHooks>() {
             let new_orders = hooks.drain_pending_orders();
-            if !new_orders.is_empty() {
-                if let Some(allocator) = runner.resources_mut() {
-                    for order in new_orders {
-                        let _ = allocator.add_task(order);
-                    }
+            if !new_orders.is_empty()
+                && let Some(allocator) = runner.resources_mut()
+            {
+                for order in new_orders {
+                    let _ = allocator.add_task(order);
                 }
             }
         }

@@ -114,7 +114,7 @@ fn main() {
         ),
     ];
 
-    let road_types = vec![
+    let road_types = [
         RoadType::Highway,
         RoadType::Arterial,
         RoadType::Residential,

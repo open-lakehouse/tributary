@@ -1,36 +1,43 @@
 name: Benchmarks
 
 on:
-  workflow_dispatch:  # Manual trigger only
+  workflow_dispatch: # Manual trigger only
+
+permissions: {}
 
 env:
   CARGO_TERM_COLOR: always
-  SCCACHE_GHA_ENABLED: "true"
-  RUSTC_WRAPPER: "sccache"
+  RUST_BACKTRACE: 1
   CARGO_INCREMENTAL: "0"
 
 jobs:
   benchmark:
     name: Run Criterion Benchmarks
     runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
 
-      - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master
+      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master
         with:
           toolchain: stable
 
-      - name: Setup sccache
-        uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
+      # Benchmarks are dispatch-only and run off main, so reuse main's warmed
+      # "ci" cache for reads; don't write (save-if false) to avoid polluting it.
+      - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.0
+        with:
+          shared-key: ci
+          save-if: "false"
 
       - name: Run benchmarks
         run: cargo bench --workspace --all-features
 
       - name: Upload benchmark results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: benchmark-results-${{ github.sha }}
           path: target/criterion/

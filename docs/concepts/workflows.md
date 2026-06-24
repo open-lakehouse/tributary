@@ -289,13 +289,13 @@ Workflow instances stored in RecordBatch:
 
 ### Multi-Workflow Coordination
 
-Phase 9 achieved **0.06ms average tick** with 3 concurrent workflows:
+Phase 9 achieved **sub-millisecond average tick** with 3 concurrent workflows:
 
 - Food order workflow
 - Supply delivery workflow
 - Courier delivery workflow
 
-**1,667x better than 100ms target**
+**Comfortably under the 100ms target**
 
 ## Common Pitfalls
 

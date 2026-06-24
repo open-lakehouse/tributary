@@ -162,8 +162,10 @@ mod tests {
         // we expect lambda = 1.0 (1 event per minute on average)
         let generator = PoissonDemandGenerator::with_seed(60.0, "order", 12345);
 
-        let mut config = SimulationConfig::default();
-        config.time_step = chrono::Duration::seconds(60); // 1 minute
+        let config = SimulationConfig {
+            time_step: chrono::Duration::seconds(60), // 1 minute
+            ..Default::default()
+        };
         let ctx = SimulationContext::from_now(config);
 
         // Run multiple times and check average
@@ -198,8 +200,10 @@ mod tests {
         // Test with very high rate to ensure no overflow
         let generator = PoissonDemandGenerator::new(1000.0, "order");
 
-        let mut config = SimulationConfig::default();
-        config.time_step = chrono::Duration::seconds(3600); // 1 hour
+        let config = SimulationConfig {
+            time_step: chrono::Duration::seconds(3600), // 1 hour
+            ..Default::default()
+        };
         let ctx = SimulationContext::from_now(config);
 
         let demands = generator.generate(&ctx);
@@ -228,8 +232,10 @@ mod tests {
         let rate = 5.0; // 5 events per hour
         let generator = PoissonDemandGenerator::with_seed(rate, "order", 54321);
 
-        let mut config = SimulationConfig::default();
-        config.time_step = chrono::Duration::minutes(30); // 0.5 hours
+        let config = SimulationConfig {
+            time_step: chrono::Duration::minutes(30), // 0.5 hours
+            ..Default::default()
+        };
         let ctx = SimulationContext::from_now(config);
 
         let mut total = 0;

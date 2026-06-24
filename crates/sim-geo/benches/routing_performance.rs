@@ -11,72 +11,13 @@
 use chrono::Utc;
 use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
 use geo::Point;
-use sim_geo::graph::{RoadEdge, RoadNetwork, RoadNode, RoadType};
+use sim_geo::graph::{RoadNetwork, RoadType};
 use sim_geo::movement::velocity::TimeOfDayVelocity;
 
 /// Load a medium-sized test network (1024 nodes)
 fn load_network() -> RoadNetwork {
     RoadNetwork::load_from_file("test_data/medium_city_graph.json")
         .expect("Failed to load test network")
-}
-
-/// Create a simple test network for velocity benchmarks
-fn create_simple_network() -> RoadNetwork {
-    let mut network = RoadNetwork::new();
-
-    // Add a small grid of nodes
-    for i in 0..10 {
-        for j in 0..10 {
-            let id = (i * 10 + j) as u64;
-            network.add_node(RoadNode {
-                id,
-                position: Point::new(i as f64 * 0.001, j as f64 * 0.001),
-            });
-        }
-    }
-
-    // Add edges connecting the grid
-    for i in 0..10 {
-        for j in 0..10 {
-            let from = (i * 10 + j) as u64;
-
-            // Right connection
-            if j < 9 {
-                let to = (i * 10 + j + 1) as u64;
-                network.add_edge(RoadEdge {
-                    id: from * 1000 + to,
-                    from_node: from,
-                    to_node: to,
-                    distance_m: 100.0,
-                    geometry: geo::LineString::from(vec![
-                        (i as f64 * 0.001, j as f64 * 0.001),
-                        (i as f64 * 0.001, (j + 1) as f64 * 0.001),
-                    ]),
-                    road_type: RoadType::Residential,
-                    speed_limit_mps: 8.0,
-                });
-            }
-
-            // Down connection
-            if i < 9 {
-                let to = ((i + 1) * 10 + j) as u64;
-                network.add_edge(RoadEdge {
-                    id: from * 1000 + to + 500000,
-                    from_node: from,
-                    to_node: to,
-                    distance_m: 100.0,
-                    geometry: geo::LineString::from(vec![
-                        (i as f64 * 0.001, j as f64 * 0.001),
-                        ((i + 1) as f64 * 0.001, j as f64 * 0.001),
-                    ]),
-                    road_type: RoadType::Residential,
-                    speed_limit_mps: 8.0,
-                });
-            }
-        }
-    }
-
-    network
 }
 
 /// Benchmark: Single routing query performance
