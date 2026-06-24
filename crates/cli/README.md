@@ -1,4 +1,4 @@
-# caspers-universe-cli
+# caspers-cli
 
 Command-line interface for running Chef Casper's ghost kitchen simulations.
 

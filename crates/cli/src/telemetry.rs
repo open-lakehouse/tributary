@@ -11,9 +11,7 @@ use tracing_opentelemetry::{MetricsLayer, OpenTelemetryLayer};
 use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt as _};
 
 fn resource() -> Resource {
-    Resource::builder()
-        .with_service_name("caspers_universe")
-        .build()
+    Resource::builder().with_service_name("caspers").build()
 }
 
 pub(crate) fn init_meter_provider() -> SdkMeterProvider {
@@ -67,21 +65,15 @@ pub(crate) fn init_tracing_subscriber(tui_mode: bool) -> OtelGuard {
         .build()
         .expect("Failed to create span exporter");
     let tracer_provider = SdkTracerProvider::builder()
-        .with_resource(
-            Resource::builder()
-                .with_service_name("caspers_universe")
-                .build(),
-        )
+        .with_resource(Resource::builder().with_service_name("caspers").build())
         .with_batch_exporter(exporter)
         .build();
 
-    let tracer = tracer_provider.tracer("caspers_universe");
+    let tracer = tracer_provider.tracer("caspers");
 
     let env_filter = tracing_subscriber::EnvFilter::builder()
         .with_default_directive(LevelFilter::WARN.into())
-        .parse_lossy(
-            "caspers_universe=debug,caspers::simulation=debug,caspers::server=debug,caspers::universe=debug",
-        );
+        .parse_lossy("caspers=debug,sim_core=debug,sim_kitchen=debug,sim_events=debug");
 
     // The global level filter prevents the exporter network stack
     // from reentering the globally installed OpenTelemetryLayer with

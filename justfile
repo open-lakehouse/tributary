@@ -4,13 +4,6 @@ set dotenv-load := true
 _default:
     @just --list --justfile {{ justfile() }}
 
-# run protobuf code generation
-[group('build')]
-generate:
-    buf generate proto
-    cargo clippy --fix --allow-dirty
-    cargo fmt --all
-
 # build and install python package
 [group('build')]
 build-py:
@@ -68,27 +61,3 @@ kitchen:
 fmt:
     uvx pre-commit run --all-files
     just --fmt --unstable
-
-# run docs site dev server
-[group('dev')]
-docs:
-    npm -w docs run dev
-
-# build the UI for production
-[group('server')]
-build-ui:
-    npm -w ui run build
-
-[group('server')]
-build-docs:
-    npm -w docs run build
-
-# run UI dev server (with API proxy)
-[group('server')]
-dev-ui:
-    npm -w ui run dev
-
-# install UI dependencies
-[group('server')]
-install-ui:
-    npm -w ui install

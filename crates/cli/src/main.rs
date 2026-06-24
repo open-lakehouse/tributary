@@ -8,7 +8,7 @@ mod time_parse;
 mod tui;
 
 #[derive(clap::Parser)]
-#[command(name = "caspers-universe", version, about = "Running Caspers Universe", long_about = None)]
+#[command(name = "caspers", version, about = "Run Chef Casper's ghost kitchen simulations", long_about = None)]
 #[command(propagate_version = true)]
 struct Cli {
     #[clap(subcommand)]
