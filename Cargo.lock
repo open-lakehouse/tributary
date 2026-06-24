@@ -341,7 +341,6 @@ version = "57.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8c872d36b7bf2a6a6a2b40de9156265f0242910791db366a2c17476ba8330d68"
 dependencies = [
- "serde",
  "serde_core",
  "serde_json",
 ]
@@ -556,7 +555,7 @@ dependencies = [
  "chrono",
  "clap",
  "crossterm",
- "futures 0.3.31",
+ "futures",
  "humantime",
  "opentelemetry",
  "opentelemetry-otlp",
@@ -564,9 +563,8 @@ dependencies = [
  "ratatui",
  "serde_json",
  "sim-core",
- "sim-events",
  "sim-kitchen",
- "thiserror 2.0.17",
+ "thiserror",
  "tokio",
  "tracing",
  "tracing-opentelemetry",
@@ -579,10 +577,9 @@ name = "caspers-python"
 version = "0.0.1"
 dependencies = [
  "pyo3",
- "sim-events",
  "sim-kitchen",
  "sim-logistics",
- "thiserror 2.0.17",
+ "thiserror",
 ]
 
 [[package]]
@@ -1006,7 +1003,7 @@ dependencies = [
  "datafusion-session",
  "datafusion-sql",
  "flate2",
- "futures 0.3.31",
+ "futures",
  "itertools 0.14.0",
  "log",
  "object_store",
@@ -1041,7 +1038,7 @@ dependencies = [
  "datafusion-physical-expr",
  "datafusion-physical-plan",
  "datafusion-session",
- "futures 0.3.31",
+ "futures",
  "itertools 0.14.0",
  "log",
  "object_store",
@@ -1066,7 +1063,7 @@ dependencies = [
  "datafusion-physical-expr-adapter",
  "datafusion-physical-expr-common",
  "datafusion-physical-plan",
- "futures 0.3.31",
+ "futures",
  "itertools 0.14.0",
  "log",
  "object_store",
@@ -1103,7 +1100,7 @@ version = "51.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b92065bbc6532c6651e2f7dd30b55cba0c7a14f860c7e1d15f165c41a1868d95"
 dependencies = [
- "futures 0.3.31",
+ "futures",
  "log",
  "tokio",
 ]
@@ -1130,7 +1127,7 @@ dependencies = [
  "datafusion-physical-plan",
  "datafusion-session",
  "flate2",
- "futures 0.3.31",
+ "futures",
  "glob",
  "itertools 0.14.0",
  "log",
@@ -1161,7 +1158,7 @@ dependencies = [
  "datafusion-physical-expr-common",
  "datafusion-physical-plan",
  "datafusion-session",
- "futures 0.3.31",
+ "futures",
  "itertools 0.14.0",
  "object_store",
  "tokio",
@@ -1184,7 +1181,7 @@ dependencies = [
  "datafusion-physical-expr-common",
  "datafusion-physical-plan",
  "datafusion-session",
- "futures 0.3.31",
+ "futures",
  "object_store",
  "regex",
  "tokio",
@@ -1207,7 +1204,7 @@ dependencies = [
  "datafusion-physical-expr-common",
  "datafusion-physical-plan",
  "datafusion-session",
- "futures 0.3.31",
+ "futures",
  "object_store",
  "tokio",
 ]
@@ -1233,7 +1230,7 @@ dependencies = [
  "datafusion-physical-plan",
  "datafusion-pruning",
  "datafusion-session",
- "futures 0.3.31",
+ "futures",
  "itertools 0.14.0",
  "log",
  "object_store",
@@ -1259,7 +1256,7 @@ dependencies = [
  "dashmap",
  "datafusion-common",
  "datafusion-expr",
- "futures 0.3.31",
+ "futures",
  "log",
  "object_store",
  "parking_lot",
@@ -1556,7 +1553,7 @@ dependencies = [
  "datafusion-functions-window-common",
  "datafusion-physical-expr",
  "datafusion-physical-expr-common",
- "futures 0.3.31",
+ "futures",
  "half",
  "hashbrown 0.14.5",
  "indexmap",
@@ -1700,16 +1697,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1d674e81391d1e1ab681a28d99df07927c6d4aa5b027d7da16ba32d1d21ecd99"
 
 [[package]]
-name = "flat_map"
-version = "0.0.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e4fa2a56a33c493fc81acbad4676c599cf2b128f21462a020043ea1eee46244f"
-dependencies = [
- "serde",
- "serde_derive",
-]
-
-[[package]]
 name = "flatbuffers"
 version = "25.9.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1765,12 +1752,6 @@ dependencies = [
 
 [[package]]
 name = "futures"
-version = "0.1.31"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3a471a38ef8ed83cd6e40aa59c1ffe17db6855c18e3604d9c4ed8c08ebc28678"
-
-[[package]]
-name = "futures"
 version = "0.3.31"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "65bc07b1a8bc7c85c5f2e110c476c7389b4554ba72af57d8445ea63a576b0876"
@@ -1799,16 +1780,6 @@ name = "futures-core"
 version = "0.3.31"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "05f29059c0c2090612e8d742178b0580d2dc940c837851ad723096f87af6663e"
-
-[[package]]
-name = "futures-cpupool"
-version = "0.1.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ab90cde24b3319636588d0c35fe03b1333857621051837ed769faefb4c2162e4"
-dependencies = [
- "futures 0.1.31",
- "num_cpus",
-]
 
 [[package]]
 name = "futures-executor"
@@ -1904,15 +1875,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "geo-traits"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2e7c353d12a704ccfab1ba8bfb1a7fe6cb18b665bf89d37f4f7890edcd260206"
-dependencies = [
- "geo-types",
-]
-
-[[package]]
 name = "geo-types"
 version = "0.7.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1923,45 +1885,6 @@ dependencies = [
  "rayon",
  "rstar",
  "serde",
-]
-
-[[package]]
-name = "geoarrow"
-version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dd02b95a09c124fdf0c5e4480e4cf0a508d31a88837d89a4107e24efb1a6f3f8"
-dependencies = [
- "geoarrow-array",
- "geoarrow-schema",
-]
-
-[[package]]
-name = "geoarrow-array"
-version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dc1cc4106ac0a0a512c398961ce95d8150475c84a84e17c4511c3643fa120a17"
-dependencies = [
- "arrow-array",
- "arrow-buffer",
- "arrow-schema",
- "geo-traits",
- "geoarrow-schema",
- "num-traits",
- "wkb",
- "wkt",
-]
-
-[[package]]
-name = "geoarrow-schema"
-version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e97be4e9f523f92bd6a0e0458323f4b783d073d011664decd8dbf05651704f34"
-dependencies = [
- "arrow-schema",
- "geo-traits",
- "serde",
- "serde_json",
- "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -2786,38 +2709,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "num_cpus"
-version = "1.17.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "91df4bbde75afed763b708b7eee1e8e7651e02d97f6d5dd763e89367e957b23b"
-dependencies = [
- "hermit-abi",
- "libc",
-]
-
-[[package]]
-name = "num_enum"
-version = "0.7.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b1207a7e20ad57b847bbddc6776b968420d38292bbfe2089accff5e19e82454c"
-dependencies = [
- "num_enum_derive",
- "rustversion",
-]
-
-[[package]]
-name = "num_enum_derive"
-version = "0.7.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ff32365de1b6743cb203b710788263c44a03de03802daf96092f2da4fe6ba4d7"
-dependencies = [
- "proc-macro-crate",
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
 name = "object"
 version = "0.32.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2835,13 +2726,13 @@ dependencies = [
  "async-trait",
  "bytes",
  "chrono",
- "futures 0.3.31",
+ "futures",
  "http",
  "humantime",
  "itertools 0.14.0",
  "parking_lot",
  "percent-encoding",
- "thiserror 2.0.17",
+ "thiserror",
  "tokio",
  "tracing",
  "url",
@@ -2878,7 +2769,7 @@ dependencies = [
  "futures-sink",
  "js-sys",
  "pin-project-lite",
- "thiserror 2.0.17",
+ "thiserror",
  "tracing",
 ]
 
@@ -2908,7 +2799,7 @@ dependencies = [
  "opentelemetry_sdk",
  "prost",
  "reqwest",
- "thiserror 2.0.17",
+ "thiserror",
  "tokio",
  "tonic",
  "tracing",
@@ -2939,7 +2830,7 @@ dependencies = [
  "opentelemetry",
  "percent-encoding",
  "rand 0.9.2",
- "thiserror 2.0.17",
+ "thiserror",
 ]
 
 [[package]]
@@ -2949,36 +2840,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "68f19d67e5a2795c94e73e0bb1cc1a7edeb2e28efd39e2e1c9b7a40c1108b11c"
 dependencies = [
  "num-traits",
-]
-
-[[package]]
-name = "osmpbfreader"
-version = "0.16.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "31a9a5652ee5d1ac97f64960117f9165d2d185034c5ccf22f6fadd3fcb78ccb2"
-dependencies = [
- "byteorder",
- "flat_map",
- "flate2",
- "par-map",
- "protobuf",
- "protobuf-codegen-pure",
- "pub-iterator-type",
- "self_cell",
- "serde",
- "smartstring",
-]
-
-[[package]]
-name = "par-map"
-version = "0.1.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2f05b290991702bb8140cf70915b82b0ae1ec7fe478db97305af990048040095"
-dependencies = [
- "futures 0.1.31",
- "futures-cpupool",
- "num_cpus",
- "pub-iterator-type",
 ]
 
 [[package]]
@@ -3023,7 +2884,7 @@ dependencies = [
  "bytes",
  "chrono",
  "flate2",
- "futures 0.3.31",
+ "futures",
  "half",
  "hashbrown 0.16.0",
  "lz4_flex",
@@ -3226,31 +3087,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "protobuf"
-version = "2.28.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "106dd99e98437432fed6519dedecfade6a06a73bb7b2a1e019fdd2bee5778d94"
-
-[[package]]
-name = "protobuf-codegen"
-version = "2.28.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "033460afb75cf755fcfc16dfaed20b86468082a2ea24e05ac35ab4a099a017d6"
-dependencies = [
- "protobuf",
-]
-
-[[package]]
-name = "protobuf-codegen-pure"
-version = "2.28.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "95a29399fc94bcd3eeaa951c715f7bea69409b2445356b00519740bcd6ddd865"
-dependencies = [
- "protobuf",
- "protobuf-codegen",
-]
-
-[[package]]
 name = "psm"
 version = "0.1.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3259,12 +3095,6 @@ dependencies = [
  "ar_archive_writer",
  "cc",
 ]
-
-[[package]]
-name = "pub-iterator-type"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "858afdbecdce657c6e32031348cf7326da7700c869c368a136d31565972f7018"
 
 [[package]]
 name = "pyo3"
@@ -3659,12 +3489,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 
 [[package]]
-name = "self_cell"
-version = "1.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b12e76d157a900eb52e81bc6e9f3069344290341720e9178cde2407113ac8d89"
-
-[[package]]
 name = "semver"
 version = "1.0.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3797,14 +3621,12 @@ dependencies = [
 name = "sim-artifacts"
 version = "0.0.1"
 dependencies = [
- "arrow",
  "chrono",
  "parquet",
  "serde",
  "serde_json",
  "tempfile",
- "thiserror 2.0.17",
- "uuid",
+ "thiserror",
 ]
 
 [[package]]
@@ -3813,26 +3635,21 @@ version = "0.0.1"
 dependencies = [
  "approx",
  "arrow",
- "arrow-schema",
  "chrono",
  "criterion",
  "datafusion",
  "geo",
  "geo-types",
  "h3o",
- "indexmap",
- "object_store",
- "parquet",
  "rand 0.8.5",
  "rand_distr",
- "rstest",
  "serde",
  "serde_json",
  "sim-geo",
  "sim-kitchen",
  "sim-telemetry",
  "tempfile",
- "thiserror 2.0.17",
+ "thiserror",
  "tokio",
  "uuid",
 ]
@@ -3841,49 +3658,34 @@ dependencies = [
 name = "sim-events"
 version = "0.0.1"
 dependencies = [
- "approx",
  "arrow",
- "arrow-schema",
  "chrono",
  "parquet",
- "rstest",
  "serde",
  "serde_json",
  "sim-core",
  "tempfile",
- "thiserror 2.0.17",
+ "thiserror",
  "tokio",
- "uuid",
 ]
 
 [[package]]
 name = "sim-geo"
 version = "0.0.1"
 dependencies = [
- "approx",
  "arrow",
- "arrow-schema",
  "chrono",
  "criterion",
  "dashmap",
  "datafusion",
  "fast_paths",
  "geo",
- "geo-traits",
  "geo-types",
- "geoarrow",
- "geoarrow-array",
- "geoarrow-schema",
  "h3o",
- "indexmap",
- "osmpbfreader",
- "rstest",
  "serde",
  "serde_json",
  "sim-core",
- "thiserror 2.0.17",
- "tokio",
- "wkb",
+ "thiserror",
 ]
 
 [[package]]
@@ -3901,9 +3703,6 @@ dependencies = [
  "sim-core",
  "sim-events",
  "sim-geo",
- "tempfile",
- "thiserror 2.0.17",
- "tokio",
  "uuid",
 ]
 
@@ -3911,7 +3710,6 @@ dependencies = [
 name = "sim-logistics"
 version = "0.0.1"
 dependencies = [
- "approx",
  "chrono",
  "geo",
  "h3o",
@@ -3920,8 +3718,7 @@ dependencies = [
  "serde_json",
  "sim-core",
  "sim-events",
- "sim-geo",
- "thiserror 2.0.17",
+ "thiserror",
  "uuid",
 ]
 
@@ -3929,17 +3726,12 @@ dependencies = [
 name = "sim-telemetry"
 version = "0.0.1"
 dependencies = [
- "arrow",
  "chrono",
  "criterion",
- "opentelemetry",
- "opentelemetry-otlp",
- "rstest",
  "serde",
  "serde_json",
  "tempfile",
- "thiserror 2.0.17",
- "tokio",
+ "thiserror",
  "uuid",
 ]
 
@@ -3972,18 +3764,6 @@ name = "smallvec"
 version = "1.15.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "67b1b7a3b5fe4f1376887184045fcf45c69e92af734b7aaddc05fb777b6fbd03"
-
-[[package]]
-name = "smartstring"
-version = "1.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3fb72c633efbaa2dd666986505016c32c3044395ceaf881518399d2f4127ee29"
-dependencies = [
- "autocfg",
- "serde",
- "static_assertions",
- "version_check",
-]
 
 [[package]]
 name = "snap"
@@ -4146,31 +3926,11 @@ dependencies = [
 
 [[package]]
 name = "thiserror"
-version = "1.0.69"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b6aaf5339b578ea85b50e080feb250a3e8ae8cfcdff9a461c9ec2904bc923f52"
-dependencies = [
- "thiserror-impl 1.0.69",
-]
-
-[[package]]
-name = "thiserror"
 version = "2.0.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f63587ca0f12b72a0600bcba1d40081f830876000bb46dd2337a3051618f4fc8"
 dependencies = [
- "thiserror-impl 2.0.17",
-]
-
-[[package]]
-name = "thiserror-impl"
-version = "1.0.69"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4fee6c4efc90059e10f81e6d42c60a18f76588c3d74cb83a0b242a2b6c7504c1"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
+ "thiserror-impl",
 ]
 
 [[package]]
@@ -4456,7 +4216,7 @@ dependencies = [
  "opentelemetry_sdk",
  "rustversion",
  "smallvec",
- "thiserror 2.0.17",
+ "thiserror",
  "tracing",
  "tracing-core",
  "tracing-log",
@@ -4962,31 +4722,6 @@ name = "wit-bindgen"
 version = "0.46.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f17a85883d4e6d00e8a97c586de764dabcc06133f7f1d55dce5cdc070ad7fe59"
-
-[[package]]
-name = "wkb"
-version = "0.9.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "908e92c755a5f5ff8781c1c7ebcedb60ce5443879d20f4a0b6a1ee8fb3e6dfb6"
-dependencies = [
- "byteorder",
- "geo-traits",
- "num_enum",
- "thiserror 1.0.69",
-]
-
-[[package]]
-name = "wkt"
-version = "0.14.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "efb2b923ccc882312e559ffaa832a055ba9d1ac0cc8e86b3e25453247e4b81d7"
-dependencies = [
- "geo-traits",
- "geo-types",
- "log",
- "num-traits",
- "thiserror 1.0.69",
-]
 
 [[package]]
 name = "writeable"

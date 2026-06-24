@@ -15,7 +15,6 @@ crate-type = ["cdylib"]
 [dependencies]
 sim-kitchen = { path = "../crates/sim-kitchen" }
 sim-logistics = { path = "../crates/sim-logistics" }
-sim-events = { path = "../crates/sim-events" }
 
 thiserror = { workspace = true }
 

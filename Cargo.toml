@@ -10,39 +10,18 @@ license = "MIT OR Apache-2.0"
 rust-version = "1.90"
 
 [workspace.dependencies]
-async-trait = { version = "0.1.83" }
 chrono = { version = "^0.4.40", features = ["serde"] }
-itertools = { version = "0.14.0" }
-pbjson = { version = "0.7" }
-pbjson-types = { version = "0.7" }
-prost = { version = "0.13.3" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0" }
-strum = { version = "0.27", features = ["derive"] }
 thiserror = { version = "2" }
 tokio = { version = "1", features = ["full"] }
 tracing = { version = "0.1", features = ["log"] }
-url = { version = "2.5.2", features = [
-  "serde",
-  "std",
-], default-features = false }
 uuid = { version = "1", features = ["serde"] }
-paste = { version = "1.0" }
 humantime = { version = "2" }
 
 # arrow
 arrow = { version = "57" }
-arrow-schema = { version = "57" }
-object_store = { version = "0.12.3" }
 parquet = { version = "57", features = ["async", "object_store"] }
 
 # datafusion
 datafusion = "51"
-
-geoarrow = { version = "0.7.0" }
-geoarrow-array = { version = "0.7.0" }
-geoparquet = { version = "0.7.0" }
-geoarrow-schema = { version = "0.7.0" }
-
-# deltalake
-deltalake-core = { path = "../delta-rs/crates/core/" }

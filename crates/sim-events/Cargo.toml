@@ -10,17 +10,13 @@ rust-version.workspace = true
 sim-core = { path = "../sim-core" }
 
 arrow = { workspace = true }
-arrow-schema = { workspace = true, features = ["serde"] }
 chrono = { workspace = true }
 parquet = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
-uuid = { workspace = true, features = ["v7"] }
 
 [dev-dependencies]
-approx = "0.5.1"
-rstest = "0.26.0"
 tokio = { version = "1", features = ["full"] }
 tempfile = "3"

@@ -11,8 +11,6 @@ chrono = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
-uuid = { workspace = true, features = ["v4", "v7"] }
-arrow = { workspace = true }
 parquet = { workspace = true }
 
 [dev-dependencies]

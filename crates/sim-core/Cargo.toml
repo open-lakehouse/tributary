@@ -8,11 +8,8 @@ rust-version.workspace = true
 
 [dependencies]
 arrow = { workspace = true }
-arrow-schema = { workspace = true, features = ["serde"] }
 chrono = { workspace = true }
 datafusion = { workspace = true }
-object_store = { workspace = true }
-parquet = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
@@ -22,7 +19,6 @@ uuid = { workspace = true, features = ["v5", "v7"] }
 geo = { version = "0.31" }
 geo-types = { version = "0.7.16" }
 h3o = { version = "0.9.3", features = ["geo"] }
-indexmap = { version = "2.9.0" }
 rand = { version = "0.8" }
 rand_distr = { version = "0.4" }
 sim-telemetry = { path = "../sim-telemetry" }
@@ -30,7 +26,6 @@ sim-telemetry = { path = "../sim-telemetry" }
 [dev-dependencies]
 approx = "0.5.1"
 criterion = { version = "0.5", features = ["html_reports"] }
-rstest = "0.26.0"
 sim-geo = { path = "../sim-geo" }
 sim-kitchen = { path = "../sim-kitchen" }
 tempfile = "3.14"
