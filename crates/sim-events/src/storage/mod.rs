@@ -1,13 +1,14 @@
 //! Event storage backends (Parquet, Delta Lake, etc.)
 
 use crate::core::EventRecord;
-use arrow::array::{ArrayRef, RecordBatch, StringArray};
+use arrow::array::{Array, ArrayRef, RecordBatch, StringArray};
 use arrow::datatypes::{DataType, Field, Schema};
 use parquet::arrow::ArrowWriter;
+use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use parquet::basic::{Compression, Encoding};
 use parquet::file::properties::WriterProperties;
 use std::fs::File;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 /// Writer for persisting events to Parquet files
@@ -149,6 +150,88 @@ impl ParquetEventWriter {
     }
 }
 
+/// Reader for loading events back from a Parquet file written by
+/// [`ParquetEventWriter`].
+///
+/// Reconstructs [`EventRecord`]s from the columnar Parquet representation. The
+/// Parquet/Arrow reader may surface `Utf8` columns as `Utf8View`, so every
+/// string column is read through [`arrow::compute::cast`] to `Utf8` first.
+pub struct ParquetEventReader;
+
+impl ParquetEventReader {
+    /// Read all event records from a Parquet file.
+    pub fn read_file(path: impl AsRef<Path>) -> crate::Result<Vec<EventRecord>> {
+        let file = File::open(path.as_ref())?;
+        let builder = ParquetRecordBatchReaderBuilder::try_new(file)?;
+        let reader = builder.build()?;
+
+        let mut records = Vec::new();
+        for batch in reader {
+            let batch = batch?;
+            Self::append_batch(&batch, &mut records)?;
+        }
+        Ok(records)
+    }
+
+    /// Read a single string column as `Vec<Option<String>>`, coercing `Utf8View`
+    /// back to `Utf8` if the Parquet reader optimized it.
+    fn string_column(batch: &RecordBatch, name: &str) -> crate::Result<Vec<Option<String>>> {
+        let array = batch
+            .column_by_name(name)
+            .ok_or_else(|| crate::Error::Event(format!("missing column `{name}`")))?;
+        let array = if matches!(array.data_type(), DataType::Utf8View) {
+            arrow::compute::cast(array, &DataType::Utf8)?
+        } else {
+            array.clone()
+        };
+        let strings = array
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .ok_or_else(|| {
+                crate::Error::Event(format!("column `{name}` is not a string column"))
+            })?;
+        Ok((0..strings.len())
+            .map(|i| {
+                if strings.is_null(i) {
+                    None
+                } else {
+                    Some(strings.value(i).to_string())
+                }
+            })
+            .collect())
+    }
+
+    fn append_batch(batch: &RecordBatch, out: &mut Vec<EventRecord>) -> crate::Result<()> {
+        let ids = Self::string_column(batch, "id")?;
+        let sources = Self::string_column(batch, "source")?;
+        let spec_versions = Self::string_column(batch, "spec_version")?;
+        let event_types = Self::string_column(batch, "event_type")?;
+        let times = Self::string_column(batch, "time")?;
+        let subjects = Self::string_column(batch, "subject")?;
+        let data_content_types = Self::string_column(batch, "data_content_type")?;
+        let data = Self::string_column(batch, "data")?;
+
+        let req = |opt: Option<String>, col: &str| {
+            opt.ok_or_else(|| crate::Error::Event(format!("unexpected null in `{col}`")))
+        };
+
+        for i in 0..batch.num_rows() {
+            let data_str = req(data[i].clone(), "data")?;
+            out.push(EventRecord {
+                id: req(ids[i].clone(), "id")?,
+                source: req(sources[i].clone(), "source")?,
+                spec_version: req(spec_versions[i].clone(), "spec_version")?,
+                event_type: req(event_types[i].clone(), "event_type")?,
+                time: req(times[i].clone(), "time")?,
+                subject: subjects[i].clone(),
+                data_content_type: data_content_types[i].clone(),
+                data: serde_json::from_str(&data_str)?,
+            });
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -196,6 +279,34 @@ mod tests {
         // Verify file is not empty
         let metadata = fs::metadata(&file_path).unwrap();
         assert!(metadata.len() > 0);
+    }
+
+    #[test]
+    fn test_parquet_roundtrip_read() {
+        let temp_dir = TempDir::new().unwrap();
+        let file_path = temp_dir.path().join("roundtrip.parquet");
+
+        let records = vec![
+            Event::new(Box::new(TestPayload { value: 1 })).to_record(),
+            Event::new(Box::new(TestPayload { value: 2 })).to_record(),
+            Event::new(Box::new(TestPayload { value: 3 })).to_record(),
+        ];
+
+        let mut writer = ParquetEventWriter::new(file_path.clone()).unwrap();
+        writer.write_events(&records).unwrap();
+        writer.close().unwrap();
+
+        let read_back = ParquetEventReader::read_file(&file_path).unwrap();
+
+        assert_eq!(read_back.len(), 3);
+        for (orig, got) in records.iter().zip(read_back.iter()) {
+            assert_eq!(orig.id, got.id);
+            assert_eq!(orig.event_type, got.event_type);
+            assert_eq!(orig.source, got.source);
+            assert_eq!(orig.data, got.data);
+        }
+        // Spot-check the JSON payload survived the string roundtrip.
+        assert_eq!(read_back[0].data, json!({ "value": 1 }));
     }
 
     #[test]

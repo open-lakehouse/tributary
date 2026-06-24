@@ -563,7 +563,9 @@ dependencies = [
  "ratatui",
  "serde_json",
  "sim-core",
+ "sim-events",
  "sim-kitchen",
+ "sim-validate",
  "thiserror",
  "tokio",
  "tracing",
@@ -3733,6 +3735,17 @@ dependencies = [
  "tempfile",
  "thiserror",
  "uuid",
+]
+
+[[package]]
+name = "sim-validate"
+version = "0.0.1"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sim-events",
+ "tempfile",
+ "thiserror",
 ]
 
 [[package]]

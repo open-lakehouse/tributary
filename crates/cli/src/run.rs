@@ -62,6 +62,18 @@ pub(crate) struct RunArgs {
     /// (demand, customer ordering) are identical run-to-run for the same params.
     #[arg(long)]
     seed: Option<u64>,
+
+    /// Write the run's events to this Parquet file when the simulation ends.
+    /// Required input for `caspers validate`. Only honored in --no-tui mode.
+    #[arg(long, value_name = "FILE")]
+    events_out: Option<std::path::PathBuf>,
+}
+
+impl RunArgs {
+    /// True when the run should skip the TUI (headless / scripting mode).
+    pub(crate) fn is_headless(&self) -> bool {
+        self.no_tui
+    }
 }
 
 pub(super) async fn handle(args: RunArgs) -> Result<()> {
@@ -138,6 +150,14 @@ async fn handle_headless(args: RunArgs) -> Result<()> {
             _ => usize::MAX,
         };
         let _ = sim.run_controlled_for(max);
+
+        // Persist events for downstream validation if requested.
+        if let Some(path) = args.events_out {
+            match sim.save_events(&path) {
+                Ok(n) => eprintln!("Wrote {n} events to {}", path.display()),
+                Err(e) => eprintln!("Failed to write events to {}: {e}", path.display()),
+            }
+        }
     });
 
     let mut cumulative: HashMap<String, u64> = HashMap::new();
