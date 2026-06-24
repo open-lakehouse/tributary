@@ -80,7 +80,7 @@ jobs:
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
       - name: Machete (unused dependencies)
-        uses: bnjbvr/cargo-machete@b54422fa3319b3036bd5e3c1f0a85296e2208ba9 # v0.9.1
+        uses: bnjbvr/cargo-machete@ac30a525c0a8d163a92d727b3ff079ee3f6ecb08 # v0.9.2
 
   test:
     name: test (${{ matrix.rust }})

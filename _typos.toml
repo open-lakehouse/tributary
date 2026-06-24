@@ -1,0 +1,11 @@
+# Configuration for crate-ci/typos. See https://github.com/crate-ci/typos
+#
+# These are not misspellings:
+#   - "Noe" — Noe Valley, a real San Francisco neighborhood used in test fixtures.
+#   - "0ba902b7" / hex span IDs — OpenTelemetry example trace/span IDs in docs.
+[default.extend-words]
+Noe = "Noe"
+
+[default.extend-identifiers]
+"00f067aa0ba902b7" = "00f067aa0ba902b7"
+"00f067aa0ba902b6" = "00f067aa0ba902b6"
