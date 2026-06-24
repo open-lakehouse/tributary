@@ -59,6 +59,13 @@ jobs:
         with:
           persist-credentials: false
 
+      # The DataFusion-heavy workspace plus --all-targets builds overrun the
+      # runner's ~14GB free disk. Reclaim ~25GB of preinstalled tooling first.
+      - uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
+        with:
+          tool-cache: false
+          large-packages: false
+
       - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master
         with:
           toolchain: stable
@@ -100,6 +107,12 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+
+      # Reclaim runner disk before the DataFusion-heavy build (see clippy job).
+      - uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
+        with:
+          tool-cache: false
+          large-packages: false
 
       - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master
         with:
@@ -148,6 +161,13 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+
+      # Coverage builds a second, instrumented copy of the whole tree — the most
+      # disk-hungry job — so reclaim runner space first (see clippy job).
+      - uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
+        with:
+          tool-cache: false
+          large-packages: false
 
       # Doctest coverage (`--doc` / `report --doctests`) relies on
       # `-Z unstable-options --persist-doctests`, which only nightly accepts.

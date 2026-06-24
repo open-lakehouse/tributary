@@ -61,6 +61,14 @@ pub struct SimulationConfig {
     pub time_step: Duration,
     /// Whether to enable detailed logging
     pub verbose: bool,
+    /// Optional global seed for reproducibility.
+    ///
+    /// When set, RNG-driven decisions (demand generation, agent behavior,
+    /// allocation) are reproducible run-to-run. Per-component sub-seeds are
+    /// derived from this value via [`derive_seed`]. Note this gives *logical*
+    /// reproducibility — IDs and timestamps are not made deterministic.
+    #[serde(default)]
+    pub seed: Option<u64>,
     /// Custom configuration values
     #[serde(default)]
     pub custom: serde_json::Map<String, serde_json::Value>,
@@ -72,9 +80,38 @@ impl Default for SimulationConfig {
             name: "simulation".to_string(),
             time_step: Duration::seconds(60), // 1 minute default
             verbose: false,
+            seed: None,
             custom: serde_json::Map::new(),
         }
     }
+}
+
+/// Derive a stable per-component sub-seed from a global seed and a label.
+///
+/// Mixing in a label (e.g. `"poisson"`, `"customer"`) ensures each component
+/// draws from a distinct deterministic stream rather than every component
+/// sharing the same RNG sequence. Uses FNV-1a, which is stable across runs and
+/// platforms (unlike [`std::hash::DefaultHasher`], whose output is unspecified).
+///
+/// # Example
+///
+/// ```
+/// use sim_core::derive_seed;
+/// let a = derive_seed(42, "customer");
+/// let b = derive_seed(42, "spatial");
+/// assert_ne!(a, b);
+/// assert_eq!(a, derive_seed(42, "customer")); // stable
+/// ```
+pub fn derive_seed(global: u64, label: &str) -> u64 {
+    // FNV-1a 64-bit over the global seed's bytes followed by the label's bytes.
+    const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
+    const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
+    let mut hash = FNV_OFFSET;
+    for byte in global.to_le_bytes().iter().chain(label.as_bytes()) {
+        hash ^= *byte as u64;
+        hash = hash.wrapping_mul(FNV_PRIME);
+    }
+    hash
 }
 
 /// Simulation context

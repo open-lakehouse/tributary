@@ -57,6 +57,23 @@ pub(crate) struct RunArgs {
     /// Skip TUI; print a JSON summary to stdout when done (useful for scripting/CI).
     #[arg(long)]
     no_tui: bool,
+
+    /// Global RNG seed for reproducible runs. When set, RNG-driven decisions
+    /// (demand, customer ordering) are identical run-to-run for the same params.
+    #[arg(long)]
+    seed: Option<u64>,
+
+    /// Write the run's events to this Parquet file when the simulation ends.
+    /// Required input for `caspers validate`. Only honored in --no-tui mode.
+    #[arg(long, value_name = "FILE")]
+    events_out: Option<std::path::PathBuf>,
+}
+
+impl RunArgs {
+    /// True when the run should skip the TUI (headless / scripting mode).
+    pub(crate) fn is_headless(&self) -> bool {
+        self.no_tui
+    }
 }
 
 pub(super) async fn handle(args: RunArgs) -> Result<()> {
@@ -110,7 +127,12 @@ async fn handle_headless(args: RunArgs) -> Result<()> {
             .expect("sim thread runtime");
         let _guard = rt.enter();
 
-        let mut sim = KitchenSimulation::new(args.num_kitchens, args.kitchen_capacity, false);
+        let mut sim = KitchenSimulation::new_seeded(
+            args.num_kitchens,
+            args.kitchen_capacity,
+            false,
+            args.seed,
+        );
         sim.add_customers(args.num_customers);
         sim.runner_mut().context_mut().set_simulation_id(sim_id);
         if let Some(st) = start_time {
@@ -128,6 +150,14 @@ async fn handle_headless(args: RunArgs) -> Result<()> {
             _ => usize::MAX,
         };
         let _ = sim.run_controlled_for(max);
+
+        // Persist events for downstream validation if requested.
+        if let Some(path) = args.events_out {
+            match sim.save_events(&path) {
+                Ok(n) => eprintln!("Wrote {n} events to {}", path.display()),
+                Err(e) => eprintln!("Failed to write events to {}: {e}", path.display()),
+            }
+        }
     });
 
     let mut cumulative: HashMap<String, u64> = HashMap::new();
@@ -375,7 +405,12 @@ async fn handle_tui(args: RunArgs) -> Result<()> {
             .expect("sim thread runtime");
         let _guard = rt.enter();
 
-        let mut sim = KitchenSimulation::new(args.num_kitchens, args.kitchen_capacity, false);
+        let mut sim = KitchenSimulation::new_seeded(
+            args.num_kitchens,
+            args.kitchen_capacity,
+            false,
+            args.seed,
+        );
         sim.add_customers(args.num_customers);
 
         // Inject the pre-registered simulation ID

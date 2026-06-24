@@ -58,7 +58,35 @@ impl<R: Resource, T: Task> AllocationStrategy<R, T> for LeastLoaded {
 ///
 /// Assigns tasks randomly to available resources.
 /// Useful for testing or when no specific strategy is needed.
-pub struct Random;
+pub struct Random {
+    rng: std::sync::Mutex<rand::rngs::StdRng>,
+}
+
+impl Random {
+    /// Create a random strategy seeded from system entropy (non-reproducible).
+    pub fn new() -> Self {
+        use rand::SeedableRng;
+        Self {
+            rng: std::sync::Mutex::new(rand::rngs::StdRng::from_seed(rand::random())),
+        }
+    }
+
+    /// Create a random strategy with a specific seed for reproducibility.
+    pub fn with_seed(seed: u64) -> Self {
+        use rand::SeedableRng;
+        let mut seed_array = [0u8; 32];
+        seed_array[0..8].copy_from_slice(&seed.to_le_bytes());
+        Self {
+            rng: std::sync::Mutex::new(rand::rngs::StdRng::from_seed(seed_array)),
+        }
+    }
+}
+
+impl Default for Random {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl<R: Resource, T: Task> AllocationStrategy<R, T> for Random {
     fn assign(&self, _task: &T, available: &[&R]) -> Option<ResourceId> {
@@ -67,7 +95,7 @@ impl<R: Resource, T: Task> AllocationStrategy<R, T> for Random {
         }
 
         use rand::Rng;
-        let mut rng = rand::thread_rng();
+        let mut rng = self.rng.lock().unwrap();
         let idx = rng.gen_range(0..available.len());
         Some(available[idx].id())
     }
@@ -170,7 +198,7 @@ mod tests {
 
     #[test]
     fn test_random() {
-        let strategy = Random;
+        let strategy = Random::with_seed(42);
         let resources = [
             TestResource {
                 id: ResourceId::new(),
