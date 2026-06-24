@@ -28,8 +28,10 @@ pub(crate) struct ValidateArgs {
     #[arg(long, default_value = "kitchen")]
     domain: Domain,
 
-    /// Kitchen capacity bound to enforce (kitchen domain only). When set, peak
-    /// concurrent assigned-but-uncompleted orders must not exceed this.
+    /// Aggregate kitchen capacity bound to enforce (kitchen domain only). When
+    /// set, peak concurrent assigned-but-uncompleted orders across ALL kitchens
+    /// must not exceed this. Order events are not partitioned per kitchen, so
+    /// pass num_kitchens × per-kitchen-capacity (e.g. 3 kitchens × 5 = 15).
     #[arg(long)]
     kitchen_capacity: Option<usize>,
 }
