@@ -58,11 +58,55 @@
 
 use crate::{Error, Result};
 use arrow::array::RecordBatch;
+use arrow::datatypes::{DataType, Field, Schema};
 use datafusion::catalog::{MemTable, TableProvider};
 use datafusion::execution::context::SessionContext;
 use datafusion::prelude::*;
 use std::path::PathBuf;
 use std::sync::Arc;
+
+/// Normalize Arrow view types back to their non-view equivalents.
+///
+/// Reading Parquet through DataFusion optimizes `Binary` columns to `BinaryView`
+/// and `Utf8` columns to `Utf8View`. The handler import paths
+/// (`PopulationHandler`, `ResourceAllocator`, workflow instance table) downcast
+/// to `BinaryArray`/`StringArray`, which fails on the view types. Casting back
+/// here — once, centrally — keeps the ~100 downcast sites unchanged.
+fn normalize_batch_types(batch: RecordBatch) -> Result<RecordBatch> {
+    let needs_normalization = batch
+        .schema()
+        .fields()
+        .iter()
+        .any(|f| matches!(f.data_type(), DataType::BinaryView | DataType::Utf8View));
+    if !needs_normalization {
+        return Ok(batch);
+    }
+
+    let old_schema = batch.schema();
+    let mut new_fields = Vec::with_capacity(old_schema.fields().len());
+    let mut new_columns = Vec::with_capacity(batch.num_columns());
+
+    for (field, column) in old_schema.fields().iter().zip(batch.columns()) {
+        let target = match field.data_type() {
+            DataType::BinaryView => Some(DataType::Binary),
+            DataType::Utf8View => Some(DataType::Utf8),
+            _ => None,
+        };
+        match target {
+            Some(dt) => {
+                let cast = arrow::compute::cast(column, &dt).map_err(Error::Arrow)?;
+                new_fields.push(Arc::new(Field::new(field.name(), dt, field.is_nullable())));
+                new_columns.push(cast);
+            }
+            None => {
+                new_fields.push(field.clone());
+                new_columns.push(column.clone());
+            }
+        }
+    }
+
+    RecordBatch::try_new(Arc::new(Schema::new(new_fields)), new_columns).map_err(Error::Arrow)
+}
 use uuid::Uuid;
 
 use super::metadata::SnapshotMetadata;
@@ -508,7 +552,11 @@ impl SnapshotManager {
         // Deregister table
         self.ctx.deregister_table(&table_name)?;
 
-        Ok(batch)
+        // Parquet read optimizes Binary -> BinaryView and Utf8 -> Utf8View, but the
+        // handler import paths downcast to BinaryArray/StringArray. Normalize the view
+        // types back here, at the single point every restored batch flows through, so
+        // the scattered downcast sites need no changes.
+        normalize_batch_types(batch)
     }
 
     /// Create a MemTable from a RecordBatch

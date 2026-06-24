@@ -793,16 +793,11 @@ async fn test_empty_snapshot() {
     assert_eq!(restored.tasks.num_rows(), 0, "Should restore 0 tasks");
 }
 
-// Test 11: Full Parquet roundtrip with handler import (verifies Utf8View compatibility)
-// NOTE: This test is currently disabled due to Binary→BinaryView conversion issue
-// The schema validation accepts BinaryView, but all the downcast operations throughout
-// the codebase expect BinaryArray. Fixing this requires either:
-// 1. Converting BinaryView→Binary in SnapshotManager.restore (recommended for Phase 6 Week 3)
-// 2. Updating all 50+ downcast operations to handle both types
-//
-// The Utf8→Utf8View fix works because StringArray handles both, but BinaryArray does not.
+// Test 11: Full Parquet roundtrip with handler import (verifies view-type compatibility)
+// Parquet read optimizes Binary→BinaryView and Utf8→Utf8View, but the handler import
+// paths downcast to BinaryArray/StringArray. SnapshotManager normalizes those view types
+// back to Binary/Utf8 centrally in read_batch_from_parquet, so this roundtrip works.
 #[tokio::test]
-#[ignore = "Binary→BinaryView conversion needs type coercion in SnapshotManager"]
 async fn test_parquet_roundtrip_with_handler_import() {
     use sim_core::population::PopulationHandler;
     use sim_core::resources::ResourceAllocator;
