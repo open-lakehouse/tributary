@@ -1,8 +1,7 @@
 # Tributary
 
-[![Quick Checks](https://github.com/open-lakehouse/tributary/workflows/Quick%20Checks/badge.svg?branch=main)](https://github.com/open-lakehouse/tributary/actions/workflows/quick-checks.yml)
-[![Tests](https://github.com/open-lakehouse/tributary/workflows/Tests/badge.svg?branch=main)](https://github.com/open-lakehouse/tributary/actions/workflows/tests.yml)
-[![Release](https://github.com/open-lakehouse/tributary/workflows/Release/badge.svg)](https://github.com/open-lakehouse/tributary/actions/workflows/release.yml)
+[![CI](https://github.com/open-lakehouse/tributary/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/open-lakehouse/tributary/actions/workflows/ci.yml)
+[![Release](https://github.com/open-lakehouse/tributary/actions/workflows/release.yml/badge.svg)](https://github.com/open-lakehouse/tributary/actions/workflows/release.yml)
 
 A Rust-based simulation and geospatial processing framework with Python bindings.
 
