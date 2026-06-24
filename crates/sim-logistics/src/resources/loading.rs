@@ -384,10 +384,10 @@ mod tests {
         let mut last_progress = (0, 5);
         for tick in 2..150 {
             dock.process_tick(tick);
-            if let Some(progress) = dock.get_vehicle_progress("driver-1") {
-                if progress.0 > last_progress.0 {
-                    last_progress = progress;
-                }
+            if let Some(progress) = dock.get_vehicle_progress("driver-1")
+                && progress.0 > last_progress.0
+            {
+                last_progress = progress;
             }
         }
 

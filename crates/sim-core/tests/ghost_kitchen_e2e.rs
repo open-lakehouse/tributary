@@ -157,8 +157,10 @@ fn test_ghost_kitchen_delivery_simulation() {
     let end_time = start_time + Duration::hours(1);
 
     let mut completed_orders = Vec::new();
-    let mut stats = SimulationStats::default();
-    stats.total_orders = orders.len();
+    let mut stats = SimulationStats {
+        total_orders: orders.len(),
+        ..Default::default()
+    };
 
     let mut tick = 0u64;
     let time_step = Duration::seconds(30); // 30-second time steps
@@ -217,7 +219,7 @@ fn test_ghost_kitchen_delivery_simulation() {
         movement_handler.remove_completed();
 
         // Emit periodic telemetry
-        if tick % 10 == 0 {
+        if tick.is_multiple_of(10) {
             emit_event(
                 &mut telemetry,
                 json!({
@@ -558,8 +560,8 @@ fn has_active_deliveries(drivers: &[DeliveryDriver]) -> bool {
 }
 
 fn assign_orders(
-    drivers: &mut Vec<DeliveryDriver>,
-    orders: &mut Vec<DeliveryOrder>,
+    drivers: &mut [DeliveryDriver],
+    orders: &mut [DeliveryOrder],
     kitchen: &Point<f64>,
     movement_handler: &mut sim_geo::MovementHandler,
     current_time: chrono::DateTime<chrono::Utc>,
@@ -627,9 +629,10 @@ fn assign_orders(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn handle_completed_journey(
     journey: &sim_geo::JourneyState,
-    drivers: &mut Vec<DeliveryDriver>,
+    drivers: &mut [DeliveryDriver],
     completed_orders: &mut Vec<String>,
     kitchen: &Point<f64>,
     movement_handler: &mut sim_geo::MovementHandler,
@@ -843,21 +846,19 @@ fn print_sample_telemetry(records: &[TelemetryRecord]) {
     if let Some(log) = records
         .iter()
         .find(|r| matches!(r, TelemetryRecord::Log { .. }))
-    {
-        if let TelemetryRecord::Log {
+        && let TelemetryRecord::Log {
             timestamp,
             level,
             message,
             attributes,
         } = log
-        {
-            println!("\n   Sample Log Record:");
-            println!("     Time: {}", timestamp.to_rfc3339());
-            println!("     Level: {:?}", level);
-            println!("     Message: {}", message);
-            if !attributes.is_empty() {
-                println!("     Attributes: {:?}", attributes);
-            }
+    {
+        println!("\n   Sample Log Record:");
+        println!("     Time: {}", timestamp.to_rfc3339());
+        println!("     Level: {:?}", level);
+        println!("     Message: {}", message);
+        if !attributes.is_empty() {
+            println!("     Attributes: {:?}", attributes);
         }
     }
 
@@ -865,8 +866,7 @@ fn print_sample_telemetry(records: &[TelemetryRecord]) {
     if let Some(trace) = records
         .iter()
         .find(|r| matches!(r, TelemetryRecord::Trace { .. }))
-    {
-        if let TelemetryRecord::Trace {
+        && let TelemetryRecord::Trace {
             trace_id,
             span_id,
             name,
@@ -874,38 +874,35 @@ fn print_sample_telemetry(records: &[TelemetryRecord]) {
             end_time,
             ..
         } = trace
-        {
-            println!("\n   Sample Trace Record:");
-            println!("     Trace ID: {}", trace_id);
-            println!("     Span ID: {}", span_id);
-            println!("     Name: {}", name);
-            println!(
-                "     Duration: {} ms",
-                (end_time.timestamp_millis() - start_time.timestamp_millis())
-            );
-        }
+    {
+        println!("\n   Sample Trace Record:");
+        println!("     Trace ID: {}", trace_id);
+        println!("     Span ID: {}", span_id);
+        println!("     Name: {}", name);
+        println!(
+            "     Duration: {} ms",
+            (end_time.timestamp_millis() - start_time.timestamp_millis())
+        );
     }
 
     // Print first metric
     if let Some(metric) = records
         .iter()
         .find(|r| matches!(r, TelemetryRecord::Metric { .. }))
-    {
-        if let TelemetryRecord::Metric {
+        && let TelemetryRecord::Metric {
             name,
             value,
             metric_type,
             tags,
             ..
         } = metric
-        {
-            println!("\n   Sample Metric Record:");
-            println!("     Name: {}", name);
-            println!("     Value: {}", value);
-            println!("     Type: {:?}", metric_type);
-            if !tags.is_empty() {
-                println!("     Tags: {:?}", tags);
-            }
+    {
+        println!("\n   Sample Metric Record:");
+        println!("     Name: {}", name);
+        println!("     Value: {}", value);
+        println!("     Type: {:?}", metric_type);
+        if !tags.is_empty() {
+            println!("     Tags: {:?}", tags);
         }
     }
 }

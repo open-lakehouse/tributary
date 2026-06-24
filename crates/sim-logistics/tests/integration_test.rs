@@ -69,13 +69,14 @@ fn test_framework_generality_zero_modifications() {
     use sim_core::*;
 
     // Framework should work with generic types only
-    let _config = SimulationConfig::default();
-    let _ctx = SimulationContext::from_now(_config);
+    let config = SimulationConfig::default();
+    let ctx = SimulationContext::from_now(config);
 
-    // Compilation proves framework is truly generic - no logistics-specific types needed
+    // Compilation proves framework is truly generic - no logistics-specific types
+    // needed. Exercise the generic context to confirm it is usable standalone.
     assert!(
-        true,
-        "Framework compiles without domain-specific modifications"
+        ctx.time_step().num_seconds() > 0,
+        "Framework context should expose a positive default time step"
     );
 }
 

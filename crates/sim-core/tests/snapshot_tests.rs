@@ -30,7 +30,6 @@ use tempfile::TempDir;
 #[derive(Debug, Clone)]
 struct TestAgent {
     id: AgentId,
-    name: String,
     counter: usize,
     status: TestStatus,
     position: Option<Point<f64>>,
@@ -76,11 +75,10 @@ impl Agent for TestAgent {
 
         Ok(TestAgent {
             id,
-            name: "Restored".to_string(),
             counter: 0,
             status: TestStatus(row.status.clone()),
-            position: if row.position_x.is_some() && row.position_y.is_some() {
-                Some(Point::new(row.position_x.unwrap(), row.position_y.unwrap()))
+            position: if let (Some(x), Some(y)) = (row.position_x, row.position_y) {
+                Some(Point::new(x, y))
             } else {
                 None
             },
@@ -92,7 +90,6 @@ impl Agent for TestAgent {
 #[derive(Debug, Clone)]
 struct TestResource {
     id: ResourceId,
-    name: String,
     capacity: usize,
     load: usize,
 }
@@ -165,7 +162,6 @@ fn create_test_agents(count: usize) -> Vec<TestAgent> {
     (0..count)
         .map(|i| TestAgent {
             id: AgentId::new(),
-            name: format!("Agent_{}", i),
             counter: i,
             status: TestStatus(format!("Active_{}", i)),
             position: Some(Point::new(i as f64, i as f64 * 0.5)),
@@ -177,7 +173,6 @@ fn create_test_resources(count: usize) -> Vec<TestResource> {
     (0..count)
         .map(|i| TestResource {
             id: ResourceId::new(),
-            name: format!("Resource_{}", i),
             capacity: 100 + i,
             load: i % 10,
         })
@@ -513,8 +508,8 @@ async fn test_invalid_directory_error() {
     let result = manager.save_snapshot("test", data).await;
 
     // If it fails (as expected on most systems), verify it's an I/O error
-    if result.is_err() {
-        println!("Expected error occurred: {:?}", result.unwrap_err());
+    if let Err(e) = result {
+        println!("Expected error occurred: {:?}", e);
     }
 }
 

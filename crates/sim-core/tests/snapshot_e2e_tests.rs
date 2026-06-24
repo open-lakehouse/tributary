@@ -30,7 +30,6 @@ use tempfile::TempDir;
 #[derive(Debug, Clone)]
 struct TestAgent {
     id: AgentId,
-    name: String,
     counter: usize,
     status: TestStatus,
     position: Option<Point<f64>>,
@@ -76,11 +75,10 @@ impl Agent for TestAgent {
 
         Ok(TestAgent {
             id,
-            name: "Restored".to_string(),
             counter: 0,
             status: TestStatus(row.status.clone()),
-            position: if row.position_x.is_some() && row.position_y.is_some() {
-                Some(Point::new(row.position_x.unwrap(), row.position_y.unwrap()))
+            position: if let (Some(x), Some(y)) = (row.position_x, row.position_y) {
+                Some(Point::new(x, y))
             } else {
                 None
             },
@@ -95,7 +93,6 @@ impl Agent for TestAgent {
 #[derive(Debug, Clone)]
 struct TestResource {
     id: ResourceId,
-    name: String,
     capacity: usize,
     load: usize,
 }
@@ -153,7 +150,6 @@ impl Task for TestTask {
 #[derive(Debug, Clone)]
 struct TestWorkflow {
     id: WorkflowId,
-    name: String,
     steps: Vec<WorkflowStep>,
 }
 
@@ -218,7 +214,6 @@ fn populate_runner(
         for i in 0..agent_count {
             population.add_agent(TestAgent {
                 id: AgentId::new(),
-                name: format!("Agent_{}", i),
                 counter: 0,
                 status: TestStatus("Active".to_string()),
                 position: Some(Point::new(i as f64, i as f64)),
@@ -228,10 +223,9 @@ fn populate_runner(
 
     // Add resources
     if let Some(allocator) = runner.resources_mut() {
-        for i in 0..resource_count {
+        for _ in 0..resource_count {
             let _ = allocator.add_resource(TestResource {
                 id: ResourceId::new(),
-                name: format!("Resource_{}", i),
                 capacity: 10,
                 load: 0,
             });
@@ -244,7 +238,6 @@ fn populate_runner(
             let mut engine = WorkflowEngine::new();
             let workflow = TestWorkflow {
                 id: WorkflowId::new(),
-                name: format!("Workflow_{}", i),
                 steps: vec![
                     WorkflowStep {
                         step_index: 0,
@@ -383,10 +376,9 @@ async fn test_e2e_multi_handler_coordination() {
 
     // Modify ALL handlers
     if let Some(population) = runner.population_mut() {
-        for i in 0..10 {
+        for _ in 0..10 {
             population.add_agent(TestAgent {
                 id: AgentId::new(),
-                name: format!("Extra_{}", i),
                 counter: 0,
                 status: TestStatus("Extra".to_string()),
                 position: None,
@@ -395,10 +387,9 @@ async fn test_e2e_multi_handler_coordination() {
     }
 
     if let Some(allocator) = runner.resources_mut() {
-        for i in 0..5 {
+        for _ in 0..5 {
             let _ = allocator.add_resource(TestResource {
                 id: ResourceId::new(),
-                name: format!("ExtraRes_{}", i),
                 capacity: 5,
                 load: 0,
             });
@@ -473,7 +464,6 @@ async fn test_e2e_snapshot_branching() {
     if let Some(population) = runner.population_mut() {
         population.add_agent(TestAgent {
             id: AgentId::new(),
-            name: "PathB_Only".to_string(),
             counter: 0,
             status: TestStatus("PathB".to_string()),
             position: None,

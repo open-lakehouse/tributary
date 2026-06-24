@@ -20,7 +20,6 @@ use sim_core::{
 #[derive(Debug, Clone)]
 struct DemoAgent {
     id: AgentId,
-    name: String,
     tick_count: usize,
     status: DemoStatus,
 }
@@ -68,7 +67,6 @@ impl Agent for DemoAgent {
 
         Ok(DemoAgent {
             id,
-            name: "Restored Agent".to_string(),
             tick_count: 0,
             status: DemoStatus("Active".to_string()),
         })
@@ -79,7 +77,6 @@ impl Agent for DemoAgent {
 #[derive(Debug, Clone)]
 struct DemoResource {
     id: ResourceId,
-    name: String,
     capacity: usize,
     load: usize,
 }
@@ -163,10 +160,9 @@ async fn main() -> sim_core::Result<()> {
     // Setup population
     println!("\nSetting up simulation with 5 agents...");
     let mut population = PopulationHandler::new();
-    for i in 0..5 {
+    for _ in 0..5 {
         population.add_agent(DemoAgent {
             id: AgentId::new(),
-            name: format!("Agent {}", i),
             tick_count: 0,
             status: DemoStatus("Active".to_string()),
         });
@@ -176,10 +172,9 @@ async fn main() -> sim_core::Result<()> {
     // Setup resources
     println!("Adding 3 resources...");
     let mut allocator = ResourceAllocator::new();
-    for i in 0..3 {
+    for _ in 0..3 {
         let _ = allocator.add_resource(DemoResource {
             id: ResourceId::new(),
-            name: format!("Resource {}", i),
             capacity: 10,
             load: 0,
         });

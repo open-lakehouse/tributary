@@ -24,7 +24,7 @@ fn test_data_path(filename: &str) -> String {
 #[test]
 fn test_full_journey_lifecycle() {
     // Load real network
-    let network = RoadNetwork::load_from_file(&test_data_path("small_city_graph.json"))
+    let network = RoadNetwork::load_from_file(test_data_path("small_city_graph.json"))
         .expect("Failed to load test network");
 
     let mut handler = MovementHandler::new().with_network(network.clone());
@@ -100,7 +100,7 @@ fn test_full_journey_lifecycle() {
 #[test]
 fn test_rush_hour_impact_on_travel_time() {
     // Load network
-    let network = RoadNetwork::load_from_file(&test_data_path("small_city_graph.json"))
+    let network = RoadNetwork::load_from_file(test_data_path("small_city_graph.json"))
         .expect("Failed to load test network");
 
     let node_ids: Vec<_> = network.nodes.keys().copied().collect();
@@ -238,7 +238,7 @@ fn test_rush_hour_impact_on_travel_time() {
 /// on the same network without interference.
 #[test]
 fn test_concurrent_journeys_on_same_network() {
-    let network = RoadNetwork::load_from_file(&test_data_path("small_city_graph.json"))
+    let network = RoadNetwork::load_from_file(test_data_path("small_city_graph.json"))
         .expect("Failed to load test network");
 
     let mut handler = MovementHandler::new().with_network(network.clone());
@@ -307,7 +307,7 @@ fn test_concurrent_journeys_on_same_network() {
 /// to verify that network routes are typically longer (following roads).
 #[test]
 fn test_network_vs_straight_line_routing() {
-    let network = RoadNetwork::load_from_file(&test_data_path("small_city_graph.json"))
+    let network = RoadNetwork::load_from_file(test_data_path("small_city_graph.json"))
         .expect("Failed to load test network");
 
     let node_ids: Vec<_> = network.nodes.keys().copied().collect();
@@ -375,7 +375,7 @@ fn test_network_vs_straight_line_routing() {
 /// routing when nodes are too far from the network or the network is not loaded.
 #[test]
 fn test_graceful_fallback_when_network_unavailable() {
-    let network = RoadNetwork::load_from_file(&test_data_path("small_city_graph.json"))
+    let network = RoadNetwork::load_from_file(test_data_path("small_city_graph.json"))
         .expect("Failed to load test network");
 
     let handler = MovementHandler::new().with_network(network.clone());
@@ -522,7 +522,7 @@ fn test_time_of_day_boundaries() {
 /// This test verifies that journeys can traverse multiple road types.
 #[test]
 fn test_multiple_road_types_in_journey() {
-    let network = RoadNetwork::load_from_file(&test_data_path("small_city_graph.json"))
+    let network = RoadNetwork::load_from_file(test_data_path("small_city_graph.json"))
         .expect("Failed to load test network");
 
     // Analyze road types in the network

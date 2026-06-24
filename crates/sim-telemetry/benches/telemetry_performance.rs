@@ -143,7 +143,7 @@ fn benchmark_collector_processing(c: &mut Criterion) {
                     collector.add_generator(Box::new(EventToMetricGenerator::default()));
 
                     for event in &events {
-                        black_box(collector.process_event(black_box(event)));
+                        let _ = black_box(collector.process_event(black_box(event)));
                     }
 
                     black_box(collector.flush());
@@ -168,7 +168,7 @@ fn benchmark_collector_logs_only(c: &mut Criterion) {
                     collector.add_generator(Box::new(EventToLogGenerator::default()));
 
                     for event in &events {
-                        black_box(collector.process_event(black_box(event)));
+                        let _ = black_box(collector.process_event(black_box(event)));
                     }
 
                     black_box(collector.flush());
@@ -245,7 +245,7 @@ fn benchmark_end_to_end_pipeline(c: &mut Criterion) {
             collector.add_generator(Box::new(EventToMetricGenerator::default()));
 
             for event in &events {
-                collector.process_event(event);
+                let _ = collector.process_event(event);
             }
 
             let records = collector.flush();
@@ -267,9 +267,9 @@ fn benchmark_end_to_end_pipeline(c: &mut Criterion) {
                 .cloned()
                 .collect();
 
-            black_box(OtlpExporter::export_logs(&logs));
-            black_box(OtlpExporter::export_traces(&traces));
-            black_box(OtlpExporter::export_metrics(&metrics));
+            let _ = black_box(OtlpExporter::export_logs(&logs));
+            let _ = black_box(OtlpExporter::export_traces(&traces));
+            let _ = black_box(OtlpExporter::export_metrics(&metrics));
         });
     });
 }
