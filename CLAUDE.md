@@ -21,8 +21,8 @@
 **What this is NOT**: A production restaurant management system.
 
 ### Core Technologies Stack
-- **Rust** (Primary): Simulation engine, CLI, TUI — Rust edition 2024, MSRV 1.90
-- **Apache Arrow/DataFusion**: Columnar data processing (arrow 57, datafusion 51)
+- **Rust** (Primary): Simulation engine, CLI, TUI — Rust edition 2024, MSRV 1.91
+- **Apache Arrow/DataFusion**: Columnar data processing (arrow 58, datafusion 53.1)
 - **GeoArrow / H3**: Geospatial operations (H3 hexagonal indexing, geo 0.31, h3o 0.9)
 - **Python**: Analysis tools and bindings (via PyO3/Maturin, requires Python 3.11+)
 - **CloudEvents**: Event infrastructure (CloudEvents 1.0 spec)
@@ -360,4 +360,4 @@ uv pip install maturin[zig] && just build-py
 
 **Last Updated**: 2026-06-24
 **Simulation Version**: 0.0.1
-**Rust Edition**: 2024 / MSRV 1.90
+**Rust Edition**: 2024 / MSRV 1.91

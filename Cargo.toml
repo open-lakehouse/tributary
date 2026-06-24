@@ -7,10 +7,10 @@ version = "0.0.1"
 authors = ["Robert Pack <robstar.pack@gmail.com>"]
 edition = "2024"
 license = "MIT OR Apache-2.0"
-rust-version = "1.90"
+rust-version = "1.91"
 
 [workspace.dependencies]
-chrono = { version = "^0.4.40", features = ["serde"] }
+chrono = { version = "0.4.44", features = ["serde"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0" }
 thiserror = { version = "2" }
@@ -20,8 +20,8 @@ uuid = { version = "1", features = ["serde"] }
 humantime = { version = "2" }
 
 # arrow
-arrow = { version = "57" }
-parquet = { version = "57", features = ["async", "object_store"] }
+arrow = { version = "58" }
+parquet = { version = "58", features = ["async", "object_store"] }
 
 # datafusion
-datafusion = "51"
+datafusion = "53.1"

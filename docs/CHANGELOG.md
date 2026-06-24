@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — align dependencies with Hydrofoil for integration
+- Bumped workspace dependencies to match the Hydrofoil sibling repository so
+  Tributary can be consumed as a dependency from it without graph conflicts:
+  `arrow` 57 → 58, `parquet` 57 → 58, `datafusion` 51 → 53.1,
+  `chrono` ^0.4.40 → 0.4.44, and workspace `rust-version` 1.90 → 1.91.
+- No source changes were required; the bumps are API-compatible for this
+  workspace. Verified that the full arrow/datafusion graph resolves to a single
+  version (arrow 58.3, datafusion 53.1, object_store 0.13.2, sqlparser 0.61)
+  when `sim-core` is pulled into Hydrofoil.
+
 ### Removed — legacy `universe` crate and proto/buf pipeline
 - Deleted `crates/universe` (legacy DataFusion-based engine; no remaining consumers).
 - Deleted `proto/`, `buf.gen.yaml`, `proto/buf.yaml`, and the `just generate` recipe —
