@@ -2,13 +2,29 @@
 
 use chrono::{DateTime, Duration, Utc};
 use geo::Point;
-use rand::Rng;
 use serde_json::Value;
 use sim_core::{
     Agent, AgentId, AgentStatus, SimulationContext,
     population::{AgentTickResult, Demand},
 };
 use std::collections::HashMap;
+
+/// A stateless uniform draw in `[0, 1)` derived from a seed and the step.
+///
+/// Customer RNG state cannot live in a struct field: `PopulationHandler` stores
+/// agents in an Arrow `RecordBatch` and reconstructs each agent from its row on
+/// every tick, so any in-struct RNG would lose its advanced state. Instead the
+/// order decision is computed *statelessly* from the persisted `rng_seed` and the
+/// current step — fully deterministic and reconstruction-proof. Uses a SplitMix64
+/// finalizer over `rng_seed ^ mix(step)` so distinct seeds/steps decorrelate.
+fn uniform_draw(rng_seed: u64, step: usize) -> f64 {
+    let mut z = rng_seed.wrapping_add((step as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15));
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    z ^= z >> 31;
+    // Map the top 53 bits to [0, 1) for a uniform f64.
+    (z >> 11) as f64 / (1u64 << 53) as f64
+}
 
 /// Customer status states
 #[derive(Debug, Clone, PartialEq)]
@@ -60,10 +76,15 @@ pub struct Customer {
     pub location: Point<f64>,
     pub order_probability: f64,
     pub eating_duration: Duration,
+    /// Seed for the (stateless) order-decision draw. Set deterministically from
+    /// the global seed when reproducibility is requested (see
+    /// [`Customer::with_params_seeded`]), otherwise from system entropy. Persisted
+    /// in the Arrow row so reconstruction preserves it.
+    rng_seed: u64,
 }
 
 impl Customer {
-    /// Create a new customer
+    /// Create a new customer (entropy-seeded; not reproducible).
     pub fn new(location: Point<f64>) -> Self {
         Self {
             id: AgentId::new(),
@@ -71,10 +92,11 @@ impl Customer {
             location,
             order_probability: 0.1, // 10% chance to order each tick
             eating_duration: Duration::minutes(20),
+            rng_seed: rand::random(),
         }
     }
 
-    /// Create a customer with custom parameters
+    /// Create a customer with custom parameters (entropy-seeded).
     pub fn with_params(
         location: Point<f64>,
         order_probability: f64,
@@ -86,6 +108,28 @@ impl Customer {
             location,
             order_probability,
             eating_duration,
+            rng_seed: rand::random(),
+        }
+    }
+
+    /// Create a customer with custom parameters and a specific decision seed.
+    ///
+    /// Use this for reproducible runs. Callers typically derive `seed` from a
+    /// global simulation seed mixed with the customer's construction index so
+    /// each customer's order decisions follow a distinct deterministic stream.
+    pub fn with_params_seeded(
+        location: Point<f64>,
+        order_probability: f64,
+        eating_duration: Duration,
+        seed: u64,
+    ) -> Self {
+        Self {
+            id: AgentId::new(),
+            status: CustomerStatus::Idle,
+            location,
+            order_probability,
+            eating_duration,
+            rng_seed: seed,
         }
     }
 
@@ -124,9 +168,11 @@ impl Agent for Customer {
 
         match &self.status {
             CustomerStatus::Idle => {
-                // Decide whether to order
-                let mut rng = rand::rng();
-                if rng.random::<f64>() < self.order_probability {
+                // Decide whether to order using a stateless draw keyed on the
+                // (persisted) seed and the current step, so the decision is
+                // reproducible under a global seed and survives the Arrow
+                // reconstruction that happens every tick.
+                if uniform_draw(self.rng_seed, ctx.step()) < self.order_probability {
                     self.status = CustomerStatus::Ordering;
                 }
             }
@@ -192,6 +238,12 @@ impl Agent for Customer {
         map.insert(
             "eating_duration_s".to_string(),
             serde_json::Value::Number(self.eating_duration.num_seconds().into()),
+        );
+        // Persist the decision seed so the stateless order draw stays
+        // deterministic across the Arrow reconstruction done each tick.
+        map.insert(
+            "rng_seed".to_string(),
+            serde_json::Value::Number(self.rng_seed.into()),
         );
 
         match &self.status {
@@ -283,12 +335,24 @@ impl Agent for Customer {
             .map(chrono::Duration::seconds)
             .unwrap_or_else(|| chrono::Duration::minutes(20));
 
+        // Recover the persisted decision seed. Falling back to a seed derived
+        // from the (stable) AgentId keeps old snapshots — written before the
+        // rng_seed field existed — deterministic on restore.
+        let rng_seed = metadata
+            .get("rng_seed")
+            .and_then(|v| v.as_u64())
+            .unwrap_or_else(|| {
+                let (hi, lo) = id.as_uuid().as_u64_pair();
+                hi ^ lo
+            });
+
         Ok(Customer {
             id,
             status,
             location,
             order_probability,
             eating_duration,
+            rng_seed,
         })
     }
 }
@@ -379,6 +443,7 @@ mod tests {
                 location: geo::Point::new(1.0, 2.0),
                 order_probability: 0.1,
                 eating_duration: chrono::Duration::minutes(20),
+                rng_seed: 0,
             };
 
             // Convert to Arrow row

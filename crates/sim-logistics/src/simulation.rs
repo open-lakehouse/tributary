@@ -52,6 +52,13 @@ use sim_core::{
 use sim_events::{Event, EventDispatcher};
 use std::collections::HashMap;
 
+/// Build a `StdRng` from a `u64` seed (expanded to the 32-byte seed it needs).
+fn seeded_std_rng(seed: u64) -> rand::rngs::StdRng {
+    let mut seed_array = [0u8; 32];
+    seed_array[0..8].copy_from_slice(&seed.to_le_bytes());
+    rand::SeedableRng::from_seed(seed_array)
+}
+
 /// Metadata tracked for each in-flight workflow instance
 struct WorkflowMeta {
     tracking_number: String,
@@ -106,6 +113,20 @@ impl LogisticsSimulationHooks {
         delivery_addresses: Vec<Point<f64>>,
         total_drivers: usize,
     ) -> Self {
+        Self::new_seeded(warehouses, delivery_addresses, total_drivers, None)
+    }
+
+    /// Create hooks with an optional seed for the demand-to-workflow mapping RNG.
+    pub fn new_seeded(
+        warehouses: Vec<(String, Point<f64>)>,
+        delivery_addresses: Vec<Point<f64>>,
+        total_drivers: usize,
+        seed: Option<u64>,
+    ) -> Self {
+        let rng = match seed {
+            Some(s) => seeded_std_rng(s),
+            None => rand::SeedableRng::from_seed(rand::random()),
+        };
         Self {
             metrics: LogisticsMetrics::default(),
             pending_shipments: Vec::new(),
@@ -114,7 +135,7 @@ impl LogisticsSimulationHooks {
             delivery_time_samples: Vec::new(),
             driver_utilization_samples: Vec::new(),
             total_drivers,
-            rng: rand::SeedableRng::from_seed(rand::random()),
+            rng,
             warehouses,
             delivery_addresses,
             package_counter: 0,
@@ -302,11 +323,20 @@ impl LogisticsSimulationHooks {
 pub fn build_logistics_runner(
     verbose: bool,
 ) -> SimulationRunner<Driver, SortingStation, ShipmentTask, PackageShipmentWorkflow> {
+    build_logistics_runner_seeded(verbose, None)
+}
+
+/// Build the logistics runner, optionally with a global seed for reproducibility.
+pub fn build_logistics_runner_seeded(
+    verbose: bool,
+    seed: Option<u64>,
+) -> SimulationRunner<Driver, SortingStation, ShipmentTask, PackageShipmentWorkflow> {
     let config = SimulationConfig {
         name: "logistics_simulation".to_string(),
         time_step: Duration::seconds(30),
         verbose,
-        custom: serde_json::Map::new(),
+        seed,
+        ..Default::default()
     };
 
     let mut runner = SimulationRunner::new(config);
@@ -334,8 +364,15 @@ pub fn build_logistics_runner(
         ShipmentTaskFactory::new(String::new(), 0.0, String::new(), Point::new(0.0, 0.0));
     runner.set_task_factory(Box::new(task_factory));
 
-    // Demand generator — 10 packages/hour autonomous creation
-    let demand_gen = PoissonDemandGenerator::new(10.0, "package_shipment");
+    // Demand generator — 10 packages/hour autonomous creation (seeded if requested)
+    let demand_gen = match seed {
+        Some(global) => PoissonDemandGenerator::with_seed(
+            10.0,
+            "package_shipment",
+            sim_core::derive_seed(global, "logistics-demand"),
+        ),
+        None => PoissonDemandGenerator::new(10.0, "package_shipment"),
+    };
     runner.set_demand_generator(Box::new(demand_gen));
 
     runner
@@ -361,7 +398,17 @@ impl LogisticsSimulation {
     /// - 1000 delivery addresses
     /// - 20 drivers
     pub fn new() -> Self {
-        let mut runner = build_logistics_runner(false);
+        Self::new_seeded(None)
+    }
+
+    /// Create a logistics simulation with an optional global seed.
+    ///
+    /// When `seed` is `Some`, RNG-driven decisions (demand generation, the
+    /// random delivery-address layout, and demand-to-workflow mapping in the
+    /// hooks) are reproducible run-to-run. Equivalent to [`Self::new`] when
+    /// `seed` is `None`.
+    pub fn new_seeded(seed: Option<u64>) -> Self {
+        let mut runner = build_logistics_runner_seeded(false, seed);
 
         // Create warehouses
         let warehouses = vec![
@@ -379,8 +426,12 @@ impl LogisticsSimulation {
             .unwrap(),
         ];
 
-        // Create delivery addresses (1000 addresses in Bay Area)
-        let mut rng = rand::rng();
+        // Create delivery addresses (1000 addresses in Bay Area). Seed the
+        // scatter RNG when reproducibility is requested.
+        let mut rng: rand::rngs::StdRng = match seed {
+            Some(global) => seeded_std_rng(sim_core::derive_seed(global, "logistics-addresses")),
+            None => rand::SeedableRng::from_seed(rand::random()),
+        };
         let delivery_addresses: Vec<DeliveryAddress> = (0..1000)
             .map(|i| {
                 let lat = 37.7 + rng.random::<f64>() * 0.2;
@@ -402,7 +453,12 @@ impl LogisticsSimulation {
             .collect();
         let address_points: Vec<Point<f64>> =
             delivery_addresses.iter().map(|a| a.location).collect();
-        let hooks = LogisticsSimulationHooks::new(warehouse_info, address_points, 20);
+        let hooks = LogisticsSimulationHooks::new_seeded(
+            warehouse_info,
+            address_points,
+            20,
+            seed.map(|g| sim_core::derive_seed(g, "logistics-hooks")),
+        );
         runner.set_hooks(Box::new(hooks));
 
         let mut sim = Self {

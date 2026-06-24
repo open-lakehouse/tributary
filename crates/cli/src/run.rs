@@ -57,6 +57,11 @@ pub(crate) struct RunArgs {
     /// Skip TUI; print a JSON summary to stdout when done (useful for scripting/CI).
     #[arg(long)]
     no_tui: bool,
+
+    /// Global RNG seed for reproducible runs. When set, RNG-driven decisions
+    /// (demand, customer ordering) are identical run-to-run for the same params.
+    #[arg(long)]
+    seed: Option<u64>,
 }
 
 pub(super) async fn handle(args: RunArgs) -> Result<()> {
@@ -110,7 +115,12 @@ async fn handle_headless(args: RunArgs) -> Result<()> {
             .expect("sim thread runtime");
         let _guard = rt.enter();
 
-        let mut sim = KitchenSimulation::new(args.num_kitchens, args.kitchen_capacity, false);
+        let mut sim = KitchenSimulation::new_seeded(
+            args.num_kitchens,
+            args.kitchen_capacity,
+            false,
+            args.seed,
+        );
         sim.add_customers(args.num_customers);
         sim.runner_mut().context_mut().set_simulation_id(sim_id);
         if let Some(st) = start_time {
@@ -375,7 +385,12 @@ async fn handle_tui(args: RunArgs) -> Result<()> {
             .expect("sim thread runtime");
         let _guard = rt.enter();
 
-        let mut sim = KitchenSimulation::new(args.num_kitchens, args.kitchen_capacity, false);
+        let mut sim = KitchenSimulation::new_seeded(
+            args.num_kitchens,
+            args.kitchen_capacity,
+            false,
+            args.seed,
+        );
         sim.add_customers(args.num_customers);
 
         // Inject the pre-registered simulation ID

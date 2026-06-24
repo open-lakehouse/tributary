@@ -546,7 +546,14 @@ impl SimulationHooks for KitchenSimulationHooks {
         let current_time = ctx.current_time();
         let mut completed_order_ids = Vec::new();
 
-        for (order_id, order_info) in self.orders.iter_mut() {
+        // Iterate in a deterministic order (orders are keyed by random UUIDs, so
+        // raw HashMap iteration order varies run-to-run). Sorting the keys keeps
+        // event emission order reproducible under a fixed seed.
+        let mut order_ids: Vec<String> = self.orders.keys().cloned().collect();
+        order_ids.sort_unstable();
+
+        for order_id in &order_ids {
+            let order_info = self.orders.get_mut(order_id).expect("key from this map");
             if order_info.completed_at.is_none()
                 && let Some(assigned_at) = order_info.assigned_at
             {
@@ -871,10 +878,25 @@ pub fn build_simulation(
     kitchen_capacity: usize,
     verbose: bool,
 ) -> SimulationRunner<Customer, Kitchen, Order, FoodPrepWorkflow> {
+    build_simulation_seeded(num_kitchens, kitchen_capacity, verbose, None)
+}
+
+/// Build a simulation, optionally with a global seed for reproducibility.
+///
+/// When `seed` is `Some`, RNG-driven decisions (demand generation, customer
+/// ordering) become reproducible run-to-run. See [`build_simulation`] for the
+/// unseeded variant.
+pub fn build_simulation_seeded(
+    num_kitchens: usize,
+    kitchen_capacity: usize,
+    verbose: bool,
+    seed: Option<u64>,
+) -> SimulationRunner<Customer, Kitchen, Order, FoodPrepWorkflow> {
     let config = sim_core::SimulationConfig {
         name: "ghost-kitchen".to_string(),
         time_step: chrono::Duration::seconds(30), // 30 second steps
         verbose,
+        seed,
         ..Default::default()
     };
 
@@ -912,6 +934,7 @@ pub fn build_simulation_with_demand(
     use std::collections::HashMap;
 
     let mut runner = build_simulation(num_kitchens, kitchen_capacity, verbose);
+    let seed = runner.context().config().seed;
 
     // Hourly patterns: lunch (12-1pm), dinner (6-8pm) peaks
     let hourly_multipliers = [
@@ -921,8 +944,15 @@ pub fn build_simulation_with_demand(
         2.5, 2.0, 1.5, 1.0, 0.7, 0.5, // 6pm-12am (dinner peak, wind down)
     ];
 
-    // Base Poisson: 10 orders/hour average
-    let poisson = Box::new(PoissonDemandGenerator::new(10.0, "food_order"));
+    // Base Poisson: 10 orders/hour average (seeded when reproducibility requested)
+    let poisson: Box<PoissonDemandGenerator> = match seed {
+        Some(global) => Box::new(PoissonDemandGenerator::with_seed(
+            10.0,
+            "food_order",
+            sim_core::derive_seed(global, "poisson"),
+        )),
+        None => Box::new(PoissonDemandGenerator::new(10.0, "food_order")),
+    };
 
     // Time-of-day wrapper
     let time_of_day = Box::new(TimeOfDayDemandGenerator::new(poisson, hourly_multipliers));
@@ -945,7 +975,14 @@ pub fn build_simulation_with_demand(
     let h3_airport = airport_latlng.to_cell(Resolution::Nine);
     h3_probs.insert(h3_airport, 0.2);
 
-    let spatial = Box::new(SpatialDemandGenerator::new(time_of_day, h3_probs));
+    let spatial: Box<SpatialDemandGenerator> = match seed {
+        Some(global) => Box::new(SpatialDemandGenerator::with_seed(
+            time_of_day,
+            h3_probs,
+            sim_core::derive_seed(global, "spatial"),
+        )),
+        None => Box::new(SpatialDemandGenerator::new(time_of_day, h3_probs)),
+    };
 
     runner.set_demand_generator(spatial);
     runner
@@ -958,15 +995,24 @@ pub fn add_customers(
 ) {
     let mut population = PopulationHandler::new();
 
+    // If the simulation is seeded, give each customer a distinct deterministic
+    // sub-seed derived from the global seed, the "customer" label, and its
+    // construction index — so the order decisions are reproducible.
+    let seed = runner.context().config().seed;
+
     for i in 0..num_customers {
         // Distribute customers around a point
         let location = geo::Point::new(-122.4 + (i as f64 * 0.001), 37.8 + (i as f64 * 0.001));
 
-        let customer = Customer::with_params(
-            location,
-            0.2, // 20% chance to order per tick
-            chrono::Duration::minutes(15),
-        );
+        let customer = match seed {
+            Some(global) => Customer::with_params_seeded(
+                location,
+                0.2, // 20% chance to order per tick
+                chrono::Duration::minutes(15),
+                sim_core::derive_seed(global, "customer").wrapping_add(i as u64),
+            ),
+            None => Customer::with_params(location, 0.2, chrono::Duration::minutes(15)),
+        };
 
         population.add_agent(customer);
     }
@@ -1043,6 +1089,26 @@ impl KitchenSimulation {
     /// Create a new kitchen simulation
     pub fn new(num_kitchens: usize, kitchen_capacity: usize, verbose: bool) -> Self {
         let runner = build_simulation(num_kitchens, kitchen_capacity, verbose);
+        let event_dispatcher = EventDispatcher::new();
+
+        Self {
+            runner,
+            event_dispatcher,
+            done_emitted: HashSet::new(),
+        }
+    }
+
+    /// Create a new kitchen simulation with an optional global seed.
+    ///
+    /// When `seed` is `Some`, RNG-driven decisions are reproducible run-to-run.
+    /// Equivalent to [`Self::new`] when `seed` is `None`.
+    pub fn new_seeded(
+        num_kitchens: usize,
+        kitchen_capacity: usize,
+        verbose: bool,
+        seed: Option<u64>,
+    ) -> Self {
+        let runner = build_simulation_seeded(num_kitchens, kitchen_capacity, verbose, seed);
         let event_dispatcher = EventDispatcher::new();
 
         Self {

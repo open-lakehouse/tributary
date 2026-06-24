@@ -39,7 +39,7 @@ pub mod utils;
 pub mod workflows;
 
 // Re-export commonly used types
-pub use context::{SimulationConfig, SimulationContext, TickResult, TimeMode};
+pub use context::{SimulationConfig, SimulationContext, TickResult, TimeMode, derive_seed};
 pub use demand::{
     CompositeDemandGenerator, DemandGenerator, PoissonDemandGenerator, SpatialDemandGenerator,
     TimeOfDayDemandGenerator,

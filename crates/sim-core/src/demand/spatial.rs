@@ -6,7 +6,10 @@ use crate::population::Demand;
 use geo::Point;
 use h3o::{CellIndex, LatLng};
 use rand::Rng;
+use rand::SeedableRng;
+use rand::rngs::StdRng;
 use std::collections::HashMap;
+use std::sync::Mutex;
 
 /// Spatial demand generator
 ///
@@ -37,6 +40,9 @@ pub struct SpatialDemandGenerator {
     pub base_generator: Box<dyn DemandGenerator>,
     /// Probability weights for H3 cells
     pub h3_probabilities: HashMap<CellIndex, f64>,
+    /// RNG for spatial cell sampling. `Mutex` provides interior mutability so
+    /// `generate(&self)` can sample without `&mut self`.
+    rng: Mutex<StdRng>,
 }
 
 impl SpatialDemandGenerator {
@@ -53,6 +59,41 @@ impl SpatialDemandGenerator {
     pub fn new(
         base_generator: Box<dyn DemandGenerator>,
         h3_probabilities: HashMap<CellIndex, f64>,
+    ) -> Self {
+        Self::build(
+            base_generator,
+            h3_probabilities,
+            StdRng::from_seed(rand::random()),
+        )
+    }
+
+    /// Create a spatial demand generator with a specific seed for reproducibility.
+    ///
+    /// Mirrors [`PoissonDemandGenerator::with_seed`](super::PoissonDemandGenerator::with_seed):
+    /// the `u64` seed is expanded to a 32-byte `StdRng` seed.
+    pub fn with_seed(
+        base_generator: Box<dyn DemandGenerator>,
+        h3_probabilities: HashMap<CellIndex, f64>,
+        seed: u64,
+    ) -> Self {
+        let mut seed_array = [0u8; 32];
+        seed_array[0..8].copy_from_slice(&seed.to_le_bytes());
+        Self::build(
+            base_generator,
+            h3_probabilities,
+            StdRng::from_seed(seed_array),
+        )
+    }
+
+    /// Shared constructor: validates inputs and stores the provided RNG.
+    ///
+    /// # Panics
+    ///
+    /// Panics if any probability is negative or if the probabilities map is empty.
+    fn build(
+        base_generator: Box<dyn DemandGenerator>,
+        h3_probabilities: HashMap<CellIndex, f64>,
+        rng: StdRng,
     ) -> Self {
         assert!(
             !h3_probabilities.is_empty(),
@@ -72,6 +113,7 @@ impl SpatialDemandGenerator {
         Self {
             base_generator,
             h3_probabilities,
+            rng: Mutex::new(rng),
         }
     }
 
@@ -112,11 +154,11 @@ impl DemandGenerator for SpatialDemandGenerator {
         // Generate base demands
         let mut demands = self.base_generator.generate(ctx);
 
-        // Add spatial locations
-        let mut rng = rand::thread_rng();
+        // Add spatial locations using the (optionally seeded) field RNG.
+        let mut rng = self.rng.lock().unwrap();
 
         for demand in &mut demands {
-            let cell = self.sample_h3_cell(&mut rng);
+            let cell = self.sample_h3_cell(&mut *rng);
             demand.location = Some(Self::h3_cell_to_point(cell));
         }
 
