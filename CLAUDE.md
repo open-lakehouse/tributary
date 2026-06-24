@@ -1,7 +1,6 @@
 # AI Agent Instructions for Chef Casper's Management System
 
-> **Purpose**: This file provides AI coding assistants with essential context and
-> guidelines for working with this simulation codebase. Last updated: 2026-03-19
+> **Purpose**: Essential context and guidelines for AI coding assistants working in this simulation codebase.
 
 ## Quick Reference
 
@@ -9,7 +8,7 @@
 |------|---------|-------|
 | Code generation | `just generate` | After any `.proto` changes |
 | Run simulation (TUI) | `just run [duration]` | Default: 100 steps; opens live TUI |
-| Run sim-kitchen | `just sim-kitchen [steps]` | Default: 100 steps, writes Parquet events |
+| Run sim-kitchen | `just sim-kitchen [steps]` | Default: 100 steps, writes artifacts |
 | Python dev | `just build-py` | Build Python bindings |
 | Notebooks | `just scratch` | Launch Marimo notebook |
 | Inspect events | `just inspect` | Open sim_events.py Marimo notebook |
@@ -17,11 +16,9 @@
 
 ## Project Identity
 
-**What this is**: A high-performance agent-based simulation system for generating realistic
-operational data for a fictional ghost kitchen management company (project name: Tributary).
+**What this is**: A high-performance agent-based simulation system for generating realistic operational data for a fictional ghost kitchen management company (project name: Tributary).
 
-**What this is NOT**: A production restaurant management system (see legacy Python/SQLite
-implementation in README.md for that context)
+**What this is NOT**: A production restaurant management system.
 
 ### Core Technologies Stack
 - **Rust** (Primary): Simulation engine, CLI, TUI — Rust edition 2024, MSRV 1.90
@@ -43,6 +40,7 @@ management/
 ├── crates/
 │   ├── sim-core/          # Generic agent-based simulation framework (domain-agnostic)
 │   ├── sim-events/        # CloudEvents 1.0 event infrastructure
+│   ├── sim-artifacts/     # Artifact generation from events (emails, API calls, web events, etc.)
 │   ├── sim-geo/           # Geospatial abstractions (H3, road networks, routing)
 │   ├── sim-kitchen/       # Ghost kitchen domain — reference implementation
 │   ├── sim-logistics/     # Package delivery domain — validates framework generality
@@ -50,29 +48,28 @@ management/
 │   ├── universe/          # Legacy simulation engine (Arrow/DataFusion, Python bindings)
 │   └── cli/               # Binary (caspers) — TUI runner (no server)
 ├── proto/                 # Protocol buffer schemas (buf toolchain)
-├── python/                # Python bindings (PyO3/Maturin)
+├── python/                # Python bindings (PyO3/Maturin) for universe crate
 ├── notebooks/             # Marimo/Jupyter analysis notebooks
 ├── ui/                    # Frontend UI
 ├── docs/                  # Documentation site (ARCHITECTURE.md lives here)
-└── .caspers/              # Runtime working directory (gitignored)
+└── output/                # Simulation output (artifacts written here; gitignored)
 ```
 
-### The sim-* Framework (New)
+### The sim-* Framework
 
 The `sim-*` crates form a layered, domain-agnostic framework:
 
 ```
 sim-core        ← Core abstractions: agents, resources, workflows, runner, snapshots
 sim-events      ← CloudEvents emission and Parquet persistence
+sim-artifacts   ← Artifact generation: converts events into domain artifacts
 sim-geo         ← Geospatial: H3, road network routing, journeys
 sim-telemetry   ← OTel-compatible telemetry from simulation events
 sim-kitchen     ← Ghost kitchen domain (reference impl, uses all above)
 sim-logistics   ← Package delivery domain (validates framework generality)
 ```
 
-**Key principle**: `sim-kitchen` and `sim-logistics` use the framework with zero
-modifications to `sim-core`/`sim-geo`/`sim-events` — domain logic lives entirely
-in the domain crates.
+**Key principle**: `sim-kitchen` and `sim-logistics` use the framework with zero modifications to `sim-core`/`sim-events` — domain logic lives entirely in the domain crates.
 
 ### sim-core Public API
 
@@ -104,12 +101,33 @@ AgentId, LocationId, ResourceId, TaskId, WorkflowId
 move_towards(location, target, speed, step_secs) -> Point
 ```
 
+### sim-artifacts Public API
+
+```rust
+// Core trait — implement this to generate artifacts from events
+ArtifactGenerator<P>   // P = domain profiles (e.g. customer data, pricing tables)
+ArtifactContext        // passed to each generator: event, sim_time, profiles, run_id
+
+// Collection & processing
+ArtifactCollector<P>              // accumulates artifacts from registered generators
+ArtifactCollectorProcessor<P>     // LocalEventProcessor adapter; call flush_to_storage() at run end
+
+// Artifact types
+Artifact, ApiCallArtifact, EmailArtifact, SmsArtifact,
+PushArtifact, WebEventArtifact, DataArtifact, DocumentArtifact
+
+// Storage
+ArtifactStorage, ParquetArtifactStorage, NoOpStorage
+```
+
+Output is written to `output/artifacts/` by default.
+
 ### SimulationRunner
 
 The runner is the central orchestrator. Build it with the builder pattern:
 
 ```rust
-SimulationRunner::new(ctx)
+SimulationRunner::new(config)
     .with_population(PopulationHandler::new())
     .with_resources(ResourceAllocator::new())
     .set_workflow_registry(registry)      // WorkflowRegistry is the ONLY workflow path
@@ -130,8 +148,6 @@ Each simulation step (via `runner.tick()` or `runner.run_for_steps(n)`):
 
 ### SimulationHooks Trait
 
-Implement this to inject domain logic into the runner loop:
-
 ```rust
 pub trait SimulationHooks: Send + Sync + 'static {
     fn on_start(&mut self, ctx: &SimulationContext) -> Result<()>;
@@ -148,9 +164,8 @@ pub trait SimulationHooks: Send + Sync + 'static {
 ### Data Flow
 
 1. **Initialization**: Load configs → construct agents/resources/workflows → build runner
-2. **Simulation Loop**: Runner ticks → hooks inject domain logic → events emitted
-3. **Events**: CloudEvents batched into Arrow RecordBatches → written to Parquet
-4. **Output**: Parquet files in `.caspers/` for analysis via notebooks
+2. **Simulation Loop**: Runner ticks → hooks inject domain logic → events emitted via CloudEvents
+3. **Artifacts**: `ArtifactCollectorProcessor` converts events → domain artifacts → Parquet files in `output/artifacts/`
 
 ---
 
@@ -162,7 +177,9 @@ pub trait SimulationHooks: Send + Sync + 'static {
 - **Kitchen resources**: Capacity-constrained, auto-tracked load via `ResourceAllocator`
 - **Order tasks**: Flow through kitchen pipeline
 - **Events**: `io.kitchen.order.{created,assigned,completed}`, `io.kitchen.customer.{eating,done}`
-- **Entry point**: `KitchenSimulation::new(kitchens, capacity, verbose)` or `build_simulation()`
+- **Artifacts**: payment authorizations, order confirmations, web events, inventory reports
+- **Entry points**: `KitchenSimulation::new(num_kitchens, capacity, verbose)` or `build_simulation()`
+- **Run methods**: `run_for_steps(n)` (no channel) or `run_controlled_for(max)` (control channel, all modes)
 
 ### sim-logistics (Package Delivery)
 
@@ -175,9 +192,7 @@ pub trait SimulationHooks: Send + Sync + 'static {
 
 ### universe (Legacy)
 
-The `universe` crate is the **legacy** simulation engine. It is not being extended —
-new domain work should use the `sim-*` framework. It continues to run alongside
-the new framework but will eventually be replaced.
+The `universe` crate is the **legacy** simulation engine. It is not being extended — new domain work should use the `sim-*` framework. It continues to run alongside the new framework but will eventually be replaced.
 
 ---
 
@@ -189,11 +204,15 @@ GPG commit signing is required on this repository. The GPG PIN prompt requires a
 
 1. Run `cargo clippy --workspace --fix --allow-dirty` to apply automatic lint fixes (may change code)
 2. Run `cargo fmt --all` to format all code (including anything clippy rewrote)
-3. Stage files (`git add ...`)
-4. Prepare the commit message
+3. **Update documentation** — before staging, check and update any affected docs:
+   - `docs/CHANGELOG.md` — add an entry under `[Unreleased]` for every user-visible change
+   - `docs/api-reference/` — update API signatures for any changed public interfaces
+   - `CLAUDE.md` — update if commands, rules, or public APIs documented here have changed
+   - `README.md` — update if project-level usage or entry points changed
+4. Stage files with `git add <specific files>` — do this programmatically (via Bash tool)
 5. Output a ready-to-paste `git commit` command for the user to run in their terminal
 
-Steps 1 and 2 must always run in this order before staging — clippy may rewrite code that then needs formatting, and the pre-commit hook enforces `cargo fmt`, so unformatted files will cause it to abort the commit.
+Steps 1 and 2 must always run in this order before staging — clippy may rewrite code that then needs formatting, and the pre-commit hook enforces `cargo fmt`. Documentation updates (step 3) must happen before staging so all changes land in the same commit. Step 4 (staging) must be done by the agent so the user only needs to paste and run a single commit command.
 
 ### Template
 
@@ -213,33 +232,32 @@ The `Co-authored-by: Isaac` trailer must be included on every commit.
 
 - **Types**: `feat`, `fix`, `refactor`, `docs`, `test`, `chore`
 - Subject line ≤ 72 characters, imperative mood ("add", not "added")
-- Body explains *what* changed and *why* — bullet points are fine for multi-part changes
-- List affected crates in the body when changes span multiple packages
+- Body explains *what* changed and *why*
+- List affected crates when changes span multiple packages
 
 ---
 
 ## Critical Rules
 
-### 🚨 NEVER DO THIS
+### NEVER DO THIS
 1. **Edit generated code** in `crates/universe/src/models/gen/` — changes will be overwritten
 2. **Skip `just generate`** after modifying `.proto` files — will cause compilation errors
 3. **Use non-workspace dependencies** — must be defined in root `Cargo.toml` `[workspace.dependencies]`
-4. **Commit `.caspers/` directory** — runtime data only, gitignored
+4. **Commit `.caspers/` or `output/` directories** — runtime data only, gitignored
 5. **Commit `.claude/worktrees/` or `.claude/projects/`** — agent working state, gitignored
-6. **Mix time zones** — all timestamps are UTC, be explicit
+6. **Mix time zones** — all timestamps are UTC, use `ctx.current_time()` for simulation time
 7. **Use `set_workflow_engine()`** — removed; use `set_workflow_registry()` only
 8. **Hardcode step duration as `30.0`** — use `ctx.time_step().num_seconds() as f64`
-9. **Run `git commit` directly** — GPG signing requires interactive TTY; prepare the command for the user instead (see Git Commits section above)
-10. **Stage files before running clippy and fmt** — always run `cargo clippy --workspace --fix --allow-dirty` then `cargo fmt --all` first; clippy may rewrite code that needs formatting, and the pre-commit hook will abort if files are not already formatted
+9. **Run `git commit` directly** — GPG signing requires interactive TTY; prepare the command for the user instead
+10. **Stage files before running clippy and fmt** — always run clippy then fmt first
 
-### ✅ ALWAYS DO THIS
+### ALWAYS DO THIS
 1. **Run `just generate`** after proto changes
-2. **Use `WorkflowRegistry`** (not single engine) when wiring workflows in `SimulationRunner`
+2. **Use `WorkflowRegistry`** when wiring workflows in `SimulationRunner`
 3. **Use `ctx.time_step()`** for step duration in agent tick logic
-4. **Use `sim_core::move_towards()`** for movement — don't duplicate in domain crates
-5. **Consider memory usage** when working with large simulations
+4. **Use `ctx.current_time()`** for simulation timestamps — never `Utc::now()` in simulation code
+5. **Use `sim_core::move_towards()`** for movement — don't duplicate in domain crates
 6. **Add tests** in `*_tests.rs` files alongside implementation
-7. **Check `justfile`** for correct command usage
 
 ---
 
@@ -276,23 +294,10 @@ Model after `sim-kitchen` (reference implementation):
 4. Update state management in `crates/universe/src/state/`
 5. Test with `cargo test`
 
-### Working with Arrow Data
-
-```rust
-// Preferred: Use DataFusion for complex operations
-let ctx = SessionContext::new();
-ctx.register_table("orders", orders_table)?;
-let df = ctx.sql("SELECT * FROM orders WHERE status = 'pending'").await?;
-
-// For simple operations: Use Arrow compute kernels
-use arrow::compute::filter;
-let filtered = filter(&array, &predicate_mask)?;
-```
-
 ### Python Integration
 
 - Build bindings: `just build-py`
-- Python code in `python/` exposes Rust simulation to Python
+- Python code in `python/` exposes the legacy `universe` crate to Python
 - Use for analysis, NOT for core simulation logic
 - Marimo notebooks in `notebooks/` for interactive exploration (`just scratch`, `just inspect`)
 
@@ -307,7 +312,7 @@ cargo test -p sim-kitchen           # Ghost kitchen tests
 cargo test -p sim-logistics         # Logistics tests
 cargo test kitchen                  # Pattern match
 
-# Sim-kitchen integration (writes Parquet output)
+# Sim-kitchen integration (writes artifact output)
 just sim-kitchen 500
 ```
 
@@ -324,7 +329,7 @@ just run 500       # or: cargo run --bin caspers -- run --duration 500
 # Custom parameters
 cargo run --bin caspers -- run --duration 200 --num-kitchens 5 --num-customers 30
 
-# Sim-kitchen library example — writes events to Parquet (no TUI)
+# Sim-kitchen library example — writes artifacts to output/artifacts/ (no TUI)
 just sim-kitchen 100
 
 # With tracing (requires Docker — starts Jaeger)
@@ -334,55 +339,23 @@ just run-tracing
 
 ---
 
-## Performance Guidelines
-
-### DO
-- Use vectorized Arrow operations
-- Batch event writes
-- Pre-allocate Arrow builders with capacity
-- Use H3 indexing for spatial queries
-- Profile with `cargo flamegraph`
-
-### DON'T
-- Iterate row-by-row over Arrow arrays
-- Make frequent small writes to Parquet
-- String allocations in hot loops
-- Unnecessary clones of large RecordBatches
-
----
-
 ## Troubleshooting
 
 ### "Generated code out of sync"
 ```bash
-just generate
-cargo clean
-cargo build
+just generate && cargo clean && cargo build
 ```
-
-### "Schema mismatch" errors
-- Check Arrow schema consistency in builders
-- Verify protobuf field types match Arrow types
-- Use `df.schema()` to inspect DataFusion table schemas
-
-### Python bindings fail to build
-```bash
-uv pip install maturin[zig]
-just build-py
-```
-
-### Large simulations OOM
-- Reduce snapshot frequency
-- Process data in chunks
-- Use streaming Parquet writes
-- Monitor with `cargo-instruments` (macOS) or `heaptrack` (Linux)
 
 ### Clippy warnings in sim-* crates
 ```bash
-cargo clippy -p sim-core -p sim-kitchen -p sim-logistics -p sim-geo -p sim-events -p sim-telemetry -- -D warnings
+cargo clippy -p sim-core -p sim-kitchen -p sim-logistics -p sim-geo -p sim-events -p sim-artifacts -p sim-telemetry -- -D warnings
 ```
+The legacy `universe` crate has pre-existing warnings that are out of scope.
 
-The legacy `universe` crate has pre-existing dead code warnings that are out of scope.
+### Python bindings fail to build
+```bash
+uv pip install maturin[zig] && just build-py
+```
 
 ---
 
@@ -392,7 +365,6 @@ The legacy `universe` crate has pre-existing dead code warnings that are out of 
 - `docs/ARCHITECTURE.md` — High-level design decisions
 - `justfile` — All available commands and build tasks
 - `Cargo.toml` — Workspace dependencies and versions
-- `proto/` — Protocol buffer schema definitions
 
 ## File Conventions
 
@@ -401,8 +373,7 @@ The legacy `universe` crate has pre-existing dead code warnings that are out of 
 | `*.proto` | Protocol buffer definitions |
 | `*_tests.rs` | Unit/integration tests |
 | `gen/*.rs` | Generated code — DO NOT EDIT |
-| `*.parquet` | Simulation output data |
-| `*.json` | Configuration files |
+| `output/artifacts/` | Simulation artifact output (Parquet) |
 
 ---
 

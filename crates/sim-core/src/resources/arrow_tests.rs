@@ -695,3 +695,50 @@ fn test_13_mixed_workflow_and_non_workflow_tasks() {
         assert_eq!(*wf_id, workflow_id);
     }
 }
+
+#[test]
+fn test_14_snapshot_round_trip_preserves_timing_fields() {
+    let mut allocator = ResourceAllocator::<TestResource, TestTask>::new();
+
+    allocator
+        .add_resource(TestResource {
+            id: ResourceId::new(),
+            capacity: 10,
+            load: 0,
+            resource_type: "test".to_string(),
+        })
+        .unwrap();
+
+    let workflow_id = WorkflowInstanceId::new();
+    let task = TestTask {
+        id: TaskId::new(),
+        task_type: "test".to_string(),
+        duration: Duration::seconds(30),
+        workflow_instance_id: Some(workflow_id),
+        priority: 0,
+    };
+    allocator.add_task(task).unwrap();
+
+    let alloc_time = Utc::now();
+    allocator.assign_tasks(&TestStrategy, alloc_time).unwrap();
+
+    // Snapshot round-trip
+    let (resources_batch, tasks_batch) = allocator.export_batch();
+    let mut restored = ResourceAllocator::<TestResource, TestTask>::new();
+    restored.import_batch(resources_batch, tasks_batch).unwrap();
+
+    // Before duration elapses — task not complete
+    let mid_time = alloc_time + Duration::seconds(15);
+    let completed = restored.get_completed_tasks(mid_time).unwrap();
+    assert_eq!(completed.len(), 0, "task should not be complete at T+15s");
+
+    // After duration elapses — task complete
+    let end_time = alloc_time + Duration::seconds(30);
+    let completed = restored.get_completed_tasks(end_time).unwrap();
+    assert_eq!(
+        completed.len(),
+        1,
+        "task should be complete at T+30s after round-trip"
+    );
+    assert_eq!(completed[0].1, workflow_id);
+}

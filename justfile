@@ -58,6 +58,11 @@ sim-kitchen steps='100':
 inspect:
     uv run --directory {{ source_directory() }}/notebooks marimo edit sim_events.py
 
+# run interactive kitchen simulation notebook (run + analyze in one place)
+[group('dev')]
+kitchen:
+    uv run --directory {{ source_directory() }}/notebooks marimo edit sim_kitchen.py
+
 # format and linting (runs pre-commit-hooks)
 [group('dev')]
 fmt:

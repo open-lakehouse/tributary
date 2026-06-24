@@ -88,18 +88,11 @@ pub struct ResourceAllocator<R: Resource, T: Task> {
     _marker: PhantomData<(R, T)>,
 }
 
-/// Metadata for tasks that's too complex for Arrow schema
+/// Metadata for tasks that's too complex for Arrow schema.
 ///
-/// LIMITATION: This metadata is NOT persisted during snapshot save/restore.
-/// After import_batch(), all TaskMetadata is reconstructed with default values:
-/// - allocated_at: None (or Some(now()) if task was assigned)
-/// - estimated_duration: Duration::seconds(10) (default value)
-///
-/// TODO (Phase 6 Week 3): Add these fields to task RecordBatch schema:
-/// - allocated_at_millis: Int64 (nullable)
-/// - estimated_duration_secs: Int64
-///
-/// This will preserve task timing information across snapshots.
+/// These values are persisted in the task RecordBatch at columns 8 and 9
+/// (`allocated_at_millis` and `estimated_duration_secs`) and faithfully
+/// restored by `import_batch()`.
 #[derive(Debug, Clone)]
 struct TaskMetadata {
     allocated_at: Option<DateTime<Utc>>,
@@ -1125,15 +1118,25 @@ impl<R: Resource, T: Task> ResourceAllocator<R, T> {
             task_id_to_row.insert(id, i);
         }
 
-        // Rebuild task metadata from task batch
+        // Rebuild task metadata from task batch — read cols 8 and 9 faithfully
         let mut task_metadata = HashMap::new();
-        let status_array = tasks
-            .column(2)
+
+        let allocated_at_array = tasks
+            .column(8)
             .as_any()
-            .downcast_ref::<StringArray>()
+            .downcast_ref::<Int64Array>()
             .ok_or_else(|| {
                 crate::Error::Resource(
-                    "Failed to downcast status column to StringArray".to_string(),
+                    "Failed to downcast allocated_at_millis column to Int64Array".to_string(),
+                )
+            })?;
+        let duration_array = tasks
+            .column(9)
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .ok_or_else(|| {
+                crate::Error::Resource(
+                    "Failed to downcast estimated_duration_secs column to Int64Array".to_string(),
                 )
             })?;
 
@@ -1143,20 +1146,19 @@ impl<R: Resource, T: Task> ResourceAllocator<R, T> {
                 crate::Error::Custom(format!("Invalid task ID at row {}: {}", i, e))
             })?;
 
-            // For allocated tasks, we can't recover allocated_at timestamp from batch
-            // Set it to None to avoid inconsistency
-            let allocated_at = if status_array.value(i) == task_status::ALLOCATED {
-                Some(Utc::now())
-            } else {
+            let allocated_at = if allocated_at_array.is_null(i) {
                 None
+            } else {
+                DateTime::from_timestamp_millis(allocated_at_array.value(i))
             };
+
+            let estimated_duration = Duration::seconds(duration_array.value(i));
 
             task_metadata.insert(
                 id,
                 TaskMetadata {
                     allocated_at,
-                    // Use default duration since we can't recover the original
-                    estimated_duration: Duration::seconds(10),
+                    estimated_duration,
                 },
             );
         }

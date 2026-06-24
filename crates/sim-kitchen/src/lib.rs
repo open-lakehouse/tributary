@@ -177,8 +177,7 @@ pub use locations::{DistributionSite, OrderFulfillment};
 pub use recipes::{Recipe, RecipeRegistry, RecipeStep, StationKind};
 pub use resources::{Inventory, InventoryError, InventoryManager, Kitchen, KitchenStation, Order};
 pub use simulation::{
-    KitchenSimulation, KitchenSimulationHooks, SimulationMessage, add_customers, build_simulation,
-    process_demands,
+    KitchenSimulation, KitchenSimulationHooks, add_customers, build_simulation, process_demands,
 };
 pub use workflows::{
     CourierDeliveryTask, CourierDeliveryTaskFactory, CourierDeliveryWorkflow,

@@ -30,6 +30,7 @@
 
 pub mod context;
 pub mod demand;
+pub mod manager;
 pub mod population;
 pub mod resources;
 pub mod runner;
@@ -38,14 +39,18 @@ pub mod utils;
 pub mod workflows;
 
 // Re-export commonly used types
-pub use context::{SimulationConfig, SimulationContext};
+pub use context::{SimulationConfig, SimulationContext, TickResult, TimeMode};
 pub use demand::{
     CompositeDemandGenerator, DemandGenerator, PoissonDemandGenerator, SpatialDemandGenerator,
     TimeOfDayDemandGenerator,
 };
+pub use manager::{SimulationManager, SimulationManagerBackend, SimulationRecord, SnapshotRecord};
 pub use population::{Agent, AgentStatus, Demand, PopulationHandler};
 pub use resources::{AllocationStrategy, Resource, ResourceAllocator, Task};
-pub use runner::{NoOpHooks, SimulationHooks, SimulationRunner, SimulationStats};
+pub use runner::{
+    ControlCommand, ControlReceiver, NoOpHooks, SimEvent, SimulationController, SimulationHooks,
+    SimulationRunner, SimulationStats, control_channel,
+};
 pub use snapshot::{SnapshotBackend, SnapshotData, SnapshotManager, SnapshotMetadata};
 pub use utils::idents::{AgentId, LocationId, ResourceId, TaskId, WorkflowId};
 pub use utils::movement::move_towards;

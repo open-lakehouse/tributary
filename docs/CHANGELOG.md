@@ -7,7 +7,155 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased] - 2026-05-17 (Python bindings migration)
+
+### Changed — Python bindings migrated from legacy `universe` crate to `sim-*` framework
+
+#### python: New API
+- `run_kitchen_simulation(steps, num_kitchens, kitchen_capacity, num_customers, output_dir) -> KitchenResult` — runs `KitchenSimulation` headlessly and writes events to Parquet
+- `run_logistics_simulation(steps, output_dir) -> LogisticsResult` — runs `LogisticsSimulation` and writes events to Parquet; returns delivery metrics
+- `KitchenResult` and `LogisticsResult` data classes with typed properties
+- Removed: `Site`, `load_simulation_setup`, `run_simulation` (legacy `universe` wrappers), `prepare_site`, `site_routing_graph`, `plot_site`
+- `python/pyproject.toml` dependencies trimmed to `pyarrow` + `polars` (removed geo/routing stack no longer needed)
+
+#### sim-logistics: Event access
+- `LogisticsSimulationHooks::dispatcher()` / `dispatcher_mut()` — new accessors for the internal `EventDispatcher`
+- `LogisticsSimulation::save_events(path)` — writes emitted events to a Parquet file (mirrors `KitchenSimulation::save_events`)
+- `LogisticsSimulationHooks` now re-exported from crate root
+
+#### notebooks
+- `notebooks/sim_kitchen.py` — new Marimo notebook: sim params as sliders, run button, full event analysis (summary, timeline, order Gantt, duration histograms, raw event browser)
+- `just kitchen` command added to open the new notebook
+- Deleted: `notebooks/prepare.py` (called legacy `run_simulation`)
+
+---
+
+## [Unreleased] - 2026-05-17
+
+### Added — Migration completion & CLI validation
+
+#### sim-core: Snapshot fidelity
+- `ResourceAllocator::import_batch()` now faithfully restores `allocated_at_millis` (col 8) and `estimated_duration_secs` (col 9) from the task RecordBatch — previously used `Utc::now()` and a hardcoded 10s default, causing tasks to complete at wrong times after a snapshot round-trip
+- Added `test_14_snapshot_round_trip_preserves_timing_fields` verifying tasks do not complete early after restore
+
+#### cli: Result validation
+- Stats panel (right 35% of body area) shows cumulative event counts by type, rolling throughput, and completion ratio
+- `event_color()` now uses a hash-based palette for any domain's event types (`io.logistics.*`, etc.) instead of returning `Color::White`
+- `short_event_type()` strips any `io.<domain>.` prefix, not just `io.kitchen.`
+- `--no-tui` flag: runs simulation headlessly and prints a JSON summary to stdout (`{"steps": N, "events_by_type": {...}}`)
+- End-of-run summary printed to stderr after TUI closes: steps, sim time, per-type event counts, throughput, completion ratio
+
 ## [Unreleased] - 2026-03-21
+
+### Added — TUI Simulation & Snapshot Management
+
+#### sim-core: Context
+- `SimulationContext::set_simulation_id(id)` — override the generated UUID when loading a pre-registered simulation from the catalog
+
+#### sim-core: Control Protocol
+- `ControlCommand::RestoreSnapshot(Uuid)` — request restoration of a previously saved snapshot; runner pauses after restore
+- `SimEvent::SnapshotRestored { snapshot_id, label, sim_time, step }` — emitted after successful restore
+- `SimEvent::SnapshotsUpdated { snapshots }` — pushed after any snapshot operation so callers can refresh their list
+- `SnapshotSummary` — lightweight struct carried by `SnapshotsUpdated`
+
+#### sim-core: SimulationManager persistence
+- `SimulationManager::load(backend)` — loads catalog from disk (JSON files) after calling `new()`; no-op for Memory backend
+- `SimulationManager::new_with_persistence(base)` — convenience alias for `load(Parquet(base))`
+- `SimulationManager::load_catalog_from_disk(base)` — scans `{base}/system/simulations/` and `{base}/system/snapshots/` JSON files and repopulates in-memory tables
+- `persist_simulation` / `persist_snapshot` — write JSON records to `.caspers/system/{simulations,snapshots}/` on every `create_simulation` / `record_snapshot` call
+
+#### cli: Multi-screen TUI
+- `Screen::{Launch, Simulation, SnapshotBrowser}` — top-level enum; `App::render()` dispatches on current screen
+- `App::new_launch(sim_list)` — creates an App starting on the Launch screen
+- `Dialog::{NewSimName, TakeSnapshot, ConfirmRestore}` — new modal dialogs for snapshot/sim operations
+- Launch screen: lists existing simulations, `[n]` creates new, `[Enter]` loads selected, `[↑/↓]` navigates
+- Snapshot browser (`[S]` from simulation screen): lists snapshots, `[t]` takes snapshot, `[Enter]` triggers restore confirm, `[Esc]` returns to simulation
+- `ConfirmRestore` dialog: `[y]` sends `ControlCommand::RestoreSnapshot`, `[n/Esc]` cancels
+- Notification overlay: auto-dismissing 3-second notification shown after snapshot saved/restored
+- `[S] Snapshots` hint added to simulation screen help bar
+
+### Added — Snapshot Management & SimulationManager
+
+#### sim-core: Structured Snapshot IDs
+- `SimulationContext::simulation_id()` — each context gets a `Uuid::now_v7()` on construction; exposed via accessor
+- `SnapshotMetadata` — new fields: `snapshot_id: Uuid`, `simulation_id: Uuid`, `label: Option<String>`, `sim_time: DateTime<Utc>`
+- `SnapshotMetadata::with_ids()` — constructor for callers that supply explicit IDs; `new()` still works and generates IDs internally
+- `SnapshotManager::save_snapshot_with_id()` — saves with explicit IDs and registers in internal `snapshot_registry` MemTable
+- `SnapshotManager::list_snapshots()` — list all snapshots recorded in this manager instance
+- `SnapshotManager::describe_snapshot(id)` — look up a single snapshot by UUID string
+
+#### sim-core: Snapshot via Control Channel
+- `ControlCommand::Snapshot(label)` — request an immediate snapshot while the sim is running
+- `SimEvent::SnapshotSaved { snapshot_id, label, sim_time, step }` — emitted after a successful snapshot
+- `SimulationRunner::save_snapshot_with_id()` — async helper for explicit-ID snapshots
+- `SimulationRunner::save_snapshot_with_ids_sync()` — sync wrapper used by the control-command handler
+
+#### sim-core: SimulationManager
+- New module `sim_core::manager` with `SimulationManager` — catalog layer tracking multiple simulation runs and their snapshots
+- `SimulationManagerBackend::{Memory, Parquet}` — backend selector
+- `SimulationManager::create_simulation()` → `Uuid` — register a new run; generates Uuid v7
+- `SimulationManager::list_simulations()` → `Vec<SimulationRecord>`
+- `SimulationManager::record_snapshot()` — record a snapshot taken by a runner
+- `SimulationManager::list_snapshots(simulation_id)` → `Vec<SnapshotRecord>` — filtered by simulation
+- `SimulationManager::snapshot_manager_for(simulation_id)` — create a scoped `SnapshotManager`
+- `SimulationRecord` and `SnapshotRecord` plain-data structs (no Arrow dependency on callers)
+
+#### cli: SnapshotSaved event handling
+- `process_sim_event` in `caspers` CLI now handles the new `SimEvent::SnapshotSaved` variant (logs at info level)
+
+### Added — TUI/CLI UX Improvements
+
+#### sim-core: Speed Control and Pause-on-End
+- `ControlCommand::SetSpeed(f32)` — set Live-mode speed multiplier (clamped to [0.125, 16.0])
+- `SimEvent::SpeedChanged { multiplier: f32 }` — emitted when speed changes
+- `SimulationContext::live_speed: f32` field — speed multiplier used by `sleep_duration()`
+- `SimulationRunner::set_paused(bool)` — public method for domain wrappers to enter paused state
+
+#### sim-kitchen: Pause on Range End
+- `KitchenSimulation::step()` now returns `TickResult` so callers can inspect it
+- `run_controlled_for`: when Range mode hits `end_time`, emits `Paused` and enters the pause loop rather than stopping — allows user to advance range in TUI without restarting
+
+#### CLI: Human-Friendly Time Parsing
+- New `time_parse::parse_sim_time()` — accepts `now`, `now+3h`, `now-30m`, `2026-01-01`, full RFC 3339
+- `--start-time` and `--end-time` now use this parser; help text updated
+
+#### CLI TUI: Guided Mode Dialog and Improved Layout
+- `[m]` opens a `ModeSelect` dialog instead of blindly cycling — eliminates the undefined-behavior bug where switching back to Range sent `end_time: None`
+- `[a]` key opens `AdvanceBy` dialog when in Range mode — extend the simulation end time without restarting
+- `[+]`/`[-]` keys adjust Live-mode speed (doubles / halves, shown in help bar)
+- New header row: title + colored mode badge (`[RANGE]`/`[LIVE]`/`[CATCHUP]`) + full datetime + step counter
+- Body area horizontally split: left totals panel (one entry per event type) + right event log
+- Help bar is context-sensitive: shows `[a]`/`[+/-] Speed Nx` only when relevant
+- Mode badge colors: Range=Blue, Live=Green, Catchup=Yellow
+
+### Added — Interactive TUI with Bidirectional Control Channel
+
+#### sim-core: Control Channel Enhancements
+- `SimEvent::TickCompleted` now carries `event_counts: HashMap<String, u64>` — per-tick domain event deltas flow through the same channel, eliminating a second side-channel
+- `SimulationRunner` gains three public methods: `process_control_commands()`, `is_paused()`, `emit_event()` — enabling domain wrappers to drive the control loop around their own `step()` implementations
+
+#### sim-kitchen: `run_controlled_for()`
+- New `KitchenSimulation::run_controlled_for(max_steps)` drives the simulation via the control channel while preserving full domain bookkeeping (order delivery, artifact generation, customer state)
+- Removed `SimulationMessage`, `tui_tx`, `tui_total_steps`, and `set_tui_channel()` — the control channel is now the single transport for all simulation events
+
+#### CLI TUI: Interactive Controls
+All time modes (Range, Live, Catchup) now use a unified sim thread via `run_controlled_for()`.
+
+New keyboard controls:
+| Key | Action |
+|-----|--------|
+| `Space` | Pause / Resume |
+| `s` | Step 1 tick (while paused) |
+| `f` | Step 10 ticks (while paused) |
+| `m` | Cycle time mode: Range → Live → Catchup → Range |
+| `q` / `Esc` / `^C` | Stop and quit |
+
+UI additions:
+- Progress bar title shows current time mode badge (`[Range]`, `[Live]`, `[Catchup]`) and `[■ PAUSED]` indicator
+- Gauge turns yellow when paused
+- New **Controls** status bar at bottom with context-sensitive key hints
+
+
 
 ### Added — Realistic Multi-Type Data Artifact Generation
 

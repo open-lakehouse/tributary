@@ -46,6 +46,9 @@ pub mod resources;
 pub mod simulation;
 pub mod workflows;
 
+#[cfg(test)]
+mod lifecycle_invariant_tests;
+
 // Re-export commonly used types
 pub use agents::{Driver, DriverState, Package, PackagePriority, PackageState};
 pub use events::{
@@ -54,7 +57,7 @@ pub use events::{
 };
 pub use locations::{DeliveryAddress, Warehouse};
 pub use resources::{LoadingDock, SortingStation, VehicleLoadingState};
-pub use simulation::{LogisticsMetrics, LogisticsSimulation};
+pub use simulation::{LogisticsMetrics, LogisticsSimulation, LogisticsSimulationHooks};
 pub use workflows::{PackageShipmentWorkflow, ShipmentTask, ShipmentTaskFactory};
 
 /// Result type for logistics operations

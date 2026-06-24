@@ -67,7 +67,7 @@ use sim_artifacts::{
     ArtifactCollector, ArtifactCollectorProcessor, LocalEventProcessor, ParquetArtifactStorage,
 };
 use sim_core::{
-    AgentId, PopulationHandler, ResourceAllocator, SimulationContext, SimulationHooks,
+    AgentId, PopulationHandler, ResourceAllocator, SimEvent, SimulationContext, SimulationHooks,
     SimulationRunner, TaskId,
     population::AgentTickResult,
     resources::{Assignment, LeastLoaded},
@@ -76,21 +76,6 @@ use sim_core::{
 use sim_events::{Event, EventDispatcher};
 use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
-
-/// Messages sent from the simulation to a TUI consumer via a channel.
-pub enum SimulationMessage {
-    StepCompleted {
-        step: usize,
-        total_steps: usize,
-        sim_time: DateTime<Utc>,
-        event_counts: HashMap<String, u64>,
-    },
-    Completed {
-        steps: usize,
-        final_time: DateTime<Utc>,
-    },
-    Error(String),
-}
 
 /// Food preparation workflow with multi-step processing
 ///
@@ -376,13 +361,14 @@ impl KitchenSimulationHooks {
     }
 
     /// Emit eating events for customers that started eating
-    pub fn emit_eating_events(&mut self) {
+    pub fn emit_eating_events(&mut self, sim_time: chrono::DateTime<chrono::Utc>) {
         for (customer_id, order_id, finish_time) in self.eating_customers.drain(..) {
             let event = Event::new(Box::new(CustomerEatingEvent {
                 customer_id: customer_id.to_string(),
                 order_id,
                 finish_time,
-            }));
+            }))
+            .with_time(sim_time);
             self.dispatcher.emit(event);
         }
     }
@@ -479,7 +465,8 @@ impl KitchenSimulationHooks {
                     current_quantity,
                     reorder_point,
                     timestamp: ctx.current_time(),
-                }));
+                }))
+                .with_time(ctx.current_time());
                 self.dispatcher.emit(low_event);
 
                 // Select distribution site
@@ -520,7 +507,8 @@ impl KitchenSimulationHooks {
                         quantity: reorder_quantity,
                         source_site_id: site_id.to_string(),
                         timestamp: ctx.current_time(),
-                    }));
+                    }))
+                    .with_time(ctx.current_time());
                     self.dispatcher.emit(order_event);
                 } else if ctx.config().verbose {
                     println!(
@@ -588,7 +576,8 @@ impl SimulationHooks for KitchenSimulationHooks {
                         order_id: order_id.clone(),
                         customer_id: order_info.customer_id.to_string(),
                         prep_time_seconds: prep_time,
-                    }));
+                    }))
+                    .with_time(current_time);
 
                     self.dispatcher.emit(event);
                 }
@@ -665,7 +654,8 @@ impl SimulationHooks for KitchenSimulationHooks {
                         customer_id: customer_id.to_string(),
                         items,
                         timestamp: ctx.current_time(),
-                    }));
+                    }))
+                    .with_time(ctx.current_time());
 
                     self.dispatcher.emit(event);
 
@@ -735,7 +725,8 @@ impl SimulationHooks for KitchenSimulationHooks {
                                 order_id: order_id.clone(),
                                 items: total_ingredients.clone(),
                                 timestamp: ctx.current_time(),
-                            }));
+                            }))
+                            .with_time(ctx.current_time());
                             self.dispatcher.emit(event);
                         }
                         Err(e) => {
@@ -754,7 +745,8 @@ impl SimulationHooks for KitchenSimulationHooks {
                                 order_id: order_id.clone(),
                                 error: e.to_string(),
                                 timestamp: ctx.current_time(),
-                            }));
+                            }))
+                            .with_time(ctx.current_time());
                             self.dispatcher.emit(event);
                         }
                     }
@@ -766,7 +758,8 @@ impl SimulationHooks for KitchenSimulationHooks {
                     kitchen_id: assignment.resource_id.to_string(),
                     kitchen_name: format!("Kitchen-{}", assignment.resource_id),
                     estimated_completion,
-                }));
+                }))
+                .with_time(ctx.current_time());
                 self.dispatcher.emit(event);
             }
 
@@ -847,7 +840,8 @@ impl KitchenSimulationHooks {
                             quantity,
                             new_quantity,
                             timestamp: ctx.current_time(),
-                        }));
+                        }))
+                        .with_time(ctx.current_time());
                         self.dispatcher.emit(event);
 
                         // Remove from pending supply orders
@@ -1043,9 +1037,6 @@ pub struct KitchenSimulation {
     event_dispatcher: EventDispatcher,
     /// Track which customers already had their Done event emitted
     done_emitted: HashSet<AgentId>,
-    /// Optional TUI channel for streaming per-step progress
-    tui_tx: Option<tokio::sync::mpsc::UnboundedSender<SimulationMessage>>,
-    tui_total_steps: usize,
 }
 
 impl KitchenSimulation {
@@ -1058,19 +1049,7 @@ impl KitchenSimulation {
             runner,
             event_dispatcher,
             done_emitted: HashSet::new(),
-            tui_tx: None,
-            tui_total_steps: 0,
         }
-    }
-
-    /// Attach a TUI channel so the simulation streams per-step progress messages.
-    pub fn set_tui_channel(
-        &mut self,
-        tx: tokio::sync::mpsc::UnboundedSender<SimulationMessage>,
-        total_steps: usize,
-    ) {
-        self.tui_tx = Some(tx);
-        self.tui_total_steps = total_steps;
     }
 
     /// Add customers to the simulation
@@ -1078,10 +1057,140 @@ impl KitchenSimulation {
         add_customers(&mut self.runner, num_customers);
     }
 
+    /// Execute one complete simulation step.
+    ///
+    /// This is the per-tick entry point used by [`Self::run_for_steps`] and
+    /// available for callers that want fine-grained control (e.g., a control
+    /// channel loop).  It does **not** call `on_start` / `on_end` hooks or
+    /// flush artifacts — those are the caller's responsibility.
+    ///
+    /// Steps performed:
+    /// 1. Tick agents + emit hooks
+    /// 2. Free kitchen capacity for completed orders
+    /// 3. Drain pending orders into the resource allocator
+    /// 4. Allocate orders to kitchens
+    /// 5. Deliver completed orders to customers
+    /// 6. Emit `CustomerDoneEvent` for newly-done customers
+    /// 7. Prune stale state for customers that reset to Idle
+    pub fn step(&mut self) -> sim_core::Result<sim_core::context::TickResult> {
+        // 1. Tick agents, invoke hooks
+        let tick_result = self.runner.tick()?;
+
+        // 1b. Free kitchen capacity for orders that completed this tick
+        let completed_task_ids =
+            if let Some(hooks) = self.runner.hooks_as_mut::<KitchenSimulationHooks>() {
+                hooks.drain_pending_completions()
+            } else {
+                vec![]
+            };
+        if !completed_task_ids.is_empty()
+            && let Some(allocator) = self.runner.resources_mut()
+        {
+            for task_id in completed_task_ids {
+                let _ = allocator.complete_task(task_id);
+            }
+        }
+
+        // 2. Drain pending orders from hooks into the resource allocator
+        if let Some(hooks) = self.runner.hooks_as_mut::<KitchenSimulationHooks>() {
+            let new_orders = hooks.drain_pending_orders();
+            if !new_orders.is_empty()
+                && let Some(allocator) = self.runner.resources_mut()
+            {
+                for order in new_orders {
+                    let _ = allocator.add_task(order);
+                }
+            }
+        }
+
+        // 3. Allocate orders to kitchens
+        let _ = self.runner.allocate_resources(&LeastLoaded);
+
+        // 4. Deliver completed orders to customers
+        self.deliver_completed_orders()?;
+
+        // 5. Emit CustomerDoneEvent for newly-done customers
+        self.check_done_customers()?;
+
+        // 5a. Remove IDs of customers who reset back to Idle
+        self.prune_done_emitted();
+
+        // 5b. Prune stale order entries for customers who have reset to Idle
+        let idle_ids: Vec<AgentId> = self
+            .runner
+            .population()
+            .map(|pop| {
+                pop.iter()
+                    .filter(|c| matches!(c.status, CustomerStatus::Idle))
+                    .map(|c| c.id)
+                    .collect()
+            })
+            .unwrap_or_default();
+        if !idle_ids.is_empty()
+            && let Some(hooks) = self.runner.hooks_as_mut::<KitchenSimulationHooks>()
+        {
+            hooks
+                .orders
+                .retain(|_order_id, info| !idle_ids.contains(&info.customer_id));
+        }
+
+        Ok(tick_result)
+    }
+
     /// Run the simulation with full lifecycle management
     pub fn run_for_steps(&mut self, steps: usize) -> sim_core::Result<()> {
         for _ in 0..steps {
-            // Snapshot event counts before this tick (to compute per-step delta below)
+            self.step()?;
+        }
+        self.flush_artifacts();
+        Ok(())
+    }
+
+    /// Run for up to `max_steps`, driven by the control channel attached to the runner.
+    ///
+    /// Unlike [`Self::run_for_steps`], this method honours Pause/Resume/StepN/Stop
+    /// commands and emits `SimEvent::TickCompleted` with per-step event deltas via
+    /// the control channel after every tick.
+    ///
+    /// Call `runner_mut().attach_control(receiver)` before this method.
+    pub fn run_controlled_for(&mut self, max_steps: usize) -> sim_core::Result<()> {
+        let mut steps_taken = 0;
+
+        // Once step_limit_paused is set, max_steps no longer applies —
+        // the simulation continues until stopped or a new end_time is hit.
+        let mut step_limit_paused = false;
+
+        loop {
+            if steps_taken >= max_steps && !step_limit_paused {
+                // Step limit reached: pause so the TUI stays alive.
+                step_limit_paused = true;
+                self.runner.set_paused(true);
+                let step = self.runner.context().step();
+                self.runner.emit_event(SimEvent::Paused { at_step: step });
+            }
+
+            // Spin-wait while paused, polling for commands
+            while self.runner.is_paused() {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+                if self.runner.process_control_commands()? {
+                    self.flush_artifacts();
+                    self.runner.emit_event(SimEvent::SimulationEnded {
+                        total_steps: self.runner.context().step(),
+                        final_time: self.runner.context().current_time(),
+                    });
+                    return Ok(());
+                }
+            }
+
+            if self.runner.process_control_commands()? {
+                break;
+            }
+
+            // Re-check pause after processing commands
+            if self.runner.is_paused() {
+                continue;
+            }
+
             let counts_before: HashMap<String, usize> = self
                 .runner
                 .hooks_as::<KitchenSimulationHooks>()
@@ -1089,114 +1198,55 @@ impl KitchenSimulation {
                 .unwrap_or_default();
             let own_before = self.event_dispatcher.event_counts().clone();
 
-            // 1. Tick agents, invoke hooks (on_agents_ticked creates OrderCreatedEvent
-            //    and collects Order tasks in pending_orders)
-            self.runner.tick()?;
+            let tick_result = self.step()?;
+            steps_taken += 1;
 
-            // 1b. Free kitchen capacity for orders that completed this tick
-            let completed_task_ids =
-                if let Some(hooks) = self.runner.hooks_as_mut::<KitchenSimulationHooks>() {
-                    hooks.drain_pending_completions()
-                } else {
-                    vec![]
-                };
-            if !completed_task_ids.is_empty()
-                && let Some(allocator) = self.runner.resources_mut()
-            {
-                for task_id in completed_task_ids {
-                    let _ = allocator.complete_task(task_id);
-                }
-            }
+            let step = self.runner.context().step();
+            let sim_time = self.runner.context().current_time();
 
-            // 2. Drain pending orders from hooks into the resource allocator
-            if let Some(hooks) = self.runner.hooks_as_mut::<KitchenSimulationHooks>() {
-                let new_orders = hooks.drain_pending_orders();
-                if !new_orders.is_empty()
-                    && let Some(allocator) = self.runner.resources_mut()
-                {
-                    for order in new_orders {
-                        let _ = allocator.add_task(order);
-                    }
-                }
-            }
-
-            // 3. Allocate orders to kitchens (triggers on_resources_allocated →
-            //    OrderAssignedEvent, inventory events)
-            let _ = self.runner.allocate_resources(&LeastLoaded);
-
-            // 4. Deliver completed orders to customers (only those the hooks
-            //    marked as completed via on_after_tick)
-            self.deliver_completed_orders()?;
-
-            // 5. Emit CustomerDoneEvent for newly-done customers (once per customer)
-            self.check_done_customers()?;
-
-            // 5a. Remove IDs of customers who reset back to Idle so their next
-            //     Done transition re-emits the event.
-            self.prune_done_emitted();
-
-            // 5b. Prune stale order entries for customers who have reset to Idle
-            let idle_ids: Vec<AgentId> = self
-                .runner
-                .population()
-                .map(|pop| {
-                    pop.iter()
-                        .filter(|c| matches!(c.status, CustomerStatus::Idle))
-                        .map(|c| c.id)
-                        .collect()
-                })
-                .unwrap_or_default();
-            if !idle_ids.is_empty()
-                && let Some(hooks) = self.runner.hooks_as_mut::<KitchenSimulationHooks>()
-            {
-                hooks
-                    .orders
-                    .retain(|_order_id, info| !idle_ids.contains(&info.customer_id));
-            }
-
-            // 6. Send per-step progress to TUI if a channel is attached
-            if let Some(tx) = &self.tui_tx {
-                let current_step = self.runner.context().step();
-                let sim_time = self.runner.context().current_time();
-
-                // Compute per-step delta from hooks dispatcher
-                let mut step_counts: HashMap<String, u64> = HashMap::new();
-                if let Some(hooks) = self.runner.hooks_as::<KitchenSimulationHooks>() {
-                    for (k, v) in hooks.dispatcher.event_counts() {
-                        let before = counts_before.get(k).copied().unwrap_or(0);
-                        let delta = v.saturating_sub(before) as u64;
-                        if delta > 0 {
-                            step_counts.insert(k.clone(), delta);
-                        }
-                    }
-                }
-                // Also include events from the simulation's own dispatcher
-                for (k, v) in self.event_dispatcher.event_counts() {
-                    let before = own_before.get(k).copied().unwrap_or(0);
+            // Compute per-step delta
+            let mut event_counts: HashMap<String, u64> = HashMap::new();
+            if let Some(hooks) = self.runner.hooks_as::<KitchenSimulationHooks>() {
+                for (k, v) in hooks.dispatcher.event_counts() {
+                    let before = counts_before.get(k).copied().unwrap_or(0);
                     let delta = v.saturating_sub(before) as u64;
                     if delta > 0 {
-                        *step_counts.entry(k.clone()).or_default() += delta;
+                        event_counts.insert(k.clone(), delta);
                     }
                 }
+            }
+            for (k, v) in self.event_dispatcher.event_counts() {
+                let before = own_before.get(k).copied().unwrap_or(0);
+                let delta = v.saturating_sub(before) as u64;
+                if delta > 0 {
+                    *event_counts.entry(k.clone()).or_default() += delta;
+                }
+            }
 
-                let _ = tx.send(SimulationMessage::StepCompleted {
-                    step: current_step,
-                    total_steps: self.tui_total_steps,
-                    sim_time,
-                    event_counts: step_counts,
-                });
+            self.runner.emit_event(SimEvent::TickCompleted {
+                step,
+                sim_time,
+                event_counts,
+            });
+
+            // When Range mode reaches end_time, pause rather than stop so the
+            // user can press [a] in the TUI to extend the range.
+            if tick_result == sim_core::TickResult::ReachedEnd {
+                self.runner.set_paused(true);
+                self.runner.emit_event(SimEvent::Paused { at_step: step });
             }
         }
 
-        // Send completion message
-        if let Some(tx) = &self.tui_tx {
-            let _ = tx.send(SimulationMessage::Completed {
-                steps: self.runner.context().step(),
-                final_time: self.runner.context().current_time(),
-            });
-        }
+        self.flush_artifacts();
+        self.runner.emit_event(SimEvent::SimulationEnded {
+            total_steps: self.runner.context().step(),
+            final_time: self.runner.context().current_time(),
+        });
+        Ok(())
+    }
 
-        // Flush artifacts generated during the run to the output directory.
+    /// Flush accumulated artifacts to the output directory.
+    fn flush_artifacts(&mut self) {
         if let Some(hooks) = self.runner.hooks_as::<KitchenSimulationHooks>() {
             let artifact_count = hooks.artifact_count();
             if let Err(e) = hooks.flush_artifacts() {
@@ -1205,8 +1255,6 @@ impl KitchenSimulation {
                 eprintln!("Flushed {artifact_count} artifacts to output/artifacts/");
             }
         }
-
-        Ok(())
     }
 
     /// Remove IDs from `done_emitted` for customers that have reset back to Idle,
@@ -1243,7 +1291,8 @@ impl KitchenSimulation {
             let event = Event::new(Box::new(CustomerDoneEvent {
                 customer_id: customer_id.to_string(),
                 total_time_seconds: 0,
-            }));
+            }))
+            .with_time(self.runner.context().current_time());
             self.event_dispatcher.emit(event);
         }
 
@@ -1287,7 +1336,8 @@ impl KitchenSimulation {
                         customer_id: customer_id.to_string(),
                         order_id,
                         finish_time,
-                    }));
+                    }))
+                    .with_time(current_time);
                     self.event_dispatcher.emit(event);
 
                     updated_customers.push(customer);
@@ -2614,5 +2664,27 @@ mod tests {
 
         let manager = hooks.inventory_managers.get(&kitchen_id).unwrap();
         assert_eq!(manager.get_quantity("oil"), Some(125)); // 25 + 100
+    }
+
+    #[test]
+    fn test_step_n_equals_run_for_steps_n() {
+        // Running N times via step() should produce the same step count as run_for_steps(N)
+        let n = 5;
+
+        let mut sim_a = KitchenSimulation::new(2, 5, false);
+        sim_a.add_customers(3);
+        sim_a.run_for_steps(n).unwrap();
+        let steps_a = sim_a.runner().context().step();
+
+        let mut sim_b = KitchenSimulation::new(2, 5, false);
+        sim_b.add_customers(3);
+        for _ in 0..n {
+            sim_b.step().unwrap();
+        }
+        let steps_b = sim_b.runner().context().step();
+
+        assert_eq!(steps_a, n, "run_for_steps should advance step counter by N");
+        assert_eq!(steps_b, n, "step() x N should advance step counter by N");
+        assert_eq!(steps_a, steps_b);
     }
 }

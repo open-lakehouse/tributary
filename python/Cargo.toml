@@ -13,14 +13,10 @@ name = "caspers_universe"
 crate-type = ["cdylib"]
 
 [dependencies]
-caspers-universe = { path = "../crates/universe/", features = ["python", "templates"] }
+sim-kitchen = { path = "../crates/sim-kitchen" }
+sim-logistics = { path = "../crates/sim-logistics" }
+sim-events = { path = "../crates/sim-events" }
 
-arrow = { workspace = true }
-datafusion = { workspace = true }
-object_store = { workspace = true }
 thiserror = { workspace = true }
-url = { workspace = true }
 
 pyo3 = "0.26.0"
-# pyo3-arrow = "0.12"
-tokio = { version = "1", features = ["rt-multi-thread"] }

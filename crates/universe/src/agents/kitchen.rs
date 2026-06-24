@@ -180,7 +180,7 @@ impl KitchenHandler {
         let orders = if orders.iter().map(|b| b.num_rows()).sum::<usize>() > 0 {
             // Reconstruct with proper schema filtering
             ctx.ctx()
-                .read_batches(orders.into_iter())?
+                .read_batches(orders)?
                 .select([
                     col("person_id"),
                     col("order_id"),

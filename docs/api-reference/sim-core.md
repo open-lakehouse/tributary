@@ -371,18 +371,26 @@ where
     // Component registration
     pub fn set_population_handler(&mut self, handler: PopulationHandler<A>);
     pub fn set_resource_allocator(&mut self, allocator: ResourceAllocator<R, T>);
-    pub fn set_workflow_engine(&mut self, engine: WorkflowEngine<W>);
-    pub fn set_workflow_registry(&mut self, registry: WorkflowRegistry<W>);
+    pub fn set_workflow_registry(&mut self, registry: WorkflowRegistry<W>);  // use this, not set_workflow_engine
     pub fn set_task_factory(&mut self, factory: Box<dyn TaskFactory<T>>);
     pub fn set_demand_generator(&mut self, generator: Box<dyn DemandGenerator>);
     pub fn set_hooks(&mut self, hooks: Box<dyn SimulationHooks>);
+    pub fn set_time_mode(&mut self, mode: TimeMode);
+
+    // Control channel (bidirectional; attach before calling run_controlled / run_controlled_for)
+    pub fn attach_control(&mut self, rx: ControlReceiver);
+    pub fn process_control_commands(&mut self) -> Result<bool>;  // true = Stop received
+    pub fn is_paused(&self) -> bool;
+    pub fn emit_event(&self, event: SimEvent);
 
     // Execution
-    pub fn tick(&mut self) -> Result<()>;
+    pub fn tick(&mut self) -> Result<TickResult>;
     pub fn run_for_steps(&mut self, steps: usize) -> Result<()>;
     pub fn run_for_duration(&mut self, duration: Duration) -> Result<()>;
     pub fn run_until<F>(&mut self, condition: F) -> Result<()>
         where F: FnMut(&SimulationContext, &SimulationStats) -> bool;
+    pub fn run_controlled(&mut self) -> Result<()>;          // runs until Stop
+    pub fn run_controlled_for(&mut self, max_steps: usize) -> Result<()>;
     pub fn allocate_resources(&mut self, strategy: &dyn AllocationStrategy<R, T>) -> Result<usize>;
 
     // State management
@@ -397,6 +405,7 @@ where
 
     // Accessors
     pub fn context(&self) -> &SimulationContext;
+    pub fn context_mut(&mut self) -> &mut SimulationContext;
     pub fn stats(&self) -> &SimulationStats;
 }
 ```
@@ -472,6 +481,64 @@ impl SimulationHooks for MySimulationHooks {
     }
 }
 ```
+
+### Control Channel
+
+Bidirectional channel for controlling a simulation from an external caller (TUI, test harness, HTTP handler).
+
+```rust
+// Factory — returns matched (caller-side, runner-side) pair
+pub fn control_channel(bound: usize) -> (SimulationController, ControlReceiver);
+
+/// Commands sent from caller → runner
+pub enum ControlCommand {
+    Start,
+    Stop,
+    Pause,
+    Resume,
+    StepN(usize),
+    SetMode(TimeMode),
+}
+
+/// Events emitted by runner → caller
+pub enum SimEvent {
+    TickCompleted { step: usize, sim_time: DateTime<Utc>, event_counts: HashMap<String, u64> },
+    ModeChanged { mode: String },
+    Paused { at_step: usize },
+    SimulationEnded { total_steps: usize, final_time: DateTime<Utc> },
+    Error(String),
+}
+
+impl SimulationController {
+    pub fn send(&self, cmd: ControlCommand) -> Result<()>;
+    pub fn recv(&self) -> Result<SimEvent>;     // blocking
+    pub fn try_recv(&self) -> Option<SimEvent>; // non-blocking
+}
+```
+
+**Usage pattern:**
+
+```rust
+let (controller, receiver) = control_channel(128);
+
+std::thread::spawn(move || {
+    runner.attach_control(receiver);
+    runner.run_controlled_for(max_steps).unwrap();
+});
+
+// TUI / caller side
+controller.send(ControlCommand::Pause).unwrap();
+while let Some(event) = controller.try_recv() {
+    match event {
+        SimEvent::TickCompleted { step, sim_time, event_counts } => { /* update UI */ }
+        SimEvent::Paused { .. } => { /* show paused state */ }
+        SimEvent::SimulationEnded { .. } => break,
+        _ => {}
+    }
+}
+```
+
+For domain simulations that need per-tick bookkeeping (e.g. `KitchenSimulation`), call `run_controlled_for()` on the domain wrapper rather than the raw runner — it wraps `step()` in the same control loop and emits accurate `event_counts`.
 
 ### SimulationContext
 

@@ -609,10 +609,12 @@ dependencies = [
  "clap",
  "crossterm",
  "futures 0.3.31",
+ "humantime",
  "opentelemetry",
  "opentelemetry-otlp",
  "opentelemetry_sdk",
  "ratatui",
+ "serde_json",
  "sim-core",
  "sim-events",
  "sim-kitchen",
@@ -621,20 +623,18 @@ dependencies = [
  "tracing",
  "tracing-opentelemetry",
  "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]
 name = "caspers-universe-python"
 version = "0.0.1"
 dependencies = [
- "arrow",
- "caspers-universe",
- "datafusion",
- "object_store",
  "pyo3",
+ "sim-events",
+ "sim-kitchen",
+ "sim-logistics",
  "thiserror 2.0.17",
- "tokio",
- "url",
 ]
 
 [[package]]

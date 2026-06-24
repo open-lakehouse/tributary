@@ -28,6 +28,7 @@ url = { version = "2.5.2", features = [
 ], default-features = false }
 uuid = { version = "1", features = ["serde"] }
 paste = { version = "1.0" }
+humantime = { version = "2" }
 
 # arrow
 arrow = { version = "57" }

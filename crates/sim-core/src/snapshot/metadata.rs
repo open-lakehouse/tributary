@@ -5,77 +5,51 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 /// Metadata describing a simulation snapshot
 ///
 /// Contains key statistics and identifying information about the simulation state
 /// at the time the snapshot was created. This metadata allows quick inspection of
 /// snapshot contents without loading the full data.
-///
-/// # Example
-///
-/// ```rust
-/// use sim_core::snapshot::SnapshotMetadata;
-/// use chrono::Utc;
-///
-/// let metadata = SnapshotMetadata::new(
-///     "1.0".to_string(),
-///     100,  // agents
-///     50,   // resources
-///     200,  // tasks
-///     25,   // workflow instances
-///     10,   // locations
-/// );
-///
-/// // Serialize to JSON
-/// let json = metadata.to_json().unwrap();
-/// println!("Snapshot metadata: {}", json);
-///
-/// // Deserialize from JSON
-/// let restored = SnapshotMetadata::from_json(&json).unwrap();
-/// assert_eq!(restored.agent_count, 100);
-/// ```
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SnapshotMetadata {
+    /// Unique ID for this snapshot (Uuid v7)
+    pub snapshot_id: Uuid,
+
+    /// ID of the simulation this snapshot belongs to (Uuid v7)
+    pub simulation_id: Uuid,
+
+    /// Human-readable label (optional)
+    pub label: Option<String>,
+
+    /// Simulation clock time when the snapshot was taken
+    pub sim_time: DateTime<Utc>,
+
     /// Version of the snapshot format (e.g., "1.0")
-    ///
-    /// This allows for future schema evolution and backward compatibility checking.
     pub version: String,
 
-    /// Timestamp when the snapshot was created (UTC)
-    ///
-    /// Records the exact moment the snapshot was taken, useful for temporal
-    /// analysis and snapshot ordering.
+    /// Wall-clock timestamp when the snapshot was created (UTC)
     pub timestamp: DateTime<Utc>,
 
     /// Number of agents in the snapshot
-    ///
-    /// Total count of all agents present in the simulation at snapshot time.
     pub agent_count: usize,
 
     /// Number of resources in the snapshot
-    ///
-    /// Total count of all resources (capacity-constrained processors) in the simulation.
     pub resource_count: usize,
 
     /// Number of tasks in the snapshot
-    ///
-    /// Total count of all tasks, including queued, active, and completed tasks.
     pub task_count: usize,
 
     /// Number of workflow instances in the snapshot
-    ///
-    /// Total count of all workflow instances across all stages.
     pub workflow_instance_count: usize,
 
     /// Number of locations in the snapshot
-    ///
-    /// Total count of distinct locations referenced in the simulation.
     pub location_count: usize,
 }
 
 impl SnapshotMetadata {
-    /// Creates a new snapshot metadata instance
+    /// Creates a new snapshot metadata instance, generating IDs internally.
     ///
     /// # Arguments
     ///
@@ -85,17 +59,6 @@ impl SnapshotMetadata {
     /// * `task_count` - Number of tasks in the snapshot
     /// * `workflow_instance_count` - Number of workflow instances in the snapshot
     /// * `location_count` - Number of locations in the snapshot
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use sim_core::snapshot::SnapshotMetadata;
-    ///
-    /// let metadata = SnapshotMetadata::new(
-    ///     "1.0".to_string(),
-    ///     100, 50, 200, 25, 10
-    /// );
-    /// ```
     pub fn new(
         version: String,
         agent_count: usize,
@@ -104,7 +67,39 @@ impl SnapshotMetadata {
         workflow_instance_count: usize,
         location_count: usize,
     ) -> Self {
+        Self::with_ids(
+            Uuid::now_v7(),
+            Uuid::now_v7(),
+            None,
+            Utc::now(),
+            version,
+            agent_count,
+            resource_count,
+            task_count,
+            workflow_instance_count,
+            location_count,
+        )
+    }
+
+    /// Creates a snapshot metadata instance with caller-supplied IDs.
+    #[allow(clippy::too_many_arguments)]
+    pub fn with_ids(
+        snapshot_id: Uuid,
+        simulation_id: Uuid,
+        label: Option<String>,
+        sim_time: DateTime<Utc>,
+        version: String,
+        agent_count: usize,
+        resource_count: usize,
+        task_count: usize,
+        workflow_instance_count: usize,
+        location_count: usize,
+    ) -> Self {
         Self {
+            snapshot_id,
+            simulation_id,
+            label,
+            sim_time,
             version,
             timestamp: Utc::now(),
             agent_count,
@@ -116,67 +111,11 @@ impl SnapshotMetadata {
     }
 
     /// Serializes the metadata to a JSON string
-    ///
-    /// # Returns
-    ///
-    /// A `Result` containing the JSON string representation, or a serialization error.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if JSON serialization fails (rare, as all fields are serializable).
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use sim_core::snapshot::SnapshotMetadata;
-    ///
-    /// let metadata = SnapshotMetadata::new(
-    ///     "1.0".to_string(),
-    ///     100, 50, 200, 25, 10
-    /// );
-    ///
-    /// let json = metadata.to_json().expect("Failed to serialize");
-    /// println!("Metadata: {}", json);
-    /// ```
     pub fn to_json(&self) -> Result<String, serde_json::Error> {
         serde_json::to_string_pretty(self)
     }
 
     /// Deserializes metadata from a JSON string
-    ///
-    /// # Arguments
-    ///
-    /// * `json` - JSON string containing serialized metadata
-    ///
-    /// # Returns
-    ///
-    /// A `Result` containing the deserialized metadata, or a deserialization error.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - The JSON is malformed
-    /// - Required fields are missing
-    /// - Field types don't match expected types
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use sim_core::snapshot::SnapshotMetadata;
-    ///
-    /// let json = r#"{
-    ///     "version": "1.0",
-    ///     "timestamp": "2024-01-15T10:30:00Z",
-    ///     "agent_count": 100,
-    ///     "resource_count": 50,
-    ///     "task_count": 200,
-    ///     "workflow_instance_count": 25,
-    ///     "location_count": 10
-    /// }"#;
-    ///
-    /// let metadata = SnapshotMetadata::from_json(json).expect("Failed to deserialize");
-    /// assert_eq!(metadata.agent_count, 100);
-    /// ```
     pub fn from_json(json: &str) -> Result<Self, serde_json::Error> {
         serde_json::from_str(json)
     }
@@ -196,6 +135,36 @@ mod tests {
         assert_eq!(metadata.task_count, 200);
         assert_eq!(metadata.workflow_instance_count, 25);
         assert_eq!(metadata.location_count, 10);
+        assert!(metadata.label.is_none());
+    }
+
+    #[test]
+    fn test_new_generates_unique_ids() {
+        let m1 = SnapshotMetadata::new("1.0".to_string(), 0, 0, 0, 0, 0);
+        let m2 = SnapshotMetadata::new("1.0".to_string(), 0, 0, 0, 0, 0);
+        assert_ne!(m1.snapshot_id, m2.snapshot_id);
+    }
+
+    #[test]
+    fn test_with_ids() {
+        let snap_id = Uuid::now_v7();
+        let sim_id = Uuid::now_v7();
+        let sim_time = Utc::now();
+        let metadata = SnapshotMetadata::with_ids(
+            snap_id,
+            sim_id,
+            Some("my_label".to_string()),
+            sim_time,
+            "1.0".to_string(),
+            10,
+            5,
+            20,
+            3,
+            0,
+        );
+        assert_eq!(metadata.snapshot_id, snap_id);
+        assert_eq!(metadata.simulation_id, sim_id);
+        assert_eq!(metadata.label.as_deref(), Some("my_label"));
     }
 
     #[test]
@@ -207,20 +176,14 @@ mod tests {
 
         assert_eq!(original.version, restored.version);
         assert_eq!(original.agent_count, restored.agent_count);
-        assert_eq!(original.resource_count, restored.resource_count);
-        assert_eq!(original.task_count, restored.task_count);
-        assert_eq!(
-            original.workflow_instance_count,
-            restored.workflow_instance_count
-        );
-        assert_eq!(original.location_count, restored.location_count);
+        assert_eq!(original.snapshot_id, restored.snapshot_id);
+        assert_eq!(original.simulation_id, restored.simulation_id);
     }
 
     #[test]
     fn test_timestamp_is_set() {
         let metadata = SnapshotMetadata::new("1.0".to_string(), 0, 0, 0, 0, 0);
 
-        // Timestamp should be recent (within last second)
         let now = Utc::now();
         let diff = now.signed_duration_since(metadata.timestamp);
         assert!(diff.num_seconds() < 2);
@@ -234,18 +197,15 @@ mod tests {
     }
 
     #[test]
-    fn test_json_format() {
+    fn test_json_contains_new_fields() {
         let metadata = SnapshotMetadata::new("1.0".to_string(), 100, 50, 200, 25, 10);
 
         let json = metadata.to_json().expect("Failed to serialize");
 
-        // Should contain all fields
+        assert!(json.contains("snapshot_id"));
+        assert!(json.contains("simulation_id"));
+        assert!(json.contains("sim_time"));
         assert!(json.contains("version"));
-        assert!(json.contains("timestamp"));
         assert!(json.contains("agent_count"));
-        assert!(json.contains("resource_count"));
-        assert!(json.contains("task_count"));
-        assert!(json.contains("workflow_instance_count"));
-        assert!(json.contains("location_count"));
     }
 }

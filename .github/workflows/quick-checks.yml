@@ -4,23 +4,28 @@ on:
   push:
   pull_request:
 
+env:
+  CARGO_TERM_COLOR: always
+  SCCACHE_GHA_ENABLED: "true"
+  RUSTC_WRAPPER: "sccache"
+  CARGO_INCREMENTAL: "0"
+
 jobs:
   check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
 
       - name: Setup Rust toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@v1
+        uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master
         with:
           toolchain: stable
           components: rustfmt,clippy
 
-      - name: Setup Rust cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: "quick-checks"
-          cache-on-failure: true
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
 
       - name: Rustfmt Check
         uses: actions-rust-lang/rustfmt@v1
@@ -36,6 +41,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
 
       - name: Check spelling
         uses: crate-ci/typos@v1

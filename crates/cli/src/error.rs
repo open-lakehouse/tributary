@@ -7,4 +7,6 @@ pub enum Error {
         #[from]
         source: std::io::Error,
     },
+    #[error("{0}")]
+    Other(String),
 }

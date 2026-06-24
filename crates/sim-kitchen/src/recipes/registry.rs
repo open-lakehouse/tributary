@@ -8,6 +8,12 @@ pub struct RecipeRegistry {
     recipes: HashMap<String, Recipe>, // item_name -> Recipe
 }
 
+impl Default for RecipeRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RecipeRegistry {
     /// Create a new, empty registry.
     pub fn new() -> Self {
