@@ -593,7 +593,7 @@ The Package agent demonstrates:
 
 All agents are stored in Arrow RecordBatch for efficiency:
 
-- **Bulk updates**: 7-785x faster with batch operations
+- **Bulk updates**: Faster with batch operations
 - **Memory efficiency**: Columnar storage reduces overhead
 - **Query support**: SQL queries across agent population
 

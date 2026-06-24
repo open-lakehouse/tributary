@@ -7,7 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [Unreleased] - 2026-05-17 (Python bindings migration)
+## [Unreleased]
+
+### Removed — legacy `universe` crate and proto/buf pipeline
+- Deleted `crates/universe` (legacy DataFusion-based engine; no remaining consumers).
+- Deleted `proto/`, `buf.gen.yaml`, `proto/buf.yaml`, and the `just generate` recipe —
+  the entire buf pipeline only generated code into the `universe` crate.
+- Relocated the three brand recipe templates consumed by `sim-kitchen`
+  (`fast_food.json`, `asian.json`, `mexican.json`) from `universe/templates/base/brands/`
+  into `crates/sim-kitchen/src/recipes/data/`.
+
+### Changed — renamed packages off "universe"
+- `caspers-universe-cli` → `caspers-cli` (binary remains `caspers`).
+- `caspers-universe-python` → `caspers-python`; Python module `caspers_universe` → `caspers`.
+- Removed dead `build-ui`/`dev-ui`/`install-ui`/`docs`/`build-docs` justfile recipes
+  (no `ui/` or `docs/` npm workspace exists).
+- Cleaned all clippy warnings; `cargo clippy --workspace --all-targets -- -D warnings`
+  is now clean.
+
+---
+
+## [Earlier Unreleased] - 2026-05-17 (Python bindings migration)
 
 ### Changed — Python bindings migrated from legacy `universe` crate to `sim-*` framework
 
@@ -188,7 +208,7 @@ Deterministic agent profiles seeded by `AgentId` bytes — reproducible across r
 `CustomerProfile`, `CourierProfile`, `SupplyDriverProfile` with realistic fake fields.
 
 #### sim-kitchen: Recipe System
-`RecipeRegistry::load_defaults()` parses bundled universe brand templates.
+`RecipeRegistry::load_defaults()` parses bundled brand templates.
 `StationKind` enum maps template strings to typed prep stations.
 New events: `io.kitchen.recipe.step.started`, `io.kitchen.recipe.step.completed`.
 
@@ -212,8 +232,9 @@ Initial release of the Generic Agent Simulation Framework, a Rust-based system f
 **Project Status:** Production-ready foundation (71% complete, Phases 1-11)
 
 **Key Metrics:**
-- **Performance:** 2,500x improvement over baseline, 1,667x better than 100ms/tick target
-- **Test Coverage:** 464+ tests passing across all crates (100% library test pass rate)
+- **Performance:** tick time comfortably under the 100ms/tick target (specific
+  speedup figures from this period are unverified and have been omitted)
+- **Test Coverage:** full workspace test suite passing across all crates
 - **Code Quality:** Zero clippy warnings on library code
 - **Documentation:** Comprehensive API docs, guides, examples, and architecture documentation
 - **Domains:** 2 complete domain implementations (kitchen, logistics)
@@ -387,6 +408,11 @@ Initial release of the Generic Agent Simulation Framework, a Rust-based system f
 ---
 
 ### Performance Improvements
+
+> **Note:** the specific speedup multipliers and microbenchmark figures in this
+> historical section were recorded during the original migration and have not been
+> re-validated. Treat them as directional, not authoritative; re-benchmark before
+> relying on any number here.
 
 #### Phase 3: Batch Operations (7-785x speedup)
 - **Optimized** WorkflowEngine batch updates

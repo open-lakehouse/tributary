@@ -18,9 +18,9 @@ Tributary is a workspace containing multiple crates for building simulations, ev
 - **sim-kitchen** - Ghost kitchen domain — reference implementation
 - **sim-logistics** - Package delivery domain — validates framework generality
 - **sim-telemetry** - Observability and telemetry
-- **caspers-universe-cli** - Command-line interface (TUI runner)
-- **caspers-universe-python** - Python bindings via PyO3
-- **universe** - Legacy simulation engine (not extended; kept for reference)
+- **sim-artifacts** - Artifact generation from events (emails, API calls, web events)
+- **caspers-cli** - Command-line interface (TUI runner; binary `caspers`)
+- **caspers-python** - Python bindings via PyO3
 
 ## Requirements
 
@@ -37,7 +37,7 @@ cargo test --workspace
 cargo bench --workspace
 
 # Build CLI
-cargo build --release -p caspers-universe-cli
+cargo build --release -p caspers-cli
 
 # Run the TUI simulation (100 steps, 3 kitchens, 20 customers)
 cargo run --bin caspers -- run

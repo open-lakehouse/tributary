@@ -422,7 +422,7 @@ impl Resource for LoadingDock {
 
 Resources and tasks use Arrow RecordBatch:
 
-- **Bulk operations**: 10-100x faster than HashMap iteration
+- **Bulk operations**: Faster than HashMap iteration
 - **SQL queries**: Cross-entity analytics with DataFusion
 - **Memory efficiency**: Columnar storage reduces overhead
 

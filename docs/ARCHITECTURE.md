@@ -17,7 +17,7 @@ The Generic Agent Simulation Framework is a Rust-based system for building large
 **Pattern:** Store all state in Arrow RecordBatch with HashMap index for fast lookup
 
 **Rationale:**
-- RecordBatch provides columnar storage (10-100x faster than row-oriented)
+- RecordBatch provides columnar storage (faster than row-oriented for bulk operations)
 - HashMap index enables O(1) lookups by entity ID
 - Enables DataFusion SQL queries on simulation state
 - Natural serialization to Parquet for snapshots
@@ -217,7 +217,7 @@ pub trait VelocityModel: Send + Sync {
 
 **Strategy:** Batch RecordBatch updates to avoid O(N²) rebuilds
 
-**Impact:** 7-785x speedup for workflow updates
+**Impact:** Batch operations significantly reduce per-update overhead for workflow updates
 
 **Reference:**
 - `/Users/robert.pack/code/management/crates/sim-core/benches/batch_operations.rs`
@@ -229,7 +229,7 @@ pub trait VelocityModel: Send + Sync {
 
 **Strategy:** Cache Contraction Hierarchies preprocessing with OnceLock
 
-**Impact:** Routing queries reduced from 1.86ms to 330ns (5645x speedup)
+**Impact:** Sub-millisecond cached routing queries
 
 **Reference:**
 - `/Users/robert.pack/code/management/crates/sim-geo/src/graph/routing.rs:136`
@@ -253,7 +253,7 @@ pub trait VelocityModel: Send + Sync {
 **Strategy:** Store all state in Arrow RecordBatch
 
 **Impact:**
-- 10-100x faster than HashMap for batch operations
+- Faster than HashMap for batch operations
 - Enables SQL queries via DataFusion
 - Natural Parquet serialization
 - Memory efficient for large simulations
@@ -536,9 +536,8 @@ impl SimulationRunner {
 ```
 
 **Performance Impact:**
-- Base simulation (Phase 9): 0.06ms/tick
-- With demand generation: 0.81ms/tick (+0.75ms overhead)
-- **Still 123x better than 100ms target** ✅
+- Demand generation adds modest per-tick overhead
+- **Tick time remains comfortably under the 100ms target** ✅
 
 ---
 
@@ -770,18 +769,19 @@ runner.tick()?;  // Updates kitchen AND logistics state
 
 ## Performance Characteristics by Phase
 
-### Cumulative Performance Impact
+### Optimizations by Phase
 
-| Phase | Optimization | Baseline | After | Improvement | Cumulative |
-|-------|--------------|----------|-------|-------------|------------|
-| 1-2 | Stabilization | 150ms | 150ms | 1x | 1x |
-| 3 | Batch operations | 150ms | 50ms | 3x | 3x |
-| 6 | Arrow migration | 50ms | 5ms | 10x | 30x |
-| 7 | Cached routing | 5ms | 0.5ms | 10x | 300x |
-| 9 | Multi-workflow | 0.5ms | 0.06ms | 8.3x | **2,500x** |
-| 10 | Demand generation | 0.06ms | 0.81ms | 0.93x* | 185x* |
+Each phase introduced architectural optimizations that progressively reduced
+per-tick overhead:
 
-*Phase 10 adds new capability (demand generation), slight overhead expected but still 185x better than baseline
+| Phase | Optimization | Effect |
+|-------|--------------|--------|
+| 1-2 | Stabilization | Baseline established |
+| 3 | Batch operations | Reduced per-update overhead |
+| 6 | Arrow migration | Faster bulk state updates |
+| 7 | Cached routing | Sub-millisecond routing queries |
+| 9 | Multi-workflow | Lower per-instance cost |
+| 10 | Demand generation | New capability with modest overhead |
 
 ### Performance by Operation Type
 
@@ -791,7 +791,7 @@ runner.tick()?;  // Updates kitchen AND logistics state
 | **Workflow Advancement** | <0.02ms per instance | O(1) HashMap lookups |
 | **Resource Allocation** | <0.01ms per task | Minimal matching overhead |
 | **Spatial Queries** | <0.5ms per query | H3 indexing, cached |
-| **Routing Queries** | 330ns per query | Cached Contraction Hierarchies |
+| **Routing Queries** | Sub-millisecond per query | Cached Contraction Hierarchies |
 | **Batch Updates** | 18µs for 1,000 | Single RecordBatch rebuild |
 | **Snapshot Save** | 15ms for 1,500 agents | Parquet compression |
 | **SQL Queries** | 0.8ms per aggregation | DataFusion optimization |
@@ -871,9 +871,9 @@ runner.tick()?;  // Updates kitchen AND logistics state
 
 #### 5. 10,000 Agent Scale
 
-**Current:** 0.06ms/tick for 1,500 agents (linear scaling → 0.4ms for 10K)
+**Current:** Sub-millisecond per tick for 1,500 agents (expected to scale roughly linearly)
 **Target:** <100ms per tick
-**Headroom:** 250x margin ✅
+**Headroom:** Substantial margin against the target ✅
 
 **Optimizations if needed:**
 - Parallel agent updates with rayon

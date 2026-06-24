@@ -6,12 +6,12 @@
 
 | Task | Command | Notes |
 |------|---------|-------|
-| Code generation | `just generate` | After any `.proto` changes |
 | Run simulation (TUI) | `just run [duration]` | Default: 100 steps; opens live TUI |
 | Run sim-kitchen | `just sim-kitchen [steps]` | Default: 100 steps, writes artifacts |
 | Python dev | `just build-py` | Build Python bindings |
 | Notebooks | `just scratch` | Launch Marimo notebook |
 | Inspect events | `just inspect` | Open sim_events.py Marimo notebook |
+| Kitchen notebook | `just kitchen` | Run + analyze in one Marimo notebook |
 | Format/lint | `just fmt` | Runs pre-commit hooks + justfile format |
 
 ## Project Identity
@@ -23,7 +23,6 @@
 ### Core Technologies Stack
 - **Rust** (Primary): Simulation engine, CLI, TUI — Rust edition 2024, MSRV 1.90
 - **Apache Arrow/DataFusion**: Columnar data processing (arrow 57, datafusion 51)
-- **Protocol Buffers**: Schema definitions and type generation (prost 0.13, buf toolchain)
 - **GeoArrow / H3**: Geospatial operations (H3 hexagonal indexing, geo 0.31, h3o 0.9)
 - **Python**: Analysis tools and bindings (via PyO3/Maturin, requires Python 3.11+)
 - **CloudEvents**: Event infrastructure (CloudEvents 1.0 spec)
@@ -36,7 +35,7 @@
 ### Crate Structure
 
 ```
-management/
+tributary/
 ├── crates/
 │   ├── sim-core/          # Generic agent-based simulation framework (domain-agnostic)
 │   ├── sim-events/        # CloudEvents 1.0 event infrastructure
@@ -45,13 +44,10 @@ management/
 │   ├── sim-kitchen/       # Ghost kitchen domain — reference implementation
 │   ├── sim-logistics/     # Package delivery domain — validates framework generality
 │   ├── sim-telemetry/     # OpenTelemetry-compatible telemetry generation
-│   ├── universe/          # Legacy simulation engine (Arrow/DataFusion, Python bindings)
 │   └── cli/               # Binary (caspers) — TUI runner (no server)
-├── proto/                 # Protocol buffer schemas (buf toolchain)
-├── python/                # Python bindings (PyO3/Maturin) for universe crate
+├── python/                # Python bindings (PyO3/Maturin) — wraps sim-kitchen & sim-logistics
 ├── notebooks/             # Marimo/Jupyter analysis notebooks
-├── ui/                    # Frontend UI
-├── docs/                  # Documentation site (ARCHITECTURE.md lives here)
+├── docs/                  # Documentation (ARCHITECTURE.md lives here)
 └── output/                # Simulation output (artifacts written here; gitignored)
 ```
 
@@ -190,10 +186,6 @@ pub trait SimulationHooks: Send + Sync + 'static {
 - **Locations**: `Warehouse`, `DeliveryAddress` (H3-indexed)
 - **Entry point**: `LogisticsSimulation::new(config)`
 
-### universe (Legacy)
-
-The `universe` crate is the **legacy** simulation engine. It is not being extended — new domain work should use the `sim-*` framework. It continues to run alongside the new framework but will eventually be replaced.
-
 ---
 
 ## Git Commits
@@ -240,24 +232,21 @@ The `Co-authored-by: Isaac` trailer must be included on every commit.
 ## Critical Rules
 
 ### NEVER DO THIS
-1. **Edit generated code** in `crates/universe/src/models/gen/` — changes will be overwritten
-2. **Skip `just generate`** after modifying `.proto` files — will cause compilation errors
-3. **Use non-workspace dependencies** — must be defined in root `Cargo.toml` `[workspace.dependencies]`
-4. **Commit `.caspers/` or `output/` directories** — runtime data only, gitignored
-5. **Commit `.claude/worktrees/` or `.claude/projects/`** — agent working state, gitignored
-6. **Mix time zones** — all timestamps are UTC, use `ctx.current_time()` for simulation time
-7. **Use `set_workflow_engine()`** — removed; use `set_workflow_registry()` only
-8. **Hardcode step duration as `30.0`** — use `ctx.time_step().num_seconds() as f64`
-9. **Run `git commit` directly** — GPG signing requires interactive TTY; prepare the command for the user instead
-10. **Stage files before running clippy and fmt** — always run clippy then fmt first
+1. **Use non-workspace dependencies** — must be defined in root `Cargo.toml` `[workspace.dependencies]`
+2. **Commit `.caspers/` or `output/` directories** — runtime data only, gitignored
+3. **Commit `.claude/worktrees/` or `.claude/projects/`** — agent working state, gitignored
+4. **Mix time zones** — all timestamps are UTC, use `ctx.current_time()` for simulation time
+5. **Use `set_workflow_engine()`** — removed; use `set_workflow_registry()` only
+6. **Hardcode step duration as `30.0`** — use `ctx.time_step().num_seconds() as f64`
+7. **Run `git commit` directly** — GPG signing requires interactive TTY; prepare the command for the user instead
+8. **Stage files before running clippy and fmt** — always run clippy then fmt first
 
 ### ALWAYS DO THIS
-1. **Run `just generate`** after proto changes
-2. **Use `WorkflowRegistry`** when wiring workflows in `SimulationRunner`
-3. **Use `ctx.time_step()`** for step duration in agent tick logic
-4. **Use `ctx.current_time()`** for simulation timestamps — never `Utc::now()` in simulation code
-5. **Use `sim_core::move_towards()`** for movement — don't duplicate in domain crates
-6. **Add tests** in `*_tests.rs` files alongside implementation
+1. **Use `WorkflowRegistry`** when wiring workflows in `SimulationRunner`
+2. **Use `ctx.time_step()`** for step duration in agent tick logic
+3. **Use `ctx.current_time()`** for simulation timestamps — never `Utc::now()` in simulation code
+4. **Use `sim_core::move_towards()`** for movement — don't duplicate in domain crates
+5. **Add tests** in `*_tests.rs` files alongside implementation
 
 ---
 
@@ -286,20 +275,13 @@ Model after `sim-kitchen` (reference implementation):
 5. Register in `src/agents/mod.rs`
 6. Add corresponding tests in `my_agent_tests.rs`
 
-### Modifying Data Schema (universe / legacy path)
-
-1. Edit `.proto` files in `proto/`
-2. Run `just generate` (regenerates Rust code via buf)
-3. Update builders in `crates/universe/src/builders/`
-4. Update state management in `crates/universe/src/state/`
-5. Test with `cargo test`
-
 ### Python Integration
 
 - Build bindings: `just build-py`
-- Python code in `python/` exposes the legacy `universe` crate to Python
+- Python code in `python/` exposes `sim-kitchen` and `sim-logistics` to Python
+  (`run_kitchen_simulation`, `run_logistics_simulation`); importable as `caspers`
 - Use for analysis, NOT for core simulation logic
-- Marimo notebooks in `notebooks/` for interactive exploration (`just scratch`, `just inspect`)
+- Marimo notebooks in `notebooks/` for interactive exploration (`just scratch`, `just inspect`, `just kitchen`)
 
 ---
 
@@ -341,16 +323,17 @@ just run-tracing
 
 ## Troubleshooting
 
-### "Generated code out of sync"
+### Clippy must stay clean
 ```bash
-just generate && cargo clean && cargo build
+cargo clippy --workspace --all-targets -- -D warnings
 ```
+The whole workspace is warning-clean; keep it that way before committing.
 
-### Clippy warnings in sim-* crates
-```bash
-cargo clippy -p sim-core -p sim-kitchen -p sim-logistics -p sim-geo -p sim-events -p sim-artifacts -p sim-telemetry -- -D warnings
-```
-The legacy `universe` crate has pre-existing warnings that are out of scope.
+### Local build fails on `chrono` (or another crate) "not found" in the proxy
+`.cargo/config.toml` routes crates.io through the Databricks age-filtering proxy,
+which omits versions published in the last 7 days. CI builds against crates.io and
+is unaffected. If a fresh dependency is blocked locally, wait for the proxy to catch
+up or build against crates.io directly.
 
 ### Python bindings fail to build
 ```bash
@@ -361,7 +344,7 @@ uv pip install maturin[zig] && just build-py
 
 ## Related Documentation
 
-- `README.md` — Entity relationships and legacy Python system
+- `README.md` — Project overview and crate list
 - `docs/ARCHITECTURE.md` — High-level design decisions
 - `justfile` — All available commands and build tasks
 - `Cargo.toml` — Workspace dependencies and versions
@@ -370,13 +353,11 @@ uv pip install maturin[zig] && just build-py
 
 | Pattern | Usage |
 |---------|-------|
-| `*.proto` | Protocol buffer definitions |
 | `*_tests.rs` | Unit/integration tests |
-| `gen/*.rs` | Generated code — DO NOT EDIT |
 | `output/artifacts/` | Simulation artifact output (Parquet) |
 
 ---
 
-**Last Updated**: 2026-03-21
+**Last Updated**: 2026-06-24
 **Simulation Version**: 0.0.1
 **Rust Edition**: 2024 / MSRV 1.90

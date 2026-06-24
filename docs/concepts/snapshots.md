@@ -273,11 +273,11 @@ let df = agents
 
 Phase 6 snapshot performance:
 
-- **Save time**: 15ms for 1,500 agents (66x better than 1s target)
-- **Restore time**: 7ms for 1,500 agents (278x better than 2s target)
-- **Round-trip**: <25ms total
-- **Compression**: 9x with Parquet Snappy codec
-- **File size**: ~100KB for 1,500 agents (vs ~900KB uncompressed)
+- **Save time**: Well under the 1s target for 1,500 agents
+- **Restore time**: Well under the 2s target for 1,500 agents
+- **Round-trip**: Fast end-to-end
+- **Compression**: Compact files with the Parquet Snappy codec
+- **File size**: Substantially smaller than uncompressed
 
 ### Performance Tips
 
