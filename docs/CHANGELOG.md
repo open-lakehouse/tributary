@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `caspers run --no-tui` no longer hangs in range mode. The kitchen simulation
+  pauses at the step limit to keep the TUI alive, and the headless driver now
+  stops the run when it sees that pause.
+
 ### Changed: dependency refresh
 - `arrow`/`parquet` 58 → 59 and `datafusion` 53.1 → 55, matching Hydrofoil and
   mangrove (arrow 60 is out, but datafusion 55 builds on 59).

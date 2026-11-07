@@ -624,6 +624,7 @@ dependencies = [
  "sim-events",
  "sim-kitchen",
  "sim-validate",
+ "tempfile",
  "thiserror 2.0.21",
  "tokio",
  "tracing",
