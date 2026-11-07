@@ -41,7 +41,7 @@ use crate::workflows::{PackageShipmentWorkflow, ShipmentTask, ShipmentTaskFactor
 use crate::{DeliveryAddress, Driver, Package, PackagePriority};
 use chrono::{DateTime, Duration, Utc};
 use geo::Point;
-use rand::Rng;
+use rand::RngExt;
 use sim_core::{
     PoissonDemandGenerator, PopulationHandler, ResourceAllocator, SimulationConfig,
     SimulationHooks, SimulationRunner, Workflow, WorkflowId, WorkflowRegistry,

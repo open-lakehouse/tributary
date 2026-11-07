@@ -19,9 +19,8 @@ uuid = { workspace = true, features = ["v5", "v7"] }
 geo = { workspace = true }
 geo-types = { workspace = true }
 h3o = { workspace = true, features = ["geo"] }
-# Still on rand 0.8; unified with the workspace rand in the deps bump.
-rand = { version = "0.8" }
-rand_distr = { version = "0.4" }
+rand = { workspace = true }
+rand_distr = { workspace = true }
 sim-telemetry = { workspace = true }
 
 [dev-dependencies]

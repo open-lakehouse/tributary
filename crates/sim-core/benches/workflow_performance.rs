@@ -15,7 +15,7 @@
 //! - Performance advantage should scale with the number of updates
 //! - Overhead should remain O(N) regardless of update count
 
-use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use sim_core::{
     utils::idents::{WorkflowId, WorkflowInstanceId},
     workflows::{
@@ -23,6 +23,7 @@ use sim_core::{
         WorkflowInstanceTable,
     },
 };
+use std::hint::black_box;
 
 /// Create a test workflow instance
 fn create_test_workflow(workflow_id: WorkflowId) -> WorkflowInstance {

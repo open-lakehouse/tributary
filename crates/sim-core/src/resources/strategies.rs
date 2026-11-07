@@ -94,9 +94,9 @@ impl<R: Resource, T: Task> AllocationStrategy<R, T> for Random {
             return None;
         }
 
-        use rand::Rng;
+        use rand::RngExt;
         let mut rng = self.rng.lock().unwrap();
-        let idx = rng.gen_range(0..available.len());
+        let idx = rng.random_range(0..available.len());
         Some(available[idx].id())
     }
 }

@@ -7,7 +7,7 @@
 //! cargo bench --bench batch_operations
 //! ```
 
-use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use geo_types::Point;
 use serde_json::Value;
 use sim_core::{
@@ -15,6 +15,7 @@ use sim_core::{
     population::{Agent, AgentStatus, AgentTickResult, ArrowAgentRow, PopulationHandler},
     utils::idents::AgentId,
 };
+use std::hint::black_box;
 use uuid::Uuid;
 
 // Simple test agent for benchmarking
