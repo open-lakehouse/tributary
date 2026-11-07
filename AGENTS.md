@@ -183,13 +183,16 @@ pub trait SimulationHooks: Send + Sync + 'static {
 
 ### sim-kitchen (Ghost Kitchen)
 
-- **Customer agents**: State machine — `Idle → Ordering → WaitingForFood → Eating → Done`
-- **Kitchen resources**: Capacity-constrained, auto-tracked load via `ResourceAllocator`
-- **Order tasks**: Flow through kitchen pipeline
+- **Customer agents**: State machine — `Idle → Ordering → WaitingForFood → Eating → Done → Idle`
+- **Kitchen resources**: capacity = orders prepared at once; resource type `kitchen:<name>`
+- **Orders**: one `FoodPrepWorkflow` instance per order (prep → cook → package, all in the
+  order's kitchen) via `WorkflowRegistry`; steps are `PrepTask`s from `PrepTaskFactory`
 - **Events**: `io.kitchen.order.{created,assigned,completed}`, `io.kitchen.customer.{eating,done}`
-- **Artifacts**: payment authorizations, order confirmations, web events, inventory reports
-- **Entry points**: `KitchenSimulation::new(num_kitchens, capacity, verbose)` or `build_simulation()`
-- **Run methods**: `run_for_steps(n)` (no channel) or `run_controlled_for(max)` (control channel, all modes)
+- **Artifacts**: web sessions, confirmation email/SMS, payment records, kitchen tickets, receipts
+- **Entry point**: `KitchenSimulation::new(num_kitchens, capacity, verbose)` /
+  `new_seeded(.., seed)`, then `.with_artifact_dir(dir)` (optional) and `add_customers(n)`
+- **Run methods**: `step()`, `run_for_steps(n)`, or `run_controlled_for(max)` (control channel).
+  Don't tick the runner directly: order start, delivery and `customer.done` happen in `step()`
 
 ### sim-logistics (Package Delivery)
 

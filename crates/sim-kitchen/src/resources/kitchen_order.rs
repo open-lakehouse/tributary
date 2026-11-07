@@ -1,12 +1,22 @@
-//! Kitchen resources for food preparation
+//! Kitchens and the preparation tasks they process
 
-use chrono::Duration;
+use chrono::{DateTime, Duration, Utc};
+use sim_core::resources::TaskFactory;
+use sim_core::utils::idents::WorkflowInstanceId;
+use sim_core::workflows::WorkflowStep;
 use sim_core::{Resource, ResourceId, Task, TaskId};
+use uuid::Uuid;
 
-/// Kitchen resource that prepares orders
+/// Namespace for deterministic kitchen-domain IDs (UUID v5)
+pub(crate) const KITCHEN_NAMESPACE: Uuid =
+    Uuid::from_u128(0x5f1c_7e0a_2b4d_4c11_9a3e_6d2f_8b70_c4e1);
+
+/// A kitchen: a capacity-constrained resource that prepares orders
 ///
-/// The kitchen's load (number of active orders) is automatically tracked by the
-/// framework's ResourceAllocator. You don't need to manually increment/decrement load.
+/// `capacity` is the number of orders the kitchen works on at once. Each
+/// kitchen has its own resource type (`kitchen:<name>`), so an order's
+/// preparation steps all run in the kitchen it was routed to. The
+/// [`ResourceAllocator`](sim_core::ResourceAllocator) tracks load.
 ///
 /// # Example
 ///
@@ -14,36 +24,27 @@ use sim_core::{Resource, ResourceId, Task, TaskId};
 /// use sim_kitchen::Kitchen;
 /// use sim_core::Resource;
 ///
-/// let kitchen = Kitchen::new("Main Kitchen".to_string(), 5);
+/// let kitchen = Kitchen::new("Kitchen-1", 5);
+/// assert_eq!(kitchen.resource_type(), "kitchen:Kitchen-1");
 /// assert_eq!(kitchen.capacity(), 5);
-/// assert!(kitchen.is_available());
+/// // IDs are derived from the name, so they are stable across runs.
+/// assert_eq!(kitchen.id, Kitchen::new("Kitchen-1", 5).id);
 /// ```
 #[derive(Debug, Clone)]
 pub struct Kitchen {
     pub id: ResourceId,
     pub name: String,
     pub capacity: usize,
+    resource_type: String,
 }
 
 impl Kitchen {
-    /// Create a new kitchen with the specified capacity
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - Human-readable name for the kitchen
-    /// * `capacity` - Maximum number of concurrent orders this kitchen can handle
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use sim_kitchen::Kitchen;
-    ///
-    /// let kitchen = Kitchen::new("Kitchen-1".to_string(), 5);
-    /// assert_eq!(kitchen.name, "Kitchen-1");
-    /// ```
-    pub fn new(name: String, capacity: usize) -> Self {
+    /// Create a kitchen that works on up to `capacity` orders at once
+    pub fn new(name: impl Into<String>, capacity: usize) -> Self {
+        let name = name.into();
         Self {
-            id: ResourceId::new(),
+            id: ResourceId::from_name(KITCHEN_NAMESPACE, &format!("kitchen/{name}")),
+            resource_type: format!("kitchen:{name}"),
             name,
             capacity,
         }
@@ -56,7 +57,7 @@ impl Resource for Kitchen {
     }
 
     fn resource_type(&self) -> &str {
-        "kitchen"
+        &self.resource_type
     }
 
     fn capacity(&self) -> usize {
@@ -64,177 +65,95 @@ impl Resource for Kitchen {
     }
 
     fn current_load(&self) -> usize {
-        // Load is tracked by the ResourceAllocator, not by the Kitchen itself.
-        // This is called by the framework during task assignment.
-        // For standalone Kitchen instances (e.g., in tests), return 0.
+        // The allocator tracks load; a kitchen starts empty.
         0
     }
 }
 
-/// Order task to be processed by a kitchen
-///
-/// Orders are created by customers and assigned to kitchens by the ResourceAllocator.
-/// The prep time is automatically calculated based on the number of items, or can be
-/// specified explicitly.
-///
-/// # Lifecycle
-///
-/// 1. Customer creates order (transitions from Ordering -> WaitingForFood)
-/// 2. Order is added to ResourceAllocator via `add_task()`
-/// 3. ResourceAllocator assigns order to least-loaded kitchen
-/// 4. Kitchen prepares order (duration = prep_time)
-/// 5. Order is completed, customer starts eating
-///
-/// # Example
-///
-/// ```rust
-/// use sim_kitchen::Order;
-/// use sim_core::Task;
-///
-/// let order = Order::new(
-///     "order-123".to_string(),
-///     "customer-456".to_string(),
-///     vec!["burger".to_string(), "fries".to_string()],
-/// );
-/// assert_eq!(order.required_resource_type(), "kitchen");
-/// ```
+/// One step of preparing an order (prep, cook or package) in a kitchen
 #[derive(Debug, Clone)]
-pub struct Order {
+pub struct PrepTask {
     pub id: TaskId,
-    pub order_id: String,
-    pub customer_id: String,
-    pub items: Vec<String>,
-    pub prep_time: Duration,
+    pub instance_id: WorkflowInstanceId,
+    pub step_index: usize,
+    resource_type: String,
+    duration: Duration,
 }
 
-impl Order {
-    /// Create a new order with automatic prep time calculation
-    ///
-    /// Prep time is calculated as: 5 minutes + (3 minutes per item)
-    ///
-    /// # Arguments
-    ///
-    /// * `order_id` - Unique identifier for this order
-    /// * `customer_id` - ID of the customer who placed the order
-    /// * `items` - List of items in the order
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use sim_kitchen::Order;
-    ///
-    /// let order = Order::new(
-    ///     "order-1".to_string(),
-    ///     "customer-1".to_string(),
-    ///     vec!["burger".to_string()],
-    /// );
-    /// ```
-    pub fn new(order_id: String, customer_id: String, items: Vec<String>) -> Self {
-        // Calculate prep time based on items (simplified)
-        let prep_time = Duration::minutes(5 + (items.len() as i64 * 3));
-
-        Self {
-            id: TaskId::new(),
-            order_id,
-            customer_id,
-            items,
-            prep_time,
-        }
-    }
-
-    /// Create an order with custom prep time
-    ///
-    /// Use this when you want precise control over preparation duration.
-    ///
-    /// # Arguments
-    ///
-    /// * `order_id` - Unique identifier for this order
-    /// * `customer_id` - ID of the customer who placed the order
-    /// * `items` - List of items in the order
-    /// * `prep_time` - Custom preparation duration
-    pub fn with_prep_time(
-        order_id: String,
-        customer_id: String,
-        items: Vec<String>,
-        prep_time: Duration,
-    ) -> Self {
-        Self {
-            id: TaskId::new(),
-            order_id,
-            customer_id,
-            items,
-            prep_time,
-        }
-    }
-}
-
-impl Task for Order {
+impl Task for PrepTask {
     fn id(&self) -> TaskId {
         self.id
     }
 
     fn required_resource_type(&self) -> &str {
-        "kitchen"
+        &self.resource_type
     }
 
     fn estimated_duration(&self) -> Duration {
-        self.prep_time
+        self.duration
     }
 
+    /// Later steps outrank earlier ones, so an order already in progress
+    /// takes the slot it just freed before a new order can start. This keeps
+    /// the number of orders in progress per kitchen at or below its capacity.
     fn priority(&self) -> i32 {
-        // Orders with more items have higher priority (simplified)
-        self.items.len() as i32
+        i32::try_from(self.step_index).unwrap_or(i32::MAX)
+    }
+
+    fn workflow_instance_id(&self) -> Option<WorkflowInstanceId> {
+        Some(self.instance_id)
+    }
+}
+
+/// Creates a [`PrepTask`] for each food-preparation workflow step
+#[derive(Debug, Default, Clone, Copy)]
+pub struct PrepTaskFactory;
+
+impl TaskFactory<PrepTask> for PrepTaskFactory {
+    fn create_task(
+        &self,
+        instance_id: WorkflowInstanceId,
+        step: &WorkflowStep,
+        _current_time: DateTime<Utc>,
+    ) -> PrepTask {
+        PrepTask {
+            id: TaskId::new(),
+            instance_id,
+            step_index: step.step_index,
+            resource_type: step.required_resource_type.clone(),
+            duration: step.expected_duration,
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
 
     #[test]
-    fn test_kitchen_creation() {
-        let kitchen = Kitchen::new("Kitchen-1".to_string(), 5);
-
-        assert_eq!(kitchen.resource_type(), "kitchen");
-        assert_eq!(kitchen.capacity(), 5);
-        // Load tracking is handled by ResourceAllocator, not Kitchen
-        assert_eq!(kitchen.current_load(), 0);
-        assert!(kitchen.is_available());
+    fn kitchen_has_its_own_resource_type() {
+        let a = Kitchen::new("A", 5);
+        let b = Kitchen::new("B", 5);
+        assert_ne!(a.resource_type(), b.resource_type());
+        assert_ne!(a.id, b.id);
+        assert_eq!(a.available_capacity(), 5);
     }
 
     #[test]
-    fn test_kitchen_resource_trait() {
-        // Test that Kitchen properly implements the Resource trait
-        let kitchen = Kitchen::new("Main Kitchen".to_string(), 10);
-
-        assert_eq!(kitchen.resource_type(), "kitchen");
-        assert_eq!(kitchen.capacity(), 10);
-        assert!(kitchen.is_available());
-        assert_eq!(kitchen.available_capacity(), 10);
-    }
-
-    #[test]
-    fn test_order_creation() {
-        let order = Order::new(
-            "order-123".to_string(),
-            "customer-456".to_string(),
-            vec!["burger".to_string(), "fries".to_string()],
-        );
-
-        assert_eq!(order.required_resource_type(), "kitchen");
-        assert_eq!(order.priority(), 2); // 2 items
-        assert_eq!(order.estimated_duration(), Duration::minutes(11)); // 5 + 2*3
-    }
-
-    #[test]
-    fn test_order_with_custom_prep_time() {
-        let order = Order::with_prep_time(
-            "order-123".to_string(),
-            "customer-456".to_string(),
-            vec!["burger".to_string()],
-            Duration::minutes(10),
-        );
-
-        assert_eq!(order.estimated_duration(), Duration::minutes(10));
+    fn factory_copies_step_and_ranks_later_steps_higher() {
+        let step = |i: usize| WorkflowStep {
+            step_index: i,
+            required_resource_type: "kitchen:A".to_string(),
+            expected_duration: Duration::seconds(60),
+            metadata: HashMap::new(),
+        };
+        let instance = WorkflowInstanceId::new();
+        let first = PrepTaskFactory.create_task(instance, &step(0), Utc::now());
+        let last = PrepTaskFactory.create_task(instance, &step(2), Utc::now());
+        assert_eq!(first.required_resource_type(), "kitchen:A");
+        assert_eq!(first.estimated_duration(), Duration::seconds(60));
+        assert_eq!(first.workflow_instance_id(), Some(instance));
+        assert!(last.priority() > first.priority());
     }
 }

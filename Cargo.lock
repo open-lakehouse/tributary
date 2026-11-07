@@ -4409,14 +4409,12 @@ dependencies = [
  "approx",
  "chrono",
  "geo",
- "h3o",
  "rand 0.10.3",
  "serde",
  "serde_json",
  "sim-artifacts",
  "sim-core",
  "sim-events",
- "sim-geo",
  "uuid",
 ]
 

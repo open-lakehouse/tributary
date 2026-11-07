@@ -41,7 +41,7 @@ pub struct LogisticsResult {
 ///     num_kitchens: Number of kitchens (default 3).
 ///     kitchen_capacity: Concurrent order capacity per kitchen (default 5).
 ///     num_customers: Number of customer agents (default 20).
-///     output_dir: Directory to write events.parquet into (default ".caspers/sim-kitchen").
+///     output_dir: Directory to write events.parquet (and artifacts/) into (default ".caspers/sim-kitchen").
 ///
 /// Returns:
 ///     KitchenResult with events_path and run statistics.
@@ -54,7 +54,8 @@ fn run_kitchen_simulation(
     num_customers: usize,
     output_dir: &str,
 ) -> PyResult<KitchenResult> {
-    let mut sim = KitchenSimulation::new(num_kitchens, kitchen_capacity, false);
+    let mut sim = KitchenSimulation::new(num_kitchens, kitchen_capacity, false)
+        .with_artifact_dir(std::path::Path::new(output_dir).join("artifacts"));
     sim.add_customers(num_customers);
     sim.run_for_steps(steps)
         .map_err(|e| Error::Simulation(e.to_string()))?;
