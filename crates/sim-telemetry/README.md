@@ -1,362 +1,73 @@
 # sim-telemetry
 
-OpenTelemetry-compatible telemetry generation for simulations.
+Turns CloudEvents-shaped JSON events into logs, trace spans and metrics, and exports them
+as OTLP JSON, a JSON array of logs, or Prometheus text.
 
-## Overview
+sim-core uses this crate only behind its `telemetry` feature
+(`sim_core::runner::telemetry::SimulationTelemetry`). No other workspace crate depends on it.
 
-`sim-telemetry` provides tools for generating observability data (logs, traces, metrics) from simulation events. It bridges the gap between simulation frameworks and modern observability platforms.
+## Input
 
-## Features
+Generators take a `serde_json::Value` event.
 
-- **Multi-Signal Telemetry**: Generate logs, traces, and metrics from simulation events
-- **CloudEvents Compatible**: Based on CloudEvents specification for event interchange
-- **Multiple Export Formats**: OTLP, JSON, and Prometheus formats
-- **Minimal Overhead**: <5% performance impact on simulation runtime
-- **Extensible**: Custom generators via `TelemetryGenerator` trait
+- `type` is required by all three generators.
+- `time` (RFC 3339) is required by the metric and trace generators. The log generator uses
+  it when present.
+- `source` is required by the trace generator.
+- `id` seeds the log level choice in the log generator. A missing `id` is treated as `"default"`.
+- `data` is read for metric gauges and log attributes.
 
-## Architecture
-
-```
-Simulation Event → TelemetryCollector → [Generators] → Telemetry Records → Export
-```
-
-### Core Components
-
-1. **TelemetryRecord**: Enum representing logs, traces, or metrics
-2. **TelemetryGenerator**: Trait for converting events to telemetry
-3. **TelemetryCollector**: Aggregates records from multiple generators
-4. **Export Formats**: OTLP, JSON, and Prometheus exporters
-
-## Installation
-
-Add to `Cargo.toml`:
-
-```toml
-[dependencies]
-sim-telemetry = { path = "../sim-telemetry" }
-```
-
-## Quick Start
-
-### Basic Usage
-
-```rust
-use sim_telemetry::{TelemetryCollector, EventToLogGenerator};
-use serde_json::json;
-
-// Create collector with generators
-let mut collector = TelemetryCollector::new();
-collector.add_generator(Box::new(EventToLogGenerator::new()));
-
-// Process CloudEvents
-let event = json!({
-    "specversion": "1.0",
-    "id": "evt-001",
-    "source": "urn:sim:agent:agent-001",
-    "type": "com.simulation.agent_ticked",
-    "time": "2026-03-16T10:00:00Z",
-    "data": {"agent_id": "agent-001", "tick": 42}
-});
-
-collector.process_event(&event).unwrap();
-
-// Retrieve telemetry
-let records = collector.flush();
-println!("Collected {} records", records.len());
-```
-
-### SimulationRunner Integration
-
-```rust
-use sim_core::{SimulationRunner, SimulationConfig};
-use sim_core::runner::telemetry::SimulationTelemetry;
-
-let config = SimulationConfig::default();
-let mut runner = SimulationRunner::new(config);
-
-// Attach telemetry hooks
-let telemetry = SimulationTelemetry::new();
-runner.set_hooks(Box::new(telemetry));
-
-// Run simulation with automatic telemetry collection
-runner.run_for_steps(100)?;
-
-// Access collected telemetry
-// (requires downcasting hooks or using TelemetryHooks trait)
-```
+A missing required field returns `TelemetryError::InvalidEvent`. An unparsable `time` makes
+the log, trace and metric generators use the current wall-clock time instead.
 
 ## Generators
 
-### EventToLogGenerator
+| Generator | Output per event |
+|---|---|
+| `EventToLogGenerator` | One `Log`. The level comes from a hash of the event `id`, not from an RNG. Defaults: 5% Error/Fatal, 10% Trace, the rest Debug/Info/Warn. `with_probabilities(error, trace)` changes this. |
+| `EventToTraceGenerator` | One `Trace` span. Events from the same `source` share a `trace_id`. Each event becomes a child of the previous span from that source, except `created` and `initialized` events, which start a new root. |
+| `EventToMetricGenerator` | A counter `events.<type>`, and a gauge `<type>.<key>` for each numeric field in `data`. Histograms (`<type>.<key>.histogram`) are kept in state and read with `get_histogram`; they are not returned as records. |
 
-Generates structured logs from events:
+Span durations depend on the event type: 10 ms for `created` and `destroyed`, 500 ms for
+`workflow`, 50 ms for `ticked`, 100 ms otherwise.
 
-```rust
-use sim_telemetry::EventToLogGenerator;
+Each generator implements `TelemetryGenerator::generate(&mut self, &Value)`, which returns
+`Vec<TelemetryRecord>`. Implement the trait for custom generators.
 
-let mut generator = EventToLogGenerator::new();
-let records = generator.generate(&event)?;
-```
-
-**Output**: Logs with severity levels (Info, Warn, Error, etc.)
-
-### EventToMetricGenerator
-
-Generates metrics (counters, gauges, histograms):
+## Collecting
 
 ```rust
-use sim_telemetry::EventToMetricGenerator;
+use sim_telemetry::{EventToLogGenerator, EventToMetricGenerator, TelemetryCollector};
+use serde_json::json;
 
-let mut generator = EventToMetricGenerator::new();
-let records = generator.generate(&event)?;
-```
-
-**Output**: Metrics with tags for aggregation
-
-### EventToTraceGenerator
-
-Generates distributed traces:
-
-```rust
-use sim_telemetry::EventToTraceGenerator;
-
-let mut generator = EventToTraceGenerator::new();
-let records = generator.generate(&event)?;
-```
-
-**Output**: Trace spans with relationships
-
-## Export Formats
-
-### JSON Export
-
-Simple serialization for storage or analysis:
-
-```rust
-let json = serde_json::to_string_pretty(&records)?;
-std::fs::write("telemetry.json", json)?;
-```
-
-### OTLP Export
-
-For OpenTelemetry Collector:
-
-```rust
-use sim_telemetry::formats::otlp::OtlpExporter;
-
-let exporter = OtlpExporter::new("http://localhost:4317");
-exporter.export_logs(&records)?;
-exporter.export_traces(&records)?;
-exporter.export_metrics(&records)?;
-```
-
-### Prometheus Export
-
-For Prometheus scraping:
-
-```rust
-use sim_telemetry::formats::prometheus::PrometheusExporter;
-
-let exporter = PrometheusExporter::new();
-let prometheus_text = exporter.export_metrics(&records)?;
-```
-
-## Examples
-
-### Complete Workflow
-
-See `examples/telemetry_demo.rs` for end-to-end demonstration:
-
-```bash
-cargo run -p sim-telemetry --example telemetry_demo
-```
-
-### Generate Logs Only
-
-```bash
-cargo run -p sim-telemetry --example generate_logs
-```
-
-### Metrics Demo
-
-```bash
-cargo run -p sim-telemetry --example metrics_demo
-```
-
-### Trace Demo
-
-```bash
-cargo run -p sim-telemetry --example trace_demo
-```
-
-## Performance
-
-Telemetry overhead is designed to be minimal:
-
-- **Event Processing**: <0.1ms per event
-- **Memory Overhead**: ~200 bytes per record
-- **Total Impact**: <5% of simulation runtime
-
-### Benchmarks
-
-Run performance tests:
-
-```bash
-cargo bench -p sim-telemetry
-```
-
-## Integration Patterns
-
-### Pattern 1: Inline Collection
-
-Collect telemetry during simulation:
-
-```rust
-let mut telemetry = SimulationTelemetry::new();
-runner.set_hooks(Box::new(telemetry));
-runner.run_for_steps(1000)?;
-```
-
-### Pattern 2: Post-Processing
-
-Process events after simulation:
-
-```rust
-let events = simulation.export_events();
-for event in events {
-    collector.process_event(&event)?;
-}
-```
-
-### Pattern 3: Streaming Export
-
-Export in real-time:
-
-```rust
-struct StreamingTelemetry {
-    collector: TelemetryCollector,
-    exporter: OtlpExporter,
-}
-
-impl SimulationHooks for StreamingTelemetry {
-    fn on_after_tick(&mut self, ctx: &SimulationContext) -> Result<()> {
-        if ctx.step() % 100 == 0 {
-            let records = self.collector.flush();
-            self.exporter.export_batch(&records)?;
-        }
-        Ok(())
-    }
-}
-```
-
-## Custom Generators
-
-Implement `TelemetryGenerator` for custom telemetry:
-
-```rust
-use sim_telemetry::{TelemetryGenerator, TelemetryRecord, TelemetryError};
-use serde_json::Value;
-
-struct CustomGenerator;
-
-impl TelemetryGenerator for CustomGenerator {
-    fn generate(&mut self, event: &Value) -> Result<Vec<TelemetryRecord>, TelemetryError> {
-        // Custom logic here
-        Ok(vec![])
-    }
-}
-
-collector.add_generator(Box::new(CustomGenerator));
-```
-
-## Testing
-
-Run all tests:
-
-```bash
-cargo test -p sim-telemetry
-```
-
-Run specific tests:
-
-```bash
-cargo test -p sim-telemetry --lib core::collector
-cargo test -p sim-core runner::telemetry
-```
-
-## API Documentation
-
-Generate and view full API documentation:
-
-```bash
-cargo doc -p sim-telemetry --open
-```
-
-## Troubleshooting
-
-### High Memory Usage
-
-If memory usage is high, flush records more frequently:
-
-```rust
-if collector.record_count() > 10000 {
-    let records = collector.flush();
-    export_batch(&records)?;
-}
-```
-
-### Missing Telemetry
-
-Ensure generators are added before processing events:
-
-```rust
+let mut collector = TelemetryCollector::new();
 collector.add_generator(Box::new(EventToLogGenerator::new()));
-// Must come after adding generators
-collector.process_event(&event)?;
+collector.add_generator(Box::new(EventToMetricGenerator::new()));
+
+let event = json!({
+    "id": "evt-001",
+    "type": "com.example.agent_ticked",
+    "source": "urn:sim:agent:agent-001",
+    "time": "2026-03-16T10:00:00Z",
+    "data": { "tick": 1 }
+});
+let generated = collector.process_event(&event)?; // number of records
+let records = collector.flush();                   // drains the buffer
 ```
 
-### Performance Impact
+`TelemetryCollectorProcessor` wraps a collector with an optional event type prefix
+(`with_filter`). It implements a local `EventProcessor` trait that takes `&Value`. It is not
+`sim_events::EventProcessor`, and this crate does not depend on sim-events, so it cannot be
+registered on an `EventDispatcher` directly.
 
-Profile telemetry overhead:
+## Exporters
 
-```bash
-cargo flamegraph --example telemetry_demo
-```
+| Exporter | Functions | Records used |
+|---|---|---|
+| `OtlpExporter` | `export_logs`, `export_traces`, `export_metrics` | logs, spans, metrics (OTLP JSON) |
+| `JsonLogExporter` | `export_to_file(records, path)`, `export_to_string(records)` | logs (pretty-printed JSON array) |
+| `PrometheusExporter` | `export`, `export_without_type` | metrics (text exposition format) |
 
-## Dependencies
-
-- `arrow 57.0` - Columnar format
-- `chrono 0.4` - Timestamp handling
-- `serde_json 1.0` - JSON serialization
-- `uuid 1.0` - Identifiers
-- `opentelemetry 0.31.0` - OTLP types
-- `opentelemetry-otlp 0.31.0` - OTLP export
-
-## Version Information
-
-Current version: `0.0.1`
-
-See [CHANGELOG.md](CHANGELOG.md) for detailed version history.
-
-## Documentation
-
-- [Architecture](docs/architecture.md) - OTLP compliance, minimal overhead, design principles
-- [Patterns](docs/patterns.md) - Common usage patterns and best practices
-- [Troubleshooting](docs/troubleshooting.md) - Common issues, debugging tips, and FAQ
-
-## Future Enhancements
-
-- Arrow-based batch processing
-- Automatic sampling strategies
-- Built-in aggregation functions
-- Real-time streaming export
-- Schema validation for events
-
-## Related Crates
-
-- `sim-core` - Core simulation abstractions
-- `sim-events` - CloudEvents infrastructure
-
-## License
-
-MIT OR Apache-2.0
+Examples: `cargo run -p sim-telemetry --example {telemetry_demo,metrics_demo,trace_demo}`;
+`generate_logs` reads `test_data/sample_events.json`. Benchmark: `cargo bench -p sim-telemetry`.
+API reference: `cargo doc -p sim-telemetry --open`.

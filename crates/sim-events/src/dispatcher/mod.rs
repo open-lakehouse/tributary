@@ -44,7 +44,8 @@ impl EventProcessor for ChannelSenderProcessor {
 /// Collects and dispatches events
 ///
 /// The dispatcher buffers events in memory and routes them to registered
-/// `EventProcessor` implementations. Persistence is handled by processors.
+/// `EventProcessor` implementations. To persist, write `to_records()` with a
+/// `ParquetEventWriter`.
 ///
 /// # Example
 ///
@@ -421,8 +422,6 @@ mod tests {
         assert_eq!(dispatcher.count_by_type("type.c"), 0);
         assert_eq!(dispatcher.event_counts().len(), 0);
     }
-
-    // --- New Workstream A tests ---
 
     #[test]
     fn test_processor_registration() {

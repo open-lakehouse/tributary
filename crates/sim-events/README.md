@@ -1,292 +1,72 @@
 # sim-events
 
-CloudEvents-compliant event infrastructure for agent-based simulations.
+CloudEvents 1.0 event records for simulations: an in-memory dispatcher with per-event
+processors, a CloudEvents JSON view, and Parquet persistence.
 
-## Overview
-
-`sim-events` provides a generic, standards-based event system for recording simulation state changes. All events follow the [CloudEvents 1.0 specification](https://cloudevents.io/), ensuring interoperability and clear semantics.
-
-## Features
-
-- **CloudEvents 1.0 Compliance** - Standardized event format
-- **Type-Safe Event IDs** - UUID v7 identifiers for time-ordered events
-- **Flexible Payloads** - Trait-based system for domain-specific data
-- **Multiple Formats** - Export to Parquet or JSON Lines
-- **Arrow Integration** - Efficient columnar storage
-- **In-Memory Buffering** - Collect events before flushing to disk
-
-## Quick Start
-
-### 1. Define Event Payloads
-
-Implement the `EventPayload` trait for your domain-specific events:
+Domain events implement `EventPayload`. `event_type`, `source` and `to_json` are required;
+`subject` defaults to `None` and `data_content_type` to `application/json`.
 
 ```rust
-use sim_events::EventPayload;
-use serde_json::json;
+use chrono::{TimeZone, Utc};
+use sim_events::{Event, EventDispatcher, EventPayload};
+use serde_json::{Value, json};
 
 #[derive(Debug)]
-struct AgentSpawned {
-    agent_id: String,
-    agent_type: String,
-    location: String,
+struct OrderCreated {
+    order_id: String,
 }
 
-impl EventPayload for AgentSpawned {
+impl EventPayload for OrderCreated {
     fn event_type(&self) -> &str {
-        "io.simulation.agent.spawned"
+        "io.example.order.created"
     }
-
     fn source(&self) -> String {
-        format!("/agents/{}", self.agent_id)
+        format!("/orders/{}", self.order_id)
     }
-
-    fn to_json(&self) -> serde_json::Value {
-        json!({
-            "agent_id": self.agent_id,
-            "agent_type": self.agent_type,
-            "location": self.location,
-        })
+    fn to_json(&self) -> Value {
+        json!({ "order_id": self.order_id })
     }
 }
-```
-
-### 2. Emit Events
-
-Use the `EventDispatcher` to collect and emit events:
-
-```rust
-use sim_events::{Event, EventDispatcher};
 
 let mut dispatcher = EventDispatcher::new();
-
-// Create and emit events
-let event = Event::new(Box::new(AgentSpawned {
-    agent_id: "agent-001".to_string(),
-    agent_type: "customer".to_string(),
-    location: "store-123".to_string(),
-}), ctx.current_time());
-
-dispatcher.emit(event);
+let time = Utc.with_ymd_and_hms(2026, 1, 1, 9, 0, 0).unwrap();
+dispatcher.emit(Event::new(Box::new(OrderCreated { order_id: "o-1".into() }), time));
+assert_eq!(dispatcher.count_by_type("io.example.order.created"), 1);
 ```
 
-### 3. Persist to Storage
+`Event::new(payload, time)` takes the simulation time at which the event occurred. The time
+is required. Each event gets a UUID v7 `id` and `specversion` `"1.0"`.
+`Event::to_cloudevents_json()` returns the CloudEvents object.
 
-Write events to Parquet or JSON Lines:
+## Dispatcher
+
+`EventDispatcher::emit` routes the event to each registered processor whose `handles`
+returns true, then buffers it. Other methods: `emit_batch`, `mark_tick_start` and
+`current_tick_events` (events since the last mark), `buffered_events`, `buffered_count`,
+`event_counts`, `count_by_type`, `clear`, and `to_records` (for persistence).
+
+`EventProcessor` has `handles(&self, event_type: &str) -> bool` and
+`process(&self, event: &Event)`. `process` must not block.
+`ChannelSenderProcessor::new(sender, filter)` sends each matching event's CloudEvents JSON
+through a `tokio` unbounded channel. `filter` is an event type prefix; `None` sends all.
+
+## Parquet
+
+`ParquetEventWriter` writes one row per event: `id`, `source`, `spec_version`,
+`event_type`, `time` (RFC 3339), nullable `subject` and `data_content_type`, and `data`
+(JSON text). It uses Snappy compression.
 
 ```rust
-// Write to Parquet (efficient columnar format)
-let count = dispatcher.flush_to_parquet("events.parquet")?;
-println!("Wrote {} events", count);
+use sim_events::{ParquetEventReader, ParquetEventWriter};
+use std::path::PathBuf;
 
-// Or write to JSON Lines (text format)
-let count = dispatcher.flush_to_jsonl("events.jsonl")?;
+let mut writer = ParquetEventWriter::new(PathBuf::from("events.parquet"))?;
+writer.write_events(&dispatcher.to_records())?; // may be called repeatedly
+writer.close()?;
+let records = ParquetEventReader::read_file("events.parquet")?; // Vec<EventRecord>
 ```
 
-## CloudEvents Schema
+`new` replaces an existing file. `close` finishes it. There is no JSON Lines writer; use
+`to_cloudevents_json()` or `ChannelSenderProcessor` for JSON output.
 
-All events include these CloudEvents fields:
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `id` | String | Yes | Unique event identifier (UUID v7) |
-| `source` | String | Yes | URI identifying event source |
-| `specversion` | String | Yes | CloudEvents version ("1.0") |
-| `type` | String | Yes | Event type identifier |
-| `time` | String | Yes | ISO 8601 timestamp |
-| `subject` | String | No | Additional context |
-| `datacontenttype` | String | No | Content type of data |
-| `data` | JSON | Yes | Event payload |
-
-## Event Types
-
-Define event types using reverse-DNS notation:
-
-- `io.simulation.agent.spawned`
-- `io.simulation.agent.departed`
-- `io.simulation.location.arrived`
-- `com.example.order.created`
-- `com.warehouse.shipment.dispatched`
-
-## Storage Formats
-
-### Parquet
-
-Parquet provides efficient columnar storage with compression:
-
-```rust
-dispatcher.flush_to_parquet("events.parquet")?;
-```
-
-**Benefits**:
-- Columnar format for analytics
-- Snappy compression
-- Arrow-compatible
-- Query with DataFusion, Polars, DuckDB
-
-### JSON Lines
-
-JSON Lines writes one JSON object per line:
-
-```rust
-dispatcher.flush_to_jsonl("events.jsonl")?;
-```
-
-**Benefits**:
-- Human-readable
-- Line-based processing
-- Compatible with jq, grep
-- Standard CloudEvents format
-
-## Event Dispatcher API
-
-```rust
-impl EventDispatcher {
-    /// Create new dispatcher
-    pub fn new() -> Self;
-
-    /// Emit single event
-    pub fn emit(&mut self, event: Event);
-
-    /// Emit multiple events
-    pub fn emit_batch(&mut self, events: Vec<Event>);
-
-    /// Get buffer size
-    pub fn buffered_count(&self) -> usize;
-
-    /// Get event counts by type
-    pub fn event_counts(&self) -> &HashMap<String, usize>;
-
-    /// Get count for specific type
-    pub fn count_by_type(&self, event_type: &str) -> usize;
-
-    /// Clear buffer
-    pub fn clear(&mut self);
-
-    /// Write to Parquet
-    pub fn flush_to_parquet(&mut self, path: impl Into<PathBuf>)
-        -> Result<usize>;
-
-    /// Write to JSON Lines
-    pub fn flush_to_jsonl(&mut self, path: impl Into<PathBuf>)
-        -> Result<usize>;
-}
-```
-
-## Advanced Usage
-
-### Custom Timestamps
-
-Every event carries the simulation time it occurred, passed explicitly:
-
-```rust
-let event = Event::new(Box::new(payload), ctx.current_time());
-```
-
-### Event Tracking
-
-Track event counts during simulation:
-
-```rust
-dispatcher.emit(event);
-
-// Check counts
-println!("Total events: {}", dispatcher.buffered_count());
-println!("Spawns: {}", dispatcher.count_by_type("agent.spawned"));
-
-// Get all counts
-for (event_type, count) in dispatcher.event_counts() {
-    println!("{}: {}", event_type, count);
-}
-```
-
-### Reading Events
-
-Query Parquet files with DataFusion:
-
-```rust
-use datafusion::prelude::*;
-
-let ctx = SessionContext::new();
-let df = ctx.read_parquet("events.parquet", ParquetReadOptions::default()).await?;
-
-// Filter by event type
-let spawns = df.filter(col("event_type").eq(lit("agent.spawned")))?;
-let results = spawns.collect().await?;
-```
-
-## Integration with sim-core
-
-Events use type-safe identifiers from `sim-core`:
-
-```rust
-use sim_core::utils::idents::{AgentId, LocationId};
-use sim_events::EventPayload;
-
-#[derive(Debug)]
-struct LocationArrived {
-    agent_id: AgentId,
-    location_id: LocationId,
-}
-
-impl EventPayload for LocationArrived {
-    fn event_type(&self) -> &str {
-        "io.simulation.location.arrived"
-    }
-
-    fn source(&self) -> String {
-        format!("/agents/{}", self.agent_id)
-    }
-
-    fn subject(&self) -> Option<String> {
-        Some(self.location_id.to_string())
-    }
-
-    fn to_json(&self) -> serde_json::Value {
-        json!({
-            "agent_id": self.agent_id.to_string(),
-            "location_id": self.location_id.to_string(),
-        })
-    }
-}
-```
-
-## Examples
-
-See the tests in each module for complete examples:
-
-- `src/core/payload.rs` - Custom payload implementations
-- `src/core/event.rs` - Event creation and serialization
-- `src/dispatcher/mod.rs` - Event emission and buffering
-- `src/storage/mod.rs` - Parquet writing
-
-## Dependencies
-
-- `sim-core 0.0.1` - Core simulation types
-- `arrow 57.0` - Columnar data format
-- `parquet 57.0` - Parquet file format
-- `chrono 0.4` - Timestamp handling
-- `uuid 1.0` - Event identifiers (v7)
-- `serde_json 1.0` - JSON serialization
-
-## Version Information
-
-Current version: `0.0.1`
-
-See [CHANGELOG.md](CHANGELOG.md) for detailed version history.
-
-## Documentation
-
-- [Architecture](docs/architecture.md) - CloudEvents compliance, storage formats, design principles
-- [Patterns](docs/patterns.md) - Common usage patterns and best practices
-- [Troubleshooting](docs/troubleshooting.md) - Common issues, debugging tips, and FAQ
-
-## Related Crates
-
-- `sim-core` - Core simulation abstractions
-- `sim-geo` - Geospatial components
-- `sim-telemetry` - OpenTelemetry-compatible telemetry generation
-
-## License
-
-MIT OR Apache-2.0
+Run `cargo doc -p sim-events --open` for the API reference.

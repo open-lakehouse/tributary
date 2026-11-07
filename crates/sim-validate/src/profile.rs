@@ -56,10 +56,9 @@ impl DomainProfile {
 
     /// Logistics profile.
     ///
-    /// Conservative: only the package events actually emitted today
-    /// (`received` → `sorted` → `delivered`, keyed on `package_id`). The
-    /// `loaded`/`in_transit` types exist in code but are never emitted, so they
-    /// are intentionally omitted to avoid false-positive lifecycle gaps.
+    /// Checks `received` → `sorted` → `delivered`, keyed on `package_id`.
+    /// The simulation also emits `loaded` and `in_transit`; this profile does
+    /// not check them yet.
     pub fn logistics() -> Self {
         let stages = vec![
             Stage::new("io.logistics.package.received", "package_id"),

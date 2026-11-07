@@ -11,22 +11,8 @@
 //! - **Workflows**: Multi-stage processing pipelines
 //! - **Context**: Simulation time management and configuration
 //!
-//! # Example
-//!
-//! ```rust,ignore
-//! use sim_core::{Agent, SimulationContext, PopulationHandler};
-//!
-//! // Define your agent type
-//! struct MyAgent { /* ... */ }
-//! impl Agent for MyAgent { /* ... */ }
-//!
-//! // Create simulation
-//! let ctx = SimulationContext::new(/* ... */);
-//! let mut population = PopulationHandler::<MyAgent>::new();
-//!
-//! // Run simulation
-//! population.tick_agents(&ctx)?;
-//! ```
+//! See the crate README for a wiring example and the tick order, and
+//! `sim-kitchen` for a complete domain built on these pieces.
 
 pub mod context;
 pub mod demand;

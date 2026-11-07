@@ -13,7 +13,7 @@ Tributary is a workspace containing multiple crates for building simulations, ev
 
 - **sim-core** - Core simulation engine with workflow orchestration
 - **sim-events** - CloudEvents 1.0 infrastructure and Parquet persistence
-- **sim-geo** - Geospatial functionality and GeoArrow integration
+- **sim-geo** - Geospatial: road-network routing, journeys, H3 indexing
 - **sim-kitchen** - Ghost kitchen domain — reference implementation
 - **sim-logistics** - Package delivery domain — validates framework generality
 - **sim-telemetry** - Observability and telemetry

@@ -229,7 +229,7 @@ impl TelemetryGenerator for EventToLogGenerator {
             Utc::now()
         };
 
-        // Select log level (use a deterministic hash for testing, random in production)
+        // Select log level from a hash of the event id
         let random_value = self.compute_deterministic_random(event);
         let level = self.select_log_level(random_value);
 
