@@ -66,7 +66,7 @@ let mut movement = MovementHandler::new()
 movement.add_journey(journey_state);
 
 // Advance by time step
-movement.advance_journeys(Duration::seconds(60))?;
+movement.advance_journeys(now, Duration::seconds(60))?;
 
 // Get completed journeys
 let completed = movement.get_completed_journeys();

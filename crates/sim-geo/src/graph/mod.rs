@@ -53,10 +53,11 @@
 //! assert_eq!(network.get_neighbors(1).len(), 1);
 //!
 //! // Save and load from JSON
-//! # #[cfg(not(doctest))]
-//! network.save_to_file("network.json").unwrap();
-//! # #[cfg(not(doctest))]
-//! let loaded = RoadNetwork::load_from_file("network.json").unwrap();
+//! let path = std::env::temp_dir().join(format!("sim-geo-doc-{}.json", std::process::id()));
+//! network.save_to_file(&path).unwrap();
+//! let loaded = RoadNetwork::load_from_file(&path).unwrap();
+//! assert_eq!(loaded.node_count(), 2);
+//! # std::fs::remove_file(&path).unwrap();
 //! ```
 
 mod io;
@@ -191,6 +192,16 @@ impl RoadNetwork {
         let node_id = node.id;
         self.nodes.insert(node_id, node);
         self.adjacency.entry(node_id).or_default();
+        self.invalidate_route_cache();
+    }
+
+    /// Drop the preprocessed routing graph so the next query rebuilds it
+    ///
+    /// [`add_node`](Self::add_node) and [`add_edge`](Self::add_edge) call this
+    /// for you. Call it yourself after editing `nodes`, `edges` or
+    /// `adjacency` directly.
+    pub fn invalidate_route_cache(&mut self) {
+        self.fast_graph_cache = OnceLock::new();
     }
 
     /// Adds an edge to the network
@@ -236,6 +247,7 @@ impl RoadNetwork {
 
         // Add edge to adjacency list for source node
         self.adjacency.entry(from_node).or_default().push(edge_id);
+        self.invalidate_route_cache();
     }
 
     /// Retrieves a node by ID

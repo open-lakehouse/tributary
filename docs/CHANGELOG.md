@@ -11,6 +11,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed (breaking): sim-geo
+- `MovementHandler::advance_journeys(now, time_step)` takes the simulation
+  time. It used to reconstruct "now" from the journey start and an assumed
+  5 m/s, so time-of-day speeds were evaluated at the wrong time.
+- `TimeOfDayVelocity::with_utc_offset(hours)` evaluates rush hours and night
+  time in a local time zone (default UTC, as before); `is_rush_hour` /
+  `is_night_time` accept any time zone.
+- The cached routing graph is rebuilt after `add_node`/`add_edge` (new edges
+  were ignored after the first query); `invalidate_route_cache()` covers
+  direct edits of the public fields. Routing to a node with no edges returns
+  `None` instead of panicking inside `fast_paths`.
+- The module doctest no longer writes `network.json` into the working
+  directory (the stray `crates/sim-geo/network.json` is gone), and the
+  rush-hour integration test no longer depends on `HashMap` order.
+
 ### Fixed (breaking): sim-artifacts
 - `ParquetArtifactStorage` is now `JsonlArtifactStorage`; it always wrote
   JSON Lines. Repeated flushes in a run append instead of overwriting the

@@ -141,7 +141,7 @@ let mut movement = MovementHandler::new()
 movement.add_journey(journey);
 
 // Advance all journeys by time step
-movement.advance_journeys(Duration::seconds(30))?;
+movement.advance_journeys(now, Duration::seconds(30))?;
 
 // Get completed journeys
 let completed = movement.get_completed_journeys();
@@ -369,7 +369,7 @@ impl SimulationHooks for GeoHooks {
         }
 
         // Advance all journeys
-        self.movement.advance_journeys(ctx.time_step())?;
+        self.movement.advance_journeys(ctx.current_time(), ctx.time_step())?;
 
         // Handle arrivals
         let completed = self.movement.get_completed_journeys();
@@ -493,7 +493,7 @@ impl SimulationHooks for MyHooks {
         }
 
         // Advance!
-        self.movement.advance_journeys(ctx.time_step())?;
+        self.movement.advance_journeys(ctx.current_time(), ctx.time_step())?;
         Ok(())
     }
 }
@@ -553,7 +553,7 @@ mod tests {
         movement.add_journey(journey);
 
         // Advance for enough time to complete
-        movement.advance_journeys(Duration::seconds(200)).unwrap();
+        movement.advance_journeys(now, Duration::seconds(200)).unwrap();
 
         let completed = movement.get_completed_journeys();
         assert_eq!(completed.len(), 1);

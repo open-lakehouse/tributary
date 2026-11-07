@@ -5,7 +5,7 @@
 
 use super::{JourneyState, VelocityModel};
 use crate::graph::RoadType;
-use chrono::{DateTime, Timelike, Utc};
+use chrono::{DateTime, FixedOffset, TimeZone, Timelike, Utc};
 
 /// Velocity model that adjusts speeds based on time of day
 ///
@@ -50,6 +50,11 @@ pub struct TimeOfDayVelocity {
     /// Speed multiplier during nighttime (1.0+)
     /// Default: 1.2 (20% speed increase due to less traffic)
     pub night_multiplier: f64,
+
+    /// Offset of the local time zone the rush hours refer to
+    /// Default: UTC. Use [`with_utc_offset`](Self::with_utc_offset) for a
+    /// local network (e.g. `-8` hours for San Francisco in winter).
+    pub utc_offset: FixedOffset,
 }
 
 impl TimeOfDayVelocity {
@@ -74,7 +79,31 @@ impl TimeOfDayVelocity {
             rush_hour_multiplier,
             off_peak_multiplier,
             night_multiplier,
+            utc_offset: FixedOffset::east_opt(0).expect("zero offset"),
         }
+    }
+
+    /// Evaluate rush hours and night time in a local time zone `hours` east
+    /// of UTC (negative for the Americas)
+    ///
+    /// ```
+    /// use sim_geo::movement::velocity::TimeOfDayVelocity;
+    /// use sim_geo::graph::RoadType;
+    /// use chrono::{TimeZone, Utc};
+    ///
+    /// // 16:00 UTC is 08:00 in San Francisco (UTC-8): rush hour there.
+    /// let sf = TimeOfDayVelocity::default().with_utc_offset(-8);
+    /// let t = Utc.with_ymd_and_hms(2024, 1, 15, 16, 0, 0).unwrap();
+    /// assert!(sf.calculate_velocity(&RoadType::Arterial, t)
+    ///     < TimeOfDayVelocity::default().calculate_velocity(&RoadType::Arterial, t));
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// Panics if `hours` is outside ±23.
+    pub fn with_utc_offset(mut self, hours: i32) -> Self {
+        self.utc_offset = FixedOffset::east_opt(hours * 3600).expect("offset within ±23 h");
+        self
     }
 
     /// Check if the given time is during rush hour
@@ -83,7 +112,8 @@ impl TimeOfDayVelocity {
     /// - Morning: 7:00 AM - 9:00 AM (UTC)
     /// - Evening: 5:00 PM - 7:00 PM (UTC, 17:00 - 19:00)
     ///
-    /// Note: This uses UTC time. For production use, consider converting to local timezone.
+    /// Hours are read in `time`'s own time zone. [`calculate_velocity`](Self::calculate_velocity)
+    /// passes the time converted to the model's [`utc_offset`](Self::utc_offset).
     ///
     /// # Arguments
     ///
@@ -108,7 +138,7 @@ impl TimeOfDayVelocity {
     /// let evening_rush = Utc.with_ymd_and_hms(2024, 1, 15, 18, 0, 0).unwrap();
     /// assert!(TimeOfDayVelocity::is_rush_hour(evening_rush));
     /// ```
-    pub fn is_rush_hour(time: DateTime<Utc>) -> bool {
+    pub fn is_rush_hour<Tz: TimeZone>(time: DateTime<Tz>) -> bool {
         let hour = time.hour();
         // Morning rush: 7-9 AM (7:00 - 8:59)
         // Evening rush: 5-7 PM (17:00 - 18:59)
@@ -119,7 +149,7 @@ impl TimeOfDayVelocity {
     ///
     /// Nighttime is defined as: 10:00 PM - 5:00 AM (UTC, 22:00 - 4:59)
     ///
-    /// Note: This uses UTC time. For production use, consider converting to local timezone.
+    /// Hours are read in `time`'s own time zone (see [`is_rush_hour`](Self::is_rush_hour)).
     ///
     /// # Arguments
     ///
@@ -144,7 +174,7 @@ impl TimeOfDayVelocity {
     /// let daytime = Utc.with_ymd_and_hms(2024, 1, 15, 10, 0, 0).unwrap();
     /// assert!(!TimeOfDayVelocity::is_night_time(daytime));
     /// ```
-    pub fn is_night_time(time: DateTime<Utc>) -> bool {
+    pub fn is_night_time<Tz: TimeZone>(time: DateTime<Tz>) -> bool {
         let hour = time.hour();
         // Night: 10 PM - 5 AM (22:00 - 4:59)
         !(5..22).contains(&hour)
@@ -180,10 +210,11 @@ impl TimeOfDayVelocity {
     /// ```
     pub fn calculate_velocity(&self, road_type: &RoadType, current_time: DateTime<Utc>) -> f64 {
         let base_speed = road_type.default_speed_mps();
+        let local = current_time.with_timezone(&self.utc_offset);
 
-        let multiplier = if Self::is_rush_hour(current_time) {
+        let multiplier = if Self::is_rush_hour(local) {
             self.rush_hour_multiplier
-        } else if Self::is_night_time(current_time) {
+        } else if Self::is_night_time(local) {
             self.night_multiplier
         } else {
             self.off_peak_multiplier
@@ -201,11 +232,7 @@ impl Default for TimeOfDayVelocity {
     /// - Off-peak: 1.0 (normal speed)
     /// - Night: 1.2 (20% speed increase)
     fn default() -> Self {
-        Self {
-            rush_hour_multiplier: 0.5,
-            off_peak_multiplier: 1.0,
-            night_multiplier: 1.2,
-        }
+        Self::new(0.5, 1.0, 1.2)
     }
 }
 

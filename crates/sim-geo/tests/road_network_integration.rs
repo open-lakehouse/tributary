@@ -30,7 +30,8 @@ fn test_full_journey_lifecycle() {
     let mut handler = MovementHandler::new().with_network(network.clone());
 
     // Get two distant nodes from the network
-    let node_ids: Vec<_> = network.nodes.keys().copied().collect();
+    let mut node_ids: Vec<_> = network.nodes.keys().copied().collect();
+    node_ids.sort_unstable();
     let origin_node = network.get_node(node_ids[0]).unwrap();
     let dest_node = network.get_node(node_ids[node_ids.len() - 1]).unwrap();
 
@@ -68,7 +69,7 @@ fn test_full_journey_lifecycle() {
 
     while step_count < max_steps {
         handler
-            .advance_journeys(time_step)
+            .advance_journeys(Utc::now(), time_step)
             .expect("Journey advancement should succeed");
         step_count += 1;
 
@@ -103,9 +104,20 @@ fn test_rush_hour_impact_on_travel_time() {
     let network = RoadNetwork::load_from_file(test_data_path("small_city_graph.json"))
         .expect("Failed to load test network");
 
-    let node_ids: Vec<_> = network.nodes.keys().copied().collect();
-    let origin = network.get_node(node_ids[0]).unwrap().position;
-    let destination = network.get_node(node_ids[10]).unwrap().position;
+    // The two nodes farthest apart, so the trip spans many time steps.
+    use geo::{Distance, Haversine};
+    let nodes: Vec<_> = network.nodes.values().map(|n| (n.id, n.position)).collect();
+    let (origin, destination) = nodes
+        .iter()
+        .flat_map(|a| nodes.iter().map(move |b| (a, b)))
+        .max_by(|(a1, b1), (a2, b2)| {
+            Haversine
+                .distance(a1.1, b1.1)
+                .total_cmp(&Haversine.distance(a2.1, b2.1))
+                .then((a1.0, b1.0).cmp(&(a2.0, b2.0)))
+        })
+        .map(|(a, b)| (a.1, b.1))
+        .unwrap();
 
     // Test 1: Rush hour journey (8 AM)
     let rush_hour_time = Utc.with_ymd_and_hms(2024, 1, 15, 8, 0, 0).unwrap();
@@ -125,7 +137,9 @@ fn test_rush_hour_impact_on_travel_time() {
     let mut rush_steps = 0;
     let time_step = Duration::seconds(10);
     while rush_steps < 1000 {
-        rush_handler.advance_journeys(time_step).unwrap();
+        rush_handler
+            .advance_journeys(rush_hour_time + time_step * rush_steps, time_step)
+            .unwrap();
         rush_steps += 1;
 
         // Check if journey completed
@@ -157,7 +171,9 @@ fn test_rush_hour_impact_on_travel_time() {
     // Advance until complete
     let mut off_peak_steps = 0;
     while off_peak_steps < 1000 {
-        off_peak_handler.advance_journeys(time_step).unwrap();
+        off_peak_handler
+            .advance_journeys(off_peak_time + time_step * off_peak_steps, time_step)
+            .unwrap();
         off_peak_steps += 1;
 
         // Check if journey completed
@@ -189,7 +205,9 @@ fn test_rush_hour_impact_on_travel_time() {
     // Advance until complete
     let mut night_steps = 0;
     while night_steps < 1000 {
-        night_handler.advance_journeys(time_step).unwrap();
+        night_handler
+            .advance_journeys(night_time + time_step * night_steps, time_step)
+            .unwrap();
         night_steps += 1;
 
         // Check if journey completed
@@ -244,7 +262,8 @@ fn test_concurrent_journeys_on_same_network() {
     let mut handler = MovementHandler::new().with_network(network.clone());
 
     // Get multiple node pairs
-    let node_ids: Vec<_> = network.nodes.keys().copied().collect();
+    let mut node_ids: Vec<_> = network.nodes.keys().copied().collect();
+    node_ids.sort_unstable();
     let num_journeys = 5;
     let start_time = Utc::now();
 
@@ -277,7 +296,7 @@ fn test_concurrent_journeys_on_same_network() {
 
     while handler.active_count() > 0 && step_count < max_steps {
         handler
-            .advance_journeys(time_step)
+            .advance_journeys(Utc::now(), time_step)
             .expect("Should handle concurrent journeys");
         step_count += 1;
     }
@@ -310,7 +329,8 @@ fn test_network_vs_straight_line_routing() {
     let network = RoadNetwork::load_from_file(test_data_path("small_city_graph.json"))
         .expect("Failed to load test network");
 
-    let node_ids: Vec<_> = network.nodes.keys().copied().collect();
+    let mut node_ids: Vec<_> = network.nodes.keys().copied().collect();
+    node_ids.sort_unstable();
     let origin = network.get_node(node_ids[0]).unwrap().position;
     let destination = network.get_node(node_ids[50]).unwrap().position;
 
@@ -404,7 +424,8 @@ fn test_graceful_fallback_when_network_unavailable() {
     // Test 2: Handler without network should always use straight line
     let no_network_handler = MovementHandler::new();
 
-    let node_ids: Vec<_> = network.nodes.keys().copied().collect();
+    let mut node_ids: Vec<_> = network.nodes.keys().copied().collect();
+    node_ids.sort_unstable();
     let origin = network.get_node(node_ids[0]).unwrap().position;
     let destination = network.get_node(node_ids[20]).unwrap().position;
 
@@ -428,7 +449,9 @@ fn test_graceful_fallback_when_network_unavailable() {
     let time_step = Duration::seconds(10);
     let mut steps = 0;
     while handler_no_net.active_count() > 0 && steps < 500 {
-        handler_no_net.advance_journeys(time_step).unwrap();
+        handler_no_net
+            .advance_journeys(Utc::now(), time_step)
+            .unwrap();
         steps += 1;
     }
 
@@ -541,7 +564,8 @@ fn test_multiple_road_types_in_journey() {
     assert!(!network.edges.is_empty(), "Network should have edges");
 
     // Plan a long journey that likely crosses multiple road types
-    let node_ids: Vec<_> = network.nodes.keys().copied().collect();
+    let mut node_ids: Vec<_> = network.nodes.keys().copied().collect();
+    node_ids.sort_unstable();
     let origin = network.get_node(node_ids[0]).unwrap().position;
     let destination = network
         .get_node(node_ids[node_ids.len() - 1])

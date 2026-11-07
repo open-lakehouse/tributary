@@ -816,7 +816,7 @@ impl SimulationHooks for IntegratedHooks {
                 self.movement.start_journey(journey.clone())?;
             }
         }
-        self.movement.advance_journeys(ctx.time_step())?;
+        self.movement.advance_journeys(ctx.current_time(), ctx.time_step())?;
 
         // Emit events with sim-events
         let completed = self.movement.get_completed_journeys();
