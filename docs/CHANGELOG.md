@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed: sim-validate
+- `DomainProfile::logistics()` checks all five package stages:
+  `received → sorted → loaded → in_transit → delivered` (it skipped `loaded`
+  and `in_transit`).
+
 ### Fixed: sim-kitchen artifacts
 - One price model: `OrderCharges::for_subtotal` (new `pricing` module, with
   `menu_price`) turns the events' `total_price` into subtotal, tax, tip and

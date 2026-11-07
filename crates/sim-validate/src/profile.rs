@@ -56,13 +56,19 @@ impl DomainProfile {
 
     /// Logistics profile.
     ///
-    /// Checks `received` → `sorted` → `delivered`, keyed on `package_id`.
-    /// The simulation also emits `loaded` and `in_transit`; this profile does
-    /// not check them yet.
+    /// Package lifecycle: received → sorted → loaded → in_transit → delivered,
+    /// all keyed on `package_id`. Every stage is terminal (at most once per
+    /// package).
+    ///
+    /// There is no capacity bound: `delivered` follows the confirmation step,
+    /// after the driver is released, so loaded-but-undelivered packages are not
+    /// bounded by the fleet size.
     pub fn logistics() -> Self {
         let stages = vec![
             Stage::new("io.logistics.package.received", "package_id"),
             Stage::new("io.logistics.package.sorted", "package_id"),
+            Stage::new("io.logistics.package.loaded", "package_id"),
+            Stage::new("io.logistics.package.in_transit", "package_id"),
             Stage::new("io.logistics.package.delivered", "package_id"),
         ];
         Self {
