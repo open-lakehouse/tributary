@@ -117,6 +117,8 @@ impl Customer {
     /// Use this for reproducible runs. Callers typically derive `seed` from a
     /// global simulation seed mixed with the customer's construction index so
     /// each customer's order decisions follow a distinct deterministic stream.
+    /// The customer ID is derived from the seed too, so seeded runs produce the
+    /// same customer and order IDs.
     pub fn with_params_seeded(
         location: Point<f64>,
         order_probability: f64,
@@ -124,7 +126,10 @@ impl Customer {
         seed: u64,
     ) -> Self {
         Self {
-            id: AgentId::new(),
+            id: AgentId::from_name(
+                crate::resources::kitchen_order::KITCHEN_NAMESPACE,
+                &format!("customer/{seed}"),
+            ),
             status: CustomerStatus::Idle,
             location,
             order_probability,
@@ -178,8 +183,9 @@ impl Agent for Customer {
             }
 
             CustomerStatus::Ordering => {
-                // Create demand for food
-                let order_id = format!("order-{}", uuid::Uuid::new_v4());
+                // A customer orders at most once per step, so (customer, step)
+                // is unique and reproducible.
+                let order_id = format!("order-{}-{}", self.id, ctx.step());
 
                 let mut metadata = HashMap::new();
                 metadata.insert("order_id".to_string(), Value::String(order_id.clone()));
@@ -293,7 +299,6 @@ impl Agent for Customer {
                 CustomerStatus::WaitingForFood { order_id }
             }
             "eating" => {
-                // Extract finish_time from metadata
                 let metadata: serde_json::Value = if let Some(ref m) = row.metadata {
                     serde_json::from_str(m).unwrap_or_default()
                 } else {
@@ -304,11 +309,19 @@ impl Agent for Customer {
                     .and_then(|v| v.as_str())
                     .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
                     .map(|dt| dt.with_timezone(&chrono::Utc))
-                    .unwrap_or_else(chrono::Utc::now);
+                    .ok_or_else(|| {
+                        sim_core::Error::Agent(format!(
+                            "Eating customer {id} has no valid finish_time"
+                        ))
+                    })?;
                 CustomerStatus::Eating { finish_time }
             }
             "done" => CustomerStatus::Done,
-            _ => CustomerStatus::Idle,
+            other => {
+                return Err(sim_core::Error::Agent(format!(
+                    "Customer {id} has unknown status '{other}'"
+                )));
+            }
         };
 
         // Parse location from position_x/position_y
@@ -459,5 +472,37 @@ mod tests {
                 format!("{:?}", restored.status)
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod seeded_tests {
+    use super::*;
+    use sim_core::SimulationConfig;
+
+    #[test]
+    fn seeded_customers_have_stable_ids_and_order_ids() {
+        let a = Customer::with_params_seeded(Point::new(0.0, 0.0), 1.0, Duration::minutes(1), 7);
+        let b = Customer::with_params_seeded(Point::new(0.0, 0.0), 1.0, Duration::minutes(1), 7);
+        assert_eq!(a.id, b.id);
+
+        let ctx = SimulationContext::from_now(SimulationConfig::default());
+        let order_id = |mut c: Customer| {
+            c.status = CustomerStatus::Ordering;
+            let result = c.tick(&ctx).unwrap();
+            result.demands[0].metadata["order_id"].clone()
+        };
+        assert_eq!(order_id(a), order_id(b));
+    }
+
+    #[test]
+    fn eating_row_without_finish_time_is_an_error() {
+        let customer = Customer {
+            status: CustomerStatus::Idle,
+            ..Customer::new(Point::new(0.0, 0.0))
+        };
+        let mut row = customer.to_arrow_row();
+        row.status = "eating".to_string();
+        assert!(Customer::from_arrow_row(&row).is_err());
     }
 }

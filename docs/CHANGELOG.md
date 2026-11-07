@@ -11,6 +11,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (breaking): sim-kitchen runs orders through workflows
+- Orders are `FoodPrepWorkflow` instances (prep 2 min → cook 5 min → package
+  1 min) driven by the `WorkflowRegistry`, with `PrepTask` steps allocated to
+  the order's kitchen. Before, the workflow was never registered and orders
+  "completed" on a hardcoded 5-minute timer regardless of kitchen work.
+- Orders are routed to the kitchen with the fewest open orders; later steps
+  outrank new orders, so a kitchen never has more orders in progress than its
+  capacity (extra orders queue). Kitchen IDs are derived from their names.
+- All events go through one dispatcher, so `customer.eating`/`customer.done`
+  now reach the artifact generators. Events carry the fields the generators
+  read: `order.created` has `total_price`, `order.completed` has `kitchen_id`,
+  `customer.done` has `order_id`, `total_price` and a real
+  `total_time_seconds` (it was always 0). Order and customer events use the
+  order/customer ID as subject consistently.
+- Seeded runs reproduce the event stream exactly, in order: seeded customers
+  get IDs derived from their seed and order IDs are `order-<customer>-<step>`.
+  Profiles no longer stamp `account_created_at` with the wall clock.
+- Artifacts are only written when you opt in with
+  `KitchenSimulation::with_artifact_dir`; the CLI and example write to
+  `output/artifacts` and `<output_dir>/artifacts`, and the Python binding to
+  `<output_dir>/artifacts`. Writing artifacts can now fail a run instead of
+  printing a warning.
+- `save_events` no longer makes the next step panic.
+- `KitchenSimulation::event_records` replaces `collect_all_event_records`;
+  `hooks()` exposes the hooks. `build_simulation`, `add_customers(&mut runner)`
+  and the other free functions are gone (the raw runner never delivered food).
+- Removed code that only ran in tests: inventory and supply chain, couriers,
+  supply drivers, distribution sites, recipes, `KitchenStation`, the courier
+  and supply-chain workflows, their events and artifact generators, and the
+  `Order` task (replaced by `PrepTask`). About 6k lines; recover them from git
+  history when they are wired into the simulation.
+
 ### Changed (breaking): sim-events
 - `Event::new(payload, time)` takes the event time. It used to stamp the wall
   clock, and `with_time` (now removed) was easy to forget: sim-logistics

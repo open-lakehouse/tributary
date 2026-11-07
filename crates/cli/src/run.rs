@@ -132,7 +132,8 @@ async fn handle_headless(args: RunArgs) -> Result<()> {
             args.kitchen_capacity,
             false,
             args.seed,
-        );
+        )
+        .with_artifact_dir("output/artifacts");
         sim.add_customers(args.num_customers);
         sim.runner_mut().context_mut().set_simulation_id(sim_id);
         if let Some(st) = start_time {
@@ -415,7 +416,8 @@ async fn handle_tui(args: RunArgs) -> Result<()> {
             args.kitchen_capacity,
             false,
             args.seed,
-        );
+        )
+        .with_artifact_dir("output/artifacts");
         sim.add_customers(args.num_customers);
 
         // Inject the pre-registered simulation ID

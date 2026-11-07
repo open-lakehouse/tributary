@@ -4,7 +4,7 @@
 //! - Creating customers and kitchens
 //! - Running the simulation
 //! - Emitting CloudEvents
-//! - Writing events to Parquet
+//! - Writing events to Parquet and artifacts under `<output_dir>/artifacts`
 //!
 //! Usage:
 //!   cargo run --example basic -p sim-kitchen [-- <steps> <output_dir>]
@@ -21,7 +21,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Ghost Kitchen Simulation Example\n");
 
-    let mut sim = KitchenSimulation::new(3, 5, true);
+    let artifacts_dir = std::path::PathBuf::from(output_dir).join("artifacts");
+    let mut sim = KitchenSimulation::new(3, 5, true).with_artifact_dir(&artifacts_dir);
     sim.add_customers(20);
 
     println!("\nStarting simulation ({steps} steps)...\n");
@@ -36,6 +37,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let events_path = std::path::PathBuf::from(output_dir).join("events.parquet");
     let count = sim.save_events(&events_path)?;
     println!("\nWrote {count} events to {}", events_path.display());
+    println!("Artifacts in {}", artifacts_dir.display());
 
     Ok(())
 }

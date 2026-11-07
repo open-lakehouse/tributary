@@ -397,4 +397,3 @@ To extend this example:
 3. **Geospatial delivery**: Add courier agents with journeys
 4. **Telemetry**: Generate logs and metrics from events
 
-See [multi-workflow.md](./multi-workflow.md) for advanced patterns.

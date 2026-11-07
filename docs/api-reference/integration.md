@@ -551,5 +551,4 @@ struct FullIntegrationHooks {
 - [sim-geo API Reference](./sim-geo.md)
 - [sim-events API Reference](./sim-events.md)
 - [sim-telemetry API Reference](./sim-telemetry.md)
-- [Kitchen Example](../examples/kitchen/multi-workflow.md)
 - [Logistics Example](../examples/logistics/package-routing.md)

@@ -9,9 +9,7 @@
 use geo::Point;
 use sim_core::PopulationHandler;
 use sim_events::EventRecord;
-use sim_kitchen::{
-    Customer, Inventory, InventoryManager, KitchenSimulation, KitchenSimulationHooks,
-};
+use sim_kitchen::{Customer, KitchenSimulation};
 use std::collections::{HashMap, HashSet};
 
 // ===== Event Type Constants =====
@@ -21,9 +19,6 @@ const ORDER_ASSIGNED: &str = "io.kitchen.order.assigned";
 const ORDER_COMPLETED: &str = "io.kitchen.order.completed";
 const CUSTOMER_EATING: &str = "io.kitchen.customer.eating";
 const CUSTOMER_DONE: &str = "io.kitchen.customer.done";
-const INVENTORY_CONSUMED: &str = "io.kitchen.inventory.consumed";
-const INVENTORY_LOW: &str = "io.kitchen.inventory.low";
-const SUPPLY_ORDER_CREATED: &str = "io.kitchen.supply.order.created";
 
 // ===== EventInvariantChecker =====
 
@@ -62,15 +57,6 @@ impl EventInvariantChecker {
         record
             .data
             .get("customer_id")
-            .and_then(|v| v.as_str())
-            .map(String::from)
-    }
-
-    #[allow(dead_code)]
-    fn extract_kitchen_id(record: &EventRecord) -> Option<String> {
-        record
-            .data
-            .get("kitchen_id")
             .and_then(|v| v.as_str())
             .map(String::from)
     }
@@ -309,14 +295,13 @@ impl EventInvariantChecker {
 /// Create a KitchenSimulation with deterministic customers (order_probability = 1.0).
 ///
 /// Lifecycle timing with 30s steps and 1-minute eating:
-///   Tick 1: Idle → Ordering (prob=1.0 is preserved through Arrow round-trip)
-///   Tick 2: Ordering → WaitingForFood + demand → OrderCreated
-///   After tick 2: allocated → OrderAssigned
-///   Tick 12: 5 min elapsed → OrderCompleted
-///   After tick 12: deliver → CustomerEating (finish_time = current + 1min)
-///   Tick ~15: Eating → Done → CustomerDone
+///   Step 0: Idle → Ordering
+///   Step 1: Ordering → WaitingForFood + demand → OrderCreated
+///   Step 2: prep task allocated → OrderAssigned
+///   Step 18: 8 min of prep/cook/package done → OrderCompleted, CustomerEating
+///   Step 20: Eating → Done → CustomerDone
 ///
-/// Total ticks needed per customer: ~15. We use 20 for safety.
+/// Total steps needed per customer: 21. We use 25.
 fn setup_deterministic_sim(
     num_customers: usize,
     num_kitchens: usize,
@@ -339,7 +324,7 @@ fn setup_deterministic_sim(
 }
 
 /// Number of steps needed for a single customer to complete the full lifecycle.
-const STEPS_FOR_FULL_LIFECYCLE: usize = 20;
+const STEPS_FOR_FULL_LIFECYCLE: usize = 25;
 
 // ===== Tests =====
 
@@ -352,7 +337,7 @@ fn test_single_order_full_lifecycle() {
     sim.run_for_steps(STEPS_FOR_FULL_LIFECYCLE)
         .expect("simulation should complete");
 
-    let checker = EventInvariantChecker::new(sim.collect_all_event_records());
+    let checker = EventInvariantChecker::new(sim.event_records());
 
     assert!(
         checker.count(ORDER_CREATED) >= 1,
@@ -387,7 +372,7 @@ fn test_all_orders_complete_lifecycle() {
     sim.run_for_steps(STEPS_FOR_FULL_LIFECYCLE)
         .expect("simulation should complete");
 
-    let checker = EventInvariantChecker::new(sim.collect_all_event_records());
+    let checker = EventInvariantChecker::new(sim.event_records());
 
     assert!(checker.count(ORDER_CREATED) >= 5);
     assert!(checker.count(ORDER_ASSIGNED) >= 5);
@@ -404,12 +389,11 @@ fn test_all_orders_complete_lifecycle() {
 fn test_capacity_constrained_orders_queue() {
     let mut sim = setup_deterministic_sim(5, 1, 2);
 
-    // With capacity 2, orders process in batches of 2. Each batch takes ~10 ticks
-    // to cook (5 min / 30s per step). Run enough steps so all in-flight orders at
-    // the cutoff have time to complete: 100 steps + 10-step cook buffer = 110 steps.
+    // With capacity 2, orders process in batches of 2. Each batch takes 16
+    // steps (8 min at 30 s per step).
     sim.run_for_steps(110).expect("simulation should complete");
 
-    let checker = EventInvariantChecker::new(sim.collect_all_event_records());
+    let checker = EventInvariantChecker::new(sim.event_records());
 
     // All orders should eventually be created (customers loop, so >= 5)
     assert!(checker.count(ORDER_CREATED) >= 5);
@@ -433,45 +417,19 @@ fn test_capacity_constrained_orders_queue() {
     checker.assert_no_duplicate_events();
 }
 
-/// Verifies that the count of order.completed (from hooks dispatcher) matches
-/// customer.eating (from simulation dispatcher) exactly.
+/// Every completed order is delivered: order.completed and customer.eating
+/// counts match exactly.
 #[test]
-fn test_event_counts_match_across_dispatchers() {
+fn test_completed_orders_are_all_delivered() {
     let mut sim = setup_deterministic_sim(3, 2, 10);
 
     sim.run_for_steps(STEPS_FOR_FULL_LIFECYCLE)
         .expect("simulation should complete");
 
-    // Collect from hooks dispatcher
-    let hooks_events: Vec<EventRecord> = sim
-        .runner()
-        .hooks_as::<KitchenSimulationHooks>()
-        .expect("hooks should be KitchenSimulationHooks")
-        .dispatcher()
-        .to_records();
-
-    let hooks_completed = hooks_events
-        .iter()
-        .filter(|e| e.event_type == ORDER_COMPLETED)
-        .count();
-
-    // Collect from simulation dispatcher
-    let all_events = sim.collect_all_event_records();
-    let sim_eating = all_events
-        .iter()
-        .filter(|e| e.event_type == CUSTOMER_EATING)
-        .count();
-
-    assert_eq!(
-        hooks_completed, sim_eating,
-        "order.completed count ({}) from hooks must equal customer.eating count ({}) from simulation",
-        hooks_completed, sim_eating,
-    );
-
-    assert!(
-        hooks_completed > 0,
-        "should have at least one completed order"
-    );
+    let checker = EventInvariantChecker::new(sim.event_records());
+    let completed = checker.count(ORDER_COMPLETED);
+    assert!(completed > 0, "should have at least one completed order");
+    assert_eq!(completed, checker.count(CUSTOMER_EATING));
 }
 
 /// Zero customers means zero events. Catches accidental event emission.
@@ -481,129 +439,13 @@ fn test_no_events_lost_on_empty_simulation() {
 
     sim.run_for_steps(10).expect("simulation should complete");
 
-    let checker = EventInvariantChecker::new(sim.collect_all_event_records());
+    let checker = EventInvariantChecker::new(sim.event_records());
 
     assert_eq!(checker.count(ORDER_CREATED), 0);
     assert_eq!(checker.count(ORDER_ASSIGNED), 0);
     assert_eq!(checker.count(ORDER_COMPLETED), 0);
     assert_eq!(checker.count(CUSTOMER_EATING), 0);
     assert_eq!(checker.count(CUSTOMER_DONE), 0);
-    assert_eq!(checker.count(INVENTORY_CONSUMED), 0);
-    assert_eq!(checker.count(INVENTORY_LOW), 0);
-    assert_eq!(checker.count(SUPPLY_ORDER_CREATED), 0);
-}
-
-/// Kitchen with low initial inventory triggers supply chain events when
-/// orders consume the remaining stock.
-#[test]
-fn test_inventory_lifecycle_triggers_supply_events() {
-    use sim_core::{Resource, ResourceAllocator, SimulationConfig, SimulationRunner};
-    use sim_kitchen::{locations::DistributionSite, simulation::FoodPrepWorkflow};
-
-    // Build the simulation manually so we know the kitchen ID
-    let config = SimulationConfig {
-        name: "inventory-test".to_string(),
-        time_step: chrono::Duration::seconds(30),
-        verbose: false,
-        ..Default::default()
-    };
-    let mut runner: SimulationRunner<
-        Customer,
-        sim_kitchen::Kitchen,
-        sim_kitchen::Order,
-        FoodPrepWorkflow,
-    > = SimulationRunner::new(config);
-
-    let mut allocator = ResourceAllocator::new();
-    let kitchen = sim_kitchen::Kitchen::new("Kitchen-1".to_string(), 5);
-    let kitchen_id = kitchen.id().as_uuid();
-    allocator.add_resource(kitchen).unwrap();
-    runner.set_resource_allocator(allocator);
-
-    // Set up hooks with low inventory
-    let mut hooks = KitchenSimulationHooks::new();
-
-    let mut manager = InventoryManager::new();
-    // Very low stock: a single order consumes flour=2, beef=1, lettuce=1
-    manager.add_item(Inventory::new("flour".to_string(), 3, 100, 30, 50));
-    manager.add_item(Inventory::new("beef".to_string(), 2, 100, 30, 50));
-    manager.add_item(Inventory::new("lettuce".to_string(), 2, 100, 30, 50));
-    hooks.inventory_managers.insert(kitchen_id, manager);
-
-    // Add a distribution site so supply orders can be created
-    hooks.distribution_sites.push(DistributionSite::new(
-        "Test Warehouse".to_string(),
-        Point::new(-122.42, 37.78),
-        vec![
-            "flour".to_string(),
-            "beef".to_string(),
-            "lettuce".to_string(),
-        ],
-    ));
-
-    runner.set_hooks(Box::new(hooks));
-
-    // Add a single customer that will order immediately
-    let mut population = PopulationHandler::new();
-    let customer =
-        Customer::with_params(Point::new(-122.4, 37.8), 1.0, chrono::Duration::minutes(1));
-    population.add_agent(customer);
-    runner.set_population_handler(population);
-
-    // Replicate the run_for_steps logic since KitchenSimulation::new creates
-    // its own runner and we need to inject the inventory manager above.
-
-    for _ in 0..5 {
-        runner.tick().unwrap();
-
-        if let Some(hooks) = runner.hooks_as_mut::<KitchenSimulationHooks>() {
-            let new_orders = hooks.drain_pending_orders();
-            if !new_orders.is_empty()
-                && let Some(allocator) = runner.resources_mut()
-            {
-                for order in new_orders {
-                    let _ = allocator.add_task(order);
-                }
-            }
-        }
-
-        let _ = runner.allocate_resources();
-    }
-
-    // Collect events from hooks dispatcher
-    let events: Vec<EventRecord> = runner
-        .hooks_as::<KitchenSimulationHooks>()
-        .expect("hooks should be KitchenSimulationHooks")
-        .dispatcher()
-        .to_records();
-
-    let checker = EventInvariantChecker::new(events);
-
-    // Order should have been created and assigned
-    assert!(checker.count(ORDER_CREATED) >= 1, "order should be created");
-    assert!(
-        checker.count(ORDER_ASSIGNED) >= 1,
-        "order should be assigned"
-    );
-
-    // Inventory should have been consumed
-    assert!(
-        checker.count(INVENTORY_CONSUMED) >= 1,
-        "inventory should be consumed on assignment"
-    );
-
-    // With stock at 3 flour and consumption of 2, remaining is 1 which is below
-    // reorder_point of 30, so low inventory should trigger
-    assert!(
-        checker.count(INVENTORY_LOW) >= 1,
-        "low inventory event should fire when stock drops below reorder point"
-    );
-
-    // Supply order should be created since we have a distribution site
-    assert!(
-        checker.count(SUPPLY_ORDER_CREATED) >= 1,
-        "supply order should be created when inventory is low and a distribution site is available"
-    );
 }
 
 /// Running the same deterministic scenario twice produces identical event counts.
@@ -616,7 +458,7 @@ fn test_deterministic_ordering_no_rng_flakiness() {
         sim.run_for_steps(STEPS_FOR_FULL_LIFECYCLE)
             .expect("simulation should complete");
 
-        let events = sim.collect_all_event_records();
+        let events = sim.event_records();
         let mut counts: HashMap<String, usize> = HashMap::new();
         for e in &events {
             *counts.entry(e.event_type.clone()).or_insert(0) += 1;

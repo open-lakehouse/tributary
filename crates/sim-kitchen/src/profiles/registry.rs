@@ -3,16 +3,13 @@
 use sim_core::AgentId;
 use std::collections::HashMap;
 
+use super::CustomerProfile;
 use super::customer::{CardType, LoyaltyTier, PaymentProfile, PostalAddress};
-use super::{CourierProfile, CustomerProfile, SupplyDriverProfile};
-use chrono::NaiveDate;
-use chrono::Utc;
+use chrono::{DateTime, NaiveDate};
 
 /// Stores and lazily generates deterministic profiles for simulation agents.
 pub struct ProfileRegistry {
     customers: HashMap<AgentId, CustomerProfile>,
-    couriers: HashMap<AgentId, CourierProfile>,
-    supply_drivers: HashMap<AgentId, SupplyDriverProfile>,
 }
 
 impl ProfileRegistry {
@@ -20,8 +17,6 @@ impl ProfileRegistry {
     pub fn new() -> Self {
         Self {
             customers: HashMap::new(),
-            couriers: HashMap::new(),
-            supply_drivers: HashMap::new(),
         }
     }
 
@@ -31,22 +26,6 @@ impl ProfileRegistry {
         self.customers
             .entry(id)
             .or_insert_with(|| generate_customer(id))
-    }
-
-    /// Get or create a courier profile for the given agent ID.
-    /// Profile is deterministically generated from the agent ID.
-    pub fn courier_profile(&mut self, id: AgentId) -> &CourierProfile {
-        self.couriers
-            .entry(id)
-            .or_insert_with(|| generate_courier(id))
-    }
-
-    /// Get or create a supply driver profile for the given agent ID.
-    /// Profile is deterministically generated from the agent ID.
-    pub fn supply_driver_profile(&mut self, id: AgentId) -> &SupplyDriverProfile {
-        self.supply_drivers
-            .entry(id)
-            .or_insert_with(|| generate_supply_driver(id))
     }
 
     /// Deterministically derive a 32-byte seed from an AgentId.
@@ -146,56 +125,16 @@ fn generate_customer(id: AgentId) -> CustomerProfile {
         dietary_restrictions: vec![],
         favorite_items: vec![],
         order_history_count: seed_u8(&seed, 15) as u32,
-        account_created_at: Utc::now(),
+        // Derived from the profile seed (not the wall clock) so profiles are
+        // reproducible: some time in the ~3 years before 2024-01-01.
+        account_created_at: DateTime::from_timestamp(
+            1_704_067_200
+                - i64::from(u16::from_le_bytes([seed_u8(&seed, 18), seed_u8(&seed, 19)])) * 1_440,
+            0,
+        )
+        .expect("timestamp in range"),
         loyalty_points: seed_u8(&seed, 16) as u32 * 100,
         loyalty_tier: pick(&seed, 17, &tiers).clone(),
-    }
-}
-
-fn generate_courier(id: AgentId) -> CourierProfile {
-    let seed = ProfileRegistry::derive_seed(id);
-    let first_names = ["Alex", "Jordan", "Taylor", "Morgan", "Casey"];
-    let last_names = ["Davis", "Wilson", "Moore", "Taylor", "Anderson"];
-    let vehicle_types = ["bicycle", "scooter", "car"];
-    CourierProfile {
-        first_name: pick(&seed, 0, &first_names).to_string(),
-        last_name: pick(&seed, 1, &last_names).to_string(),
-        email: format!("courier{}@example.com", seed_u8(&seed, 2)),
-        phone: format!("+1510{:07}", seed_u8(&seed, 3) as u32 * 100000 % 10000000),
-        vehicle_type: pick(&seed, 4, &vehicle_types).to_string(),
-        license_plate: format!(
-            "{}{}{}{:03}",
-            (b'A' + seed_u8(&seed, 5) % 26) as char,
-            (b'A' + seed_u8(&seed, 6) % 26) as char,
-            (b'A' + seed_u8(&seed, 7) % 26) as char,
-            seed_u8(&seed, 8) as u32 * 4 % 1000,
-        ),
-        driver_rating: 3.5 + (seed_u8(&seed, 9) as f32 / 256.0) * 1.5,
-        certifications: vec![],
-        total_deliveries: seed_u8(&seed, 10) as u32 * 10,
-    }
-}
-
-fn generate_supply_driver(id: AgentId) -> SupplyDriverProfile {
-    let seed = ProfileRegistry::derive_seed(id);
-    let first_names = ["Robert", "Patricia", "James", "Linda", "William"];
-    let last_names = ["Martinez", "Hernandez", "Lopez", "Gonzalez", "Wilson"];
-    let companies = [
-        "Fresh Foods Co",
-        "Bay Area Supply",
-        "Pacific Distributors",
-        "Golden Gate Foods",
-    ];
-    let license_classes = ["A", "B", "C"];
-    SupplyDriverProfile {
-        first_name: pick(&seed, 0, &first_names).to_string(),
-        last_name: pick(&seed, 1, &last_names).to_string(),
-        email: format!("driver{}@supply.com", seed_u8(&seed, 2)),
-        phone: format!("+1650{:07}", seed_u8(&seed, 3) as u32 * 100000 % 10000000),
-        company_name: pick(&seed, 4, &companies).to_string(),
-        cdl_license_class: pick(&seed, 5, &license_classes).to_string(),
-        route_ids: vec![format!("route-{}", seed_u8(&seed, 6) % 10)],
-        years_experience: seed_u8(&seed, 7) % 20 + 1,
     }
 }
 
@@ -217,26 +156,6 @@ mod tests {
         assert_eq!(profile1.first_name, profile2.first_name);
         assert_eq!(profile1.last_name, profile2.last_name);
         assert_eq!(profile1.email, profile2.email);
-    }
-
-    #[test]
-    fn test_courier_profile_deterministic() {
-        let id = AgentId::new();
-        let mut registry = ProfileRegistry::new();
-        let profile1 = registry.courier_profile(id).clone();
-        let profile2 = registry.courier_profile(id).clone();
-        assert_eq!(profile1.first_name, profile2.first_name);
-        assert_eq!(profile1.vehicle_type, profile2.vehicle_type);
-    }
-
-    #[test]
-    fn test_supply_driver_profile_deterministic() {
-        let id = AgentId::new();
-        let mut registry = ProfileRegistry::new();
-        let profile1 = registry.supply_driver_profile(id).clone();
-        let profile2 = registry.supply_driver_profile(id).clone();
-        assert_eq!(profile1.first_name, profile2.first_name);
-        assert_eq!(profile1.company_name, profile2.company_name);
     }
 
     #[test]

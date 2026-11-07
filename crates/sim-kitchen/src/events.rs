@@ -1,15 +1,20 @@
-//! Event payloads for ghost kitchen domain
+//! Event payloads for the ghost kitchen domain
+//!
+//! Order events (`io.kitchen.order.*`) use the order ID as CloudEvents
+//! subject; customer events (`io.kitchen.customer.*`) use the customer ID.
 
 use chrono::{DateTime, Utc};
 use serde_json::{Value, json};
 use sim_events::EventPayload;
 
-/// Event emitted when a customer places an order
+/// A customer placed an order
 #[derive(Debug)]
 pub struct OrderCreatedEvent {
     pub order_id: String,
     pub customer_id: String,
     pub items: Vec<String>,
+    /// Menu price of the items, before tax and tip
+    pub total_price: f64,
     pub timestamp: DateTime<Utc>,
 }
 
@@ -23,7 +28,7 @@ impl EventPayload for OrderCreatedEvent {
     }
 
     fn subject(&self) -> Option<String> {
-        Some(self.customer_id.clone())
+        Some(self.order_id.clone())
     }
 
     fn to_json(&self) -> Value {
@@ -31,17 +36,19 @@ impl EventPayload for OrderCreatedEvent {
             "order_id": self.order_id,
             "customer_id": self.customer_id,
             "items": self.items,
+            "total_price": self.total_price,
             "timestamp": self.timestamp.to_rfc3339(),
         })
     }
 }
 
-/// Event emitted when an order is assigned to a kitchen
+/// A kitchen started preparing an order
 #[derive(Debug)]
 pub struct OrderAssignedEvent {
     pub order_id: String,
     pub kitchen_id: String,
     pub kitchen_name: String,
+    /// When preparation will finish if no step has to queue
     pub estimated_completion: DateTime<Utc>,
 }
 
@@ -68,11 +75,13 @@ impl EventPayload for OrderAssignedEvent {
     }
 }
 
-/// Event emitted when an order is completed
+/// A kitchen finished preparing an order
 #[derive(Debug)]
 pub struct OrderCompletedEvent {
     pub order_id: String,
     pub customer_id: String,
+    pub kitchen_id: String,
+    /// Seconds from order creation to completion (queueing included)
     pub prep_time_seconds: i64,
 }
 
@@ -86,19 +95,20 @@ impl EventPayload for OrderCompletedEvent {
     }
 
     fn subject(&self) -> Option<String> {
-        Some(self.customer_id.clone())
+        Some(self.order_id.clone())
     }
 
     fn to_json(&self) -> Value {
         json!({
             "order_id": self.order_id,
             "customer_id": self.customer_id,
+            "kitchen_id": self.kitchen_id,
             "prep_time_seconds": self.prep_time_seconds,
         })
     }
 }
 
-/// Event emitted when a customer starts eating
+/// A customer received their order and started eating
 #[derive(Debug)]
 pub struct CustomerEatingEvent {
     pub customer_id: String,
@@ -116,7 +126,7 @@ impl EventPayload for CustomerEatingEvent {
     }
 
     fn subject(&self) -> Option<String> {
-        Some(self.order_id.clone())
+        Some(self.customer_id.clone())
     }
 
     fn to_json(&self) -> Value {
@@ -128,10 +138,13 @@ impl EventPayload for CustomerEatingEvent {
     }
 }
 
-/// Event emitted when a customer finishes and leaves
+/// A customer finished eating
 #[derive(Debug)]
 pub struct CustomerDoneEvent {
     pub customer_id: String,
+    pub order_id: String,
+    pub total_price: f64,
+    /// Seconds from placing the order to finishing the meal
     pub total_time_seconds: i64,
 }
 
@@ -144,252 +157,16 @@ impl EventPayload for CustomerDoneEvent {
         format!("/customers/{}", self.customer_id)
     }
 
+    fn subject(&self) -> Option<String> {
+        Some(self.customer_id.clone())
+    }
+
     fn to_json(&self) -> Value {
         json!({
             "customer_id": self.customer_id,
+            "order_id": self.order_id,
+            "total_price": self.total_price,
             "total_time_seconds": self.total_time_seconds,
-        })
-    }
-}
-
-/// Event emitted when inventory is consumed during order preparation
-#[derive(Debug)]
-pub struct InventoryConsumedEvent {
-    pub kitchen_id: String,
-    pub order_id: String,
-    pub items: std::collections::HashMap<String, u32>,
-    pub timestamp: DateTime<Utc>,
-}
-
-impl EventPayload for InventoryConsumedEvent {
-    fn event_type(&self) -> &str {
-        "io.kitchen.inventory.consumed"
-    }
-
-    fn source(&self) -> String {
-        format!("/kitchens/{}/inventory", self.kitchen_id)
-    }
-
-    fn subject(&self) -> Option<String> {
-        Some(self.order_id.clone())
-    }
-
-    fn to_json(&self) -> Value {
-        json!({
-            "kitchen_id": self.kitchen_id,
-            "order_id": self.order_id,
-            "items": self.items,
-            "timestamp": self.timestamp.to_rfc3339(),
-        })
-    }
-}
-
-/// Event emitted when there is insufficient inventory to fulfill an order
-#[derive(Debug)]
-pub struct InsufficientInventoryEvent {
-    pub kitchen_id: String,
-    pub order_id: String,
-    pub error: String,
-    pub timestamp: DateTime<Utc>,
-}
-
-impl EventPayload for InsufficientInventoryEvent {
-    fn event_type(&self) -> &str {
-        "io.kitchen.inventory.insufficient"
-    }
-
-    fn source(&self) -> String {
-        format!("/kitchens/{}/inventory", self.kitchen_id)
-    }
-
-    fn subject(&self) -> Option<String> {
-        Some(self.order_id.clone())
-    }
-
-    fn to_json(&self) -> Value {
-        json!({
-            "kitchen_id": self.kitchen_id,
-            "order_id": self.order_id,
-            "error": self.error,
-            "timestamp": self.timestamp.to_rfc3339(),
-        })
-    }
-}
-
-/// Event emitted when inventory falls below reorder point
-#[derive(Debug)]
-pub struct InventoryLowEvent {
-    pub kitchen_id: String,
-    pub item_type: String,
-    pub current_quantity: u32,
-    pub reorder_point: u32,
-    pub timestamp: DateTime<Utc>,
-}
-
-impl EventPayload for InventoryLowEvent {
-    fn event_type(&self) -> &str {
-        "io.kitchen.inventory.low"
-    }
-
-    fn source(&self) -> String {
-        format!("/kitchens/{}/inventory", self.kitchen_id)
-    }
-
-    fn subject(&self) -> Option<String> {
-        Some(self.item_type.clone())
-    }
-
-    fn to_json(&self) -> Value {
-        json!({
-            "kitchen_id": self.kitchen_id,
-            "item_type": self.item_type,
-            "current_quantity": self.current_quantity,
-            "reorder_point": self.reorder_point,
-            "timestamp": self.timestamp.to_rfc3339(),
-        })
-    }
-}
-
-/// Event emitted when a supply order is created for inventory replenishment
-#[derive(Debug)]
-pub struct SupplyOrderCreatedEvent {
-    pub order_id: String,
-    pub kitchen_id: String,
-    pub item_type: String,
-    pub quantity: u32,
-    pub source_site_id: String,
-    pub timestamp: DateTime<Utc>,
-}
-
-impl EventPayload for SupplyOrderCreatedEvent {
-    fn event_type(&self) -> &str {
-        "io.kitchen.supply.order.created"
-    }
-
-    fn source(&self) -> String {
-        format!("/kitchens/{}/supply", self.kitchen_id)
-    }
-
-    fn subject(&self) -> Option<String> {
-        Some(self.order_id.clone())
-    }
-
-    fn to_json(&self) -> Value {
-        json!({
-            "order_id": self.order_id,
-            "kitchen_id": self.kitchen_id,
-            "item_type": self.item_type,
-            "quantity": self.quantity,
-            "source_site_id": self.source_site_id,
-            "timestamp": self.timestamp.to_rfc3339(),
-        })
-    }
-}
-
-/// Event emitted when inventory is replenished from supply delivery
-#[derive(Debug)]
-pub struct InventoryReplenishedEvent {
-    pub kitchen_id: String,
-    pub item_type: String,
-    pub quantity: u32,
-    pub new_quantity: u32,
-    pub timestamp: DateTime<Utc>,
-}
-
-impl EventPayload for InventoryReplenishedEvent {
-    fn event_type(&self) -> &str {
-        "io.kitchen.inventory.replenished"
-    }
-
-    fn source(&self) -> String {
-        format!("/kitchens/{}/inventory", self.kitchen_id)
-    }
-
-    fn subject(&self) -> Option<String> {
-        Some(self.item_type.clone())
-    }
-
-    fn to_json(&self) -> Value {
-        json!({
-            "kitchen_id": self.kitchen_id,
-            "item_type": self.item_type,
-            "quantity": self.quantity,
-            "new_quantity": self.new_quantity,
-            "timestamp": self.timestamp.to_rfc3339(),
-        })
-    }
-}
-
-/// Emitted when a recipe step begins at a kitchen station
-#[derive(Debug)]
-pub struct RecipeStepStartedEvent {
-    pub order_id: uuid::Uuid,
-    pub recipe_name: String,
-    pub step_index: usize,
-    pub step_name: String,
-    pub station: String,
-    pub kitchen_id: uuid::Uuid,
-    pub expected_duration_secs: u64,
-}
-
-impl EventPayload for RecipeStepStartedEvent {
-    fn event_type(&self) -> &str {
-        "io.kitchen.recipe.step.started"
-    }
-
-    fn source(&self) -> String {
-        format!("/kitchens/{}/recipes/{}", self.kitchen_id, self.recipe_name)
-    }
-
-    fn subject(&self) -> Option<String> {
-        Some(self.order_id.to_string())
-    }
-
-    fn to_json(&self) -> Value {
-        json!({
-            "order_id": self.order_id,
-            "recipe_name": self.recipe_name,
-            "step_index": self.step_index,
-            "step_name": self.step_name,
-            "station": self.station,
-            "kitchen_id": self.kitchen_id,
-            "expected_duration_secs": self.expected_duration_secs,
-        })
-    }
-}
-
-/// Emitted when a recipe step completes at a kitchen station
-#[derive(Debug)]
-pub struct RecipeStepCompletedEvent {
-    pub order_id: uuid::Uuid,
-    pub recipe_name: String,
-    pub step_index: usize,
-    pub step_name: String,
-    pub kitchen_id: uuid::Uuid,
-    pub actual_duration_secs: u64,
-}
-
-impl EventPayload for RecipeStepCompletedEvent {
-    fn event_type(&self) -> &str {
-        "io.kitchen.recipe.step.completed"
-    }
-
-    fn source(&self) -> String {
-        format!("/kitchens/{}/recipes/{}", self.kitchen_id, self.recipe_name)
-    }
-
-    fn subject(&self) -> Option<String> {
-        Some(self.order_id.to_string())
-    }
-
-    fn to_json(&self) -> Value {
-        json!({
-            "order_id": self.order_id,
-            "recipe_name": self.recipe_name,
-            "step_index": self.step_index,
-            "step_name": self.step_name,
-            "kitchen_id": self.kitchen_id,
-            "actual_duration_secs": self.actual_duration_secs,
         })
     }
 }
@@ -399,154 +176,24 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_order_created_event() {
-        let event = OrderCreatedEvent {
-            order_id: "order-123".to_string(),
-            customer_id: "customer-456".to_string(),
-            items: vec!["burger".to_string()],
-            timestamp: Utc::now(),
+    fn order_events_use_order_subject() {
+        let created = OrderCreatedEvent {
+            order_id: "o1".into(),
+            customer_id: "c1".into(),
+            items: vec!["burger".into()],
+            total_price: 12.5,
+            timestamp: DateTime::UNIX_EPOCH,
         };
+        assert_eq!(created.subject().as_deref(), Some("o1"));
+        assert_eq!(created.to_json()["total_price"], 12.5);
 
-        assert_eq!(event.event_type(), "io.kitchen.order.created");
-        assert_eq!(event.source(), "/orders/order-123");
-        assert_eq!(event.subject(), Some("customer-456".to_string()));
-
-        let json = event.to_json();
-        assert_eq!(json["order_id"], "order-123");
-        assert_eq!(json["items"][0], "burger");
-    }
-
-    #[test]
-    fn test_order_assigned_event() {
-        let event = OrderAssignedEvent {
-            order_id: "order-123".to_string(),
-            kitchen_id: "kitchen-1".to_string(),
-            kitchen_name: "Main Kitchen".to_string(),
-            estimated_completion: Utc::now(),
+        let done = CustomerDoneEvent {
+            customer_id: "c1".into(),
+            order_id: "o1".into(),
+            total_price: 12.5,
+            total_time_seconds: 900,
         };
-
-        assert_eq!(event.event_type(), "io.kitchen.order.assigned");
-        assert_eq!(event.source(), "/kitchens/kitchen-1");
-    }
-
-    #[test]
-    fn test_customer_done_event() {
-        let event = CustomerDoneEvent {
-            customer_id: "customer-456".to_string(),
-            total_time_seconds: 1200,
-        };
-
-        assert_eq!(event.event_type(), "io.kitchen.customer.done");
-
-        let json = event.to_json();
-        assert_eq!(json["total_time_seconds"], 1200);
-    }
-
-    #[test]
-    fn test_inventory_consumed_event() {
-        let mut items = std::collections::HashMap::new();
-        items.insert("flour".to_string(), 2);
-        items.insert("beef".to_string(), 1);
-
-        let event = InventoryConsumedEvent {
-            kitchen_id: "kitchen-1".to_string(),
-            order_id: "order-123".to_string(),
-            items: items.clone(),
-            timestamp: Utc::now(),
-        };
-
-        assert_eq!(event.event_type(), "io.kitchen.inventory.consumed");
-        assert_eq!(event.source(), "/kitchens/kitchen-1/inventory");
-        assert_eq!(event.subject(), Some("order-123".to_string()));
-
-        let json = event.to_json();
-        assert_eq!(json["kitchen_id"], "kitchen-1");
-        assert_eq!(json["order_id"], "order-123");
-        assert_eq!(json["items"]["flour"], 2);
-        assert_eq!(json["items"]["beef"], 1);
-    }
-
-    #[test]
-    fn test_insufficient_inventory_event() {
-        let event = InsufficientInventoryEvent {
-            kitchen_id: "kitchen-1".to_string(),
-            order_id: "order-123".to_string(),
-            error: "Insufficient flour: requested 5, available 2".to_string(),
-            timestamp: Utc::now(),
-        };
-
-        assert_eq!(event.event_type(), "io.kitchen.inventory.insufficient");
-        assert_eq!(event.source(), "/kitchens/kitchen-1/inventory");
-        assert_eq!(event.subject(), Some("order-123".to_string()));
-
-        let json = event.to_json();
-        assert_eq!(json["kitchen_id"], "kitchen-1");
-        assert_eq!(json["order_id"], "order-123");
-        assert!(json["error"].as_str().unwrap().contains("Insufficient"));
-    }
-
-    #[test]
-    fn test_inventory_low_event() {
-        let event = InventoryLowEvent {
-            kitchen_id: "kitchen-1".to_string(),
-            item_type: "flour".to_string(),
-            current_quantity: 40,
-            reorder_point: 50,
-            timestamp: Utc::now(),
-        };
-
-        assert_eq!(event.event_type(), "io.kitchen.inventory.low");
-        assert_eq!(event.source(), "/kitchens/kitchen-1/inventory");
-        assert_eq!(event.subject(), Some("flour".to_string()));
-
-        let json = event.to_json();
-        assert_eq!(json["kitchen_id"], "kitchen-1");
-        assert_eq!(json["item_type"], "flour");
-        assert_eq!(json["current_quantity"], 40);
-        assert_eq!(json["reorder_point"], 50);
-    }
-
-    #[test]
-    fn test_supply_order_created_event() {
-        let event = SupplyOrderCreatedEvent {
-            order_id: "supply-order-456".to_string(),
-            kitchen_id: "kitchen-1".to_string(),
-            item_type: "flour".to_string(),
-            quantity: 200,
-            source_site_id: "dist-site-789".to_string(),
-            timestamp: Utc::now(),
-        };
-
-        assert_eq!(event.event_type(), "io.kitchen.supply.order.created");
-        assert_eq!(event.source(), "/kitchens/kitchen-1/supply");
-        assert_eq!(event.subject(), Some("supply-order-456".to_string()));
-
-        let json = event.to_json();
-        assert_eq!(json["order_id"], "supply-order-456");
-        assert_eq!(json["kitchen_id"], "kitchen-1");
-        assert_eq!(json["item_type"], "flour");
-        assert_eq!(json["quantity"], 200);
-        assert_eq!(json["source_site_id"], "dist-site-789");
-    }
-
-    #[test]
-    fn test_inventory_replenished_event() {
-        let event = InventoryReplenishedEvent {
-            kitchen_id: "kitchen-1".to_string(),
-            item_type: "flour".to_string(),
-            quantity: 200,
-            new_quantity: 240,
-            timestamp: Utc::now(),
-        };
-
-        assert_eq!(event.event_type(), "io.kitchen.inventory.replenished");
-        assert_eq!(event.source(), "/kitchens/kitchen-1/inventory");
-        assert_eq!(event.subject(), Some("flour".to_string()));
-
-        let json = event.to_json();
-        assert_eq!(json["kitchen_id"], "kitchen-1");
-        assert_eq!(json["item_type"], "flour");
-        assert_eq!(json["quantity"], 200);
-        assert_eq!(json["new_quantity"], 240);
+        assert_eq!(done.subject().as_deref(), Some("c1"));
+        assert_eq!(done.to_json()["order_id"], "o1");
     }
 }

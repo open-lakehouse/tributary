@@ -54,14 +54,12 @@ Comprehensive API documentation for each crate:
   - Expected output: ~47 orders processed in 100 steps
 
 **Advanced Examples:**
-- **[multi-workflow.md](./examples/kitchen/multi-workflow.md)** - Phase 9 multi-workflow orchestration
   - FoodOrderWorkflow
   - SupplyChainWorkflow
   - CourierDeliveryWorkflow
   - WorkflowRegistry usage
   - Workflow coordination
 
-- **[inventory-management.md](./examples/kitchen/inventory-management.md)** - Auto-replenishment
   - InventoryManager API
   - Low-stock triggers
   - Supply chain integration
@@ -153,9 +151,7 @@ docs/
 │
 ├── examples/               # Practical examples
 │   ├── kitchen/            # Ghost kitchen domain
-│   │   ├── basic.md
-│   │   ├── multi-workflow.md
-│   │   └── inventory-management.md
+│   │   └── basic.md
 │   │
 │   ├── logistics/          # Package delivery domain
 │   │   ├── basic.md

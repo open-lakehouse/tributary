@@ -633,4 +633,3 @@ impl RouteCache {
 - [sim-core API Reference](./sim-core.md) - Core simulation abstractions
 - [Integration Patterns](./integration.md) - Cross-crate integration
 - [Logistics Example](../examples/logistics/package-routing.md) - Road network routing
-- [Kitchen Example](../examples/kitchen/multi-workflow.md) - Courier delivery with movement
