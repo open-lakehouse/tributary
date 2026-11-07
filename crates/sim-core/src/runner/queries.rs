@@ -29,7 +29,7 @@
 //! let result = runner.query("
 //!     SELECT a.id, t.task_type, t.status
 //!     FROM agents a
-//!     JOIN tasks t ON a.id = t.assigned_agent_id
+//!     JOIN tasks t ON a.id = t.assigned_resource_id
 //!     WHERE t.status = 'active'
 //! ").await?;
 //!
@@ -100,7 +100,7 @@ use std::sync::Arc;
 /// let result = query_simulation(runner, "
 ///     SELECT a.agent_type, COUNT(*) as count
 ///     FROM agents a
-///     JOIN tasks t ON a.id = t.assigned_agent_id
+///     JOIN tasks t ON a.id = t.assigned_resource_id
 ///     WHERE t.status = 'active'
 ///     GROUP BY a.agent_type
 /// ").await?;

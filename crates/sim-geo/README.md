@@ -1,131 +1,83 @@
 # sim-geo
 
-Geospatial and movement abstractions for agent-based simulations.
+Geospatial building blocks: road networks with routing, location storage with H3
+proximity queries, and journeys along routes.
 
-## Overview
+No domain crate uses sim-geo yet. `sim-core` uses it only in integration tests, so the
+journey API has no production caller.
 
-`sim-geo` provides geospatial capabilities for `sim-core` including location management, spatial indexing, and journey tracking. It uses Uber's H3 hexagonal grid system for efficient proximity queries.
+## Road networks
 
-## Features
-
-- **Location Management** - Generic location handling with H3 indexing
-- **Spatial Queries** - Fast nearest-neighbor and radius searches
-- **Journey Tracking** - Movement progression with pluggable velocity models
-- **H3 Integration** - Hierarchical hexagonal grid for spatial indexing
-
-## Location Management
-
-Define locations by implementing the `Location` trait:
+`RoadNetwork` is a directed graph of `RoadNode`s and `RoadEdge`s. `add_edge` adds one
+direction only. `RoadType` is `Highway`, `Arterial`, `Residential` or `ServiceRoad`.
 
 ```rust
-use sim_geo::{Location, LocationId};
-use geo_types::Point;
+use geo_types::{LineString, Point};
+use sim_geo::graph::{RoadEdge, RoadNetwork, RoadNode, RoadType};
 
-struct Warehouse {
-    id: LocationId,
-    position: Point<f64>,
-    capacity: usize,
-}
-
-impl Location for Warehouse {
-    fn id(&self) -> LocationId { self.id }
-    fn location_type(&self) -> &str { "warehouse" }
-    fn position(&self) -> Point<f64> { self.position }
-    fn capacity(&self) -> Option<usize> { Some(self.capacity) }
-}
+let mut network = RoadNetwork::new();
+network.add_node(RoadNode { id: 1, position: Point::new(-122.42, 37.77) });
+network.add_node(RoadNode { id: 2, position: Point::new(-122.41, 37.77) });
+network.add_edge(RoadEdge {
+    id: 10,
+    from_node: 1,
+    to_node: 2,
+    distance_m: 900.0,
+    geometry: LineString::from(vec![(-122.42, 37.77), (-122.41, 37.77)]),
+    road_type: RoadType::Arterial,
+    speed_limit_mps: 15.0,
+});
+let route = network.find_shortest_path(1, 2); // Option<Route>, via fast_paths
 ```
 
-Use `LocationHandler` for spatial operations:
+The routing graph is built on first use and dropped by `add_node` and `add_edge`.
+`find_nearest_node` snaps a point to the nearest node by great-circle distance. Networks
+round-trip through JSON: `from_json`, `to_json`, `load_from_file`, `save_to_file`.
+
+## Locations
+
+Implement `Location` (`id`, `location_type`, `position`; `capacity`, `properties` and
+`h3_cell` have defaults). `LocationHandler<L>` keeps locations in an Arrow `RecordBatch`
+and indexes them by H3 cell at the resolution passed to `new`.
 
 ```rust
-use sim_geo::LocationHandler;
 use h3o::Resolution;
+use sim_geo::LocationHandler;
 
 let mut handler = LocationHandler::new(Resolution::Nine);
-handler.add_location(warehouse)?;
-
-// Find nearest location
-let nearest_id = handler.nearest(my_position)?;
-
-// Find all within 5km
-let nearby = handler.within_radius(my_position, 5000.0)?;
+handler.add_location(warehouse)?; // any Location implementation
+let nearest = handler.nearest(point)?;                  // Option<LocationId>
+let within = handler.within_radius(point, 5_000.0)?;    // metres
 ```
 
-## Journey Tracking
+`nearest` searches the query cell and its neighbours, then falls back to a full scan.
+`within_radius` searches the H3 rings covering the radius, then filters by exact distance.
+For items without a `Location` type, `H3Index<T>` offers the same cell lookup: `insert`,
+`get_cell`, and `nearby(point, resolution)`, which returns items in the point's cell and its
+ring of neighbours with no distance filter.
 
-Track agent movement with journey states:
+## Journeys
+
+`MovementHandler` plans and advances journeys. Routes follow the network when one is
+loaded, otherwise they are straight lines. Progress is a fraction of route length.
 
 ```rust
-use sim_geo::{JourneyState, MovementHandler, movement::ConstantVelocity};
-use chrono::Duration;
+use sim_geo::{MovementHandler, TimeOfDayVelocity};
 
 let mut movement = MovementHandler::new()
-    .with_velocity_model(Box::new(ConstantVelocity::new(5.0))); // 5 m/s
-
-// Add journey
-movement.add_journey(journey_state);
-
-// Advance by time step
-movement.advance_journeys(now, Duration::seconds(60))?;
-
-// Get completed journeys
-let completed = movement.get_completed_journeys();
+    .with_network(network)
+    .with_velocity_model(Box::new(TimeOfDayVelocity::default().with_utc_offset(-8)));
+let journey = movement.plan_journey(agent_id, origin, destination, start_time)?;
+movement.add_journey(journey);
+movement.advance_journeys(now, Duration::seconds(60))?; // now = start of this step
+let arrived = movement.remove_completed();              // progress >= 1.0
 ```
 
-## H3 Spatial Index
+The default velocity model is `ConstantVelocity` (5 m/s). `TimeOfDayVelocity` defaults to
+multipliers of 0.5 during 07:00-08:59 and 17:00-18:59, 1.2 during 22:00-04:59, and 1.0
+otherwise, in the local time given by `with_utc_offset`. The multipliers are public fields.
+Implement `VelocityModel` for other models.
 
-Direct use of the H3 index for custom scenarios:
-
-```rust
-use sim_geo::H3Index;
-
-let mut index = H3Index::<LocationId>::new();
-index.insert(h3_cell, location_id);
-
-let nearby_ids = index.nearby(search_point, resolution)?;
-```
-
-## H3 Resolutions
-
-Choose resolution based on your use case:
-
-| Resolution | Cell Area | Use Case |
-|-----------|-----------|----------|
-| 5 | ~252 km² | City-level |
-| 7 | ~5.16 km² | Neighborhood |
-| 9 | ~0.105 km² | Block-level (default) |
-| 11 | ~4,250 m² | Building-level |
-
-## Testing
-
-```bash
-cargo test -p sim-geo
-```
-
-All tests pass with coverage of locations, spatial queries, routing, and journeys.
-
-## Dependencies
-
-- `sim-core 0.0.1` - Core simulation abstractions
-- `arrow 57.0` - Columnar data format
-- `geoarrow 0.7.0` - Geospatial Arrow extensions
-- `geo 0.31` - Geospatial algorithms
-- `h3o 0.9.3` - H3 hexagonal indexing
-- `fast_paths 1.0` - Contraction Hierarchies routing
-- `osmpbfreader 0.16` - OSM file parsing
-
-## Version Information
-
-Current version: `0.0.1`
-
-See [CHANGELOG.md](CHANGELOG.md) for detailed version history.
-
-## Documentation
-
-- [Architecture](docs/architecture.md) - Routing performance, spatial indexing, design principles
-- [Patterns](docs/patterns.md) - Common usage patterns and best practices
-- [Troubleshooting](docs/troubleshooting.md) - Common issues, debugging tips, and FAQ
-
-## License
-
-MIT OR Apache-2.0
+Examples: `cargo run -p sim-geo --example road_network_demo` and
+`--example network_routing_comparison`. Benchmark: `cargo bench -p sim-geo`.
+API reference: `cargo doc -p sim-geo --open`.

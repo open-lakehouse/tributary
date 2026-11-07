@@ -32,7 +32,7 @@ use std::sync::Arc;
 /// ```rust,ignore
 /// use sim_events::ParquetEventWriter;
 ///
-/// let mut writer = ParquetEventWriter::new("events.parquet")?;
+/// let mut writer = ParquetEventWriter::new("events.parquet".into())?;
 /// writer.write_events(&records)?;
 /// writer.close()?;
 /// ```

@@ -17,9 +17,7 @@
 //!
 //! # Performance
 //!
-//! Telemetry generation is designed to have minimal impact on simulation
-//! performance. Overhead should be <5% of total runtime. The collector
-//! buffers records in memory for batch export.
+//! The collector buffers records in memory for batch export.
 //!
 //! # Example
 //!
@@ -38,7 +36,7 @@
 //! runner.run_for_steps(100)?;
 //!
 //! // Extract and export telemetry
-//! let hooks = runner.hooks_mut();
+//! let hooks = runner.hooks_as_mut::<SimulationTelemetry>().unwrap();
 //! let records = hooks.flush_telemetry();
 //! ```
 

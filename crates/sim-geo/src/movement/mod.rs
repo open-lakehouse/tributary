@@ -2,7 +2,7 @@
 //!
 //! This module provides journey planning with optional road network routing.
 //! When a network is available, routes follow actual roads; otherwise, straight-line
-//! paths are used for backward compatibility.
+//! paths are used.
 
 pub mod velocity;
 
@@ -103,7 +103,7 @@ impl VelocityModel for ConstantVelocity {
 ///
 /// Manages active journeys and provides journey planning. When a road network
 /// is loaded, routes follow actual road segments. Without a network, straight-line
-/// paths are used for backward compatibility.
+/// paths are used.
 pub struct MovementHandler {
     active_journeys: HashMap<JourneyId, JourneyState>,
     velocity_model: Box<dyn VelocityModel>,
@@ -244,7 +244,7 @@ impl MovementHandler {
         })
     }
 
-    /// Add a journey (simplified - no routing yet)
+    /// Track an already-planned journey
     pub fn add_journey(&mut self, journey: JourneyState) {
         let id = journey.id;
         self.active_journeys.insert(id, journey);

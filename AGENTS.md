@@ -64,7 +64,7 @@ The `sim-*` crates form a layered, domain-agnostic framework:
 
 ```
 sim-core        ← Core abstractions: agents, resources, workflows, runner, snapshots
-sim-events      ← CloudEvents emission and Parquet persistence
+sim-events      ← CloudEvents emission and Parquet persistence (depends on sim-core)
 sim-artifacts   ← Artifact generation: converts events into domain artifacts
 sim-geo         ← Geospatial: H3, road network routing, journeys
 sim-telemetry   ← OTel-compatible telemetry from simulation events
@@ -220,9 +220,10 @@ pub trait SimulationHooks: Send + Sync + 'static {
   open the PR, then hand over a single sign + force-push command (see the
   maintainer's machine-wide conventions).
 - Before staging, update affected docs in the same commit:
-  `docs/CHANGELOG.md` (`[Unreleased]`, every user-visible change),
-  `docs/api-reference/` (changed public interfaces), this file (commands,
-  rules, public APIs), `README.md` (entry points).
+  `docs/CHANGELOG.md` (`[Unreleased]`, every user-visible change), rustdoc
+  and the crate `README.md` (changed public interfaces), `docs/ARCHITECTURE.md`
+  (design changes), this file (commands, rules, public APIs), the root
+  `README.md` (entry points).
 
 ### Pre-push check (mirrors CI)
 
@@ -240,14 +241,13 @@ just check   # fmt check, clippy -D warnings, machete, ruff, typos, nextest, doc
 2. **Commit `.caspers/` or `output/` directories** — runtime data only, gitignored
 3. **Commit `.claude/worktrees/` or `.claude/projects/`** — agent working state, gitignored
 4. **Mix time zones** — all timestamps are UTC, use `ctx.current_time()` for simulation time
-5. **Use `set_workflow_engine()`** — removed; use `set_workflow_registry()` only
-6. **Hardcode step duration as `30.0`** — use `ctx.time_step().num_seconds() as f64`
-7. **Stage files before running clippy and fmt**: run `just fix` (clippy, then fmt) first
+5. **Hardcode step duration as `30.0`** — use `ctx.time_step().num_seconds() as f64`
+6. **Stage files before running clippy and fmt**: run `just fix` (clippy, then fmt) first
 
 ### ALWAYS DO THIS
 1. **Use `WorkflowRegistry`** when wiring workflows in `SimulationRunner`
 2. **Use `ctx.time_step()`** for step duration in agent tick logic
-3. **Use `ctx.current_time()`** for simulation timestamps; never `Utc::now()` in simulation code. The one exception is the wall-clock anchor of the Live/Catchup time modes in `sim-core/src/context/mod.rs`
+3. **Use `ctx.current_time()`** for simulation timestamps; never `Utc::now()` in simulation code. Wall-clock reads belong only at the edges: the Live/Catchup anchor and default start time in `sim-core` (context, `SimulationRunner::new`), and catalog/snapshot metadata in `manager`/`snapshot`
 4. **Use `sim_core::move_towards()`** for movement — don't duplicate in domain crates
 5. **Add tests** in `*_tests.rs` files alongside implementation
 
@@ -355,7 +355,7 @@ uv pip install maturin[zig] && just build-py
 ## Related Documentation
 
 - `README.md` — Project overview and crate list
-- `docs/ARCHITECTURE.md` — High-level design decisions
+- `docs/ARCHITECTURE.md` — Crate layering, tick loop, known limitations
 - `justfile` — All available commands and build tasks
 - `Cargo.toml` — Workspace dependencies and versions (every external dependency is declared here)
 - `CONTRIBUTING.md` — Setup and the pre-push gate

@@ -1141,7 +1141,7 @@ where
     /// let result = runner.query("
     ///     SELECT a.agent_type, COUNT(*) as count
     ///     FROM agents a
-    ///     JOIN tasks t ON a.id = t.assigned_agent_id
+    ///     JOIN tasks t ON a.id = t.assigned_resource_id
     ///     WHERE t.status = 'active'
     ///     GROUP BY a.agent_type
     /// ").await?;

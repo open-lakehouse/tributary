@@ -1,36 +1,15 @@
-//! EventProcessor adapter for TelemetryCollector.
+//! Event-processor adapter for [`TelemetryCollector`].
 //!
-//! Wraps a TelemetryCollector as an EventProcessor so it can be registered
-//! with EventDispatcher and receive events automatically.
-//!
-//! # Workstream A dependency
-//!
-//! The `EventProcessor` trait is expected to be defined in `sim-events` as part of
-//! Workstream A. Adding `sim-events` as a direct dependency of `sim-telemetry` would
-//! create a circular dependency (`sim-core` → `sim-telemetry` → `sim-events` →
-//! `sim-core`), so the trait is defined locally here using `serde_json::Value` as
-//! the event representation (matching what `TelemetryCollector::process_event` already
-//! accepts).
-//!
-//! Once the dependency graph is restructured to break the cycle (e.g., by moving
-//! `EventProcessor` to a small `sim-events-core` crate that has no dependency on
-//! `sim-core`), this local definition can be replaced with:
-//!
-//! ```rust,ignore
-//! use sim_events::EventProcessor;
-//! ```
-//!
-//! TODO: implement EventProcessor once sim-events exports it without introducing a
-//! circular dependency.
+//! sim-telemetry does not depend on sim-events, so it defines its own minimal
+//! [`EventProcessor`] trait over CloudEvents JSON. It cannot be registered with
+//! `sim_events::EventDispatcher` directly; feed it events yourself. Replacing it
+//! with `sim_events::EventProcessor` is tracked in
+//! <https://github.com/open-lakehouse/tributary/issues/32>.
 
 use crate::core::{TelemetryCollector, TelemetryRecord};
 use serde_json::Value;
 
-/// Placeholder trait for event processing.
-///
-/// This mirrors the `EventProcessor` interface expected from Workstream A, using
-/// `serde_json::Value` as the event type to avoid a circular dependency on
-/// `sim-events`. Replace with `sim_events::EventProcessor` once the cycle is broken.
+/// Minimal event-processor interface over CloudEvents JSON.
 pub trait EventProcessor {
     /// Returns `true` if this processor should handle events of the given type.
     fn handles(&self, event_type: &str) -> bool;
@@ -44,8 +23,8 @@ pub trait EventProcessor {
 
 /// Adapts TelemetryCollector to the EventProcessor interface.
 ///
-/// Register this with EventDispatcher to automatically collect telemetry
-/// from all events without modifying the simulation hooks.
+/// Pass each event to [`EventProcessor::process`] to collect telemetry
+/// without modifying the simulation hooks.
 ///
 /// # Interior Mutability
 ///
