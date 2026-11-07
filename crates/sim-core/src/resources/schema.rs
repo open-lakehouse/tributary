@@ -17,8 +17,8 @@ use std::sync::Arc;
 /// * `resource_type` - String type identifier (e.g., "kitchen_station", "checkout_lane")
 /// * `capacity` - Total capacity (maximum concurrent tasks)
 /// * `available` - Currently available capacity units
-/// * `location_id` - Optional LocationId UUID (16 bytes) for spatial resources
-/// * `metadata` - JSON string for domain-specific fields
+/// * `location_id` - Reserved for a LocationId UUID (currently always null)
+/// * `metadata` - Reserved for domain-specific JSON (currently always null)
 ///
 /// # Example
 ///
@@ -56,14 +56,14 @@ pub fn resource_schema() -> SchemaRef {
 ///
 /// * `id` - Binary UUID representing TaskId (16 bytes)
 /// * `task_type` - String type identifier matching resource_type for allocation
-/// * `status` - Status string: "pending", "allocated", "completed"
-/// * `required_capacity` - Capacity units needed from resource
+/// * `status` - Status string: "pending" or "allocated" (finished tasks are removed)
+/// * `required_capacity` - Capacity units needed from resource (always 1)
 /// * `assigned_resource_id` - Optional ResourceId UUID when allocated
-/// * `workflow_instance_id` - Optional WorkflowInstanceId UUID (Phase 5)
+/// * `workflow_instance_id` - Optional WorkflowInstanceId UUID
 /// * `priority` - Task priority (higher = more urgent)
-/// * `metadata` - JSON string for domain-specific fields (e.g., duration, deadline)
+/// * `metadata` - Reserved for domain-specific JSON (currently always null)
 /// * `allocated_at_millis` - Optional timestamp (milliseconds since epoch) when task was allocated
-/// * `estimated_duration_secs` - Estimated task duration in seconds
+/// * `estimated_duration_millis` - Estimated task duration in milliseconds
 ///
 /// # Example
 ///
@@ -81,7 +81,7 @@ pub fn resource_schema() -> SchemaRef {
 ///         Arc::new(Int32Array::from(vec![10])),
 ///         Arc::new(StringArray::from(vec![Some(r#"{"duration_secs":30}"#)])),
 ///         Arc::new(Int64Array::from(vec![None])),
-///         Arc::new(Int64Array::from(vec![30])),
+///         Arc::new(Int64Array::from(vec![30_000])),
 ///     ],
 /// )?;
 /// ```
@@ -89,14 +89,14 @@ pub fn task_schema() -> SchemaRef {
     Arc::new(Schema::new(vec![
         Field::new("id", DataType::Binary, false), // TaskId UUID
         Field::new("task_type", DataType::Utf8, false), // Type identifier
-        Field::new("status", DataType::Utf8, false), // Pending/Allocated/Complete
+        Field::new("status", DataType::Utf8, false), // pending / allocated
         Field::new("required_capacity", DataType::Int64, false), // Capacity needed
         Field::new("assigned_resource_id", DataType::Binary, true), // Optional ResourceId
-        Field::new("workflow_instance_id", DataType::Binary, true), // Optional WorkflowInstanceId (Phase 5)
-        Field::new("priority", DataType::Int32, false),             // Task priority
-        Field::new("metadata", DataType::Utf8, true),               // JSON for domain fields
-        Field::new("allocated_at_millis", DataType::Int64, true),   // Allocated timestamp (millis)
-        Field::new("estimated_duration_secs", DataType::Int64, false), // Duration (seconds)
+        Field::new("workflow_instance_id", DataType::Binary, true), // Optional WorkflowInstanceId
+        Field::new("priority", DataType::Int32, false), // Task priority
+        Field::new("metadata", DataType::Utf8, true), // JSON for domain fields
+        Field::new("allocated_at_millis", DataType::Int64, true), // Allocated timestamp (millis)
+        Field::new("estimated_duration_millis", DataType::Int64, false), // Duration (millis)
     ]))
 }
 
@@ -106,8 +106,6 @@ pub mod task_status {
     pub const PENDING: &str = "pending";
     /// Task is allocated to a resource
     pub const ALLOCATED: &str = "allocated";
-    /// Task has completed
-    pub const COMPLETED: &str = "completed";
 }
 
 #[cfg(test)]
@@ -180,7 +178,7 @@ mod tests {
         assert_eq!(schema.field(8).data_type(), &DataType::Int64);
         assert!(schema.field(8).is_nullable());
 
-        assert_eq!(schema.field(9).name(), "estimated_duration_secs");
+        assert_eq!(schema.field(9).name(), "estimated_duration_millis");
         assert_eq!(schema.field(9).data_type(), &DataType::Int64);
         assert!(!schema.field(9).is_nullable());
     }

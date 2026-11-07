@@ -268,8 +268,8 @@ impl<A: Agent> PopulationHandler<A> {
     pub fn new() -> Self;
     pub fn add_agent(&mut self, agent: A);
     pub fn remove_agent(&mut self, id: AgentId) -> Option<A>;
-    pub fn get_agent(&self, id: AgentId) -> Option<&A>;
-    pub fn get_agent_mut(&mut self, id: AgentId) -> Option<&mut A>;
+    pub fn get_agent(&self, id: AgentId) -> Option<A>;            // decoded copy
+    pub fn update_agent(&mut self, agent: A) -> Result<()>;       // write a modified copy back
     pub fn count(&self) -> usize;
     pub fn iter(&self) -> impl Iterator<Item = &A>;
     pub fn tick_agents(&mut self, ctx: &SimulationContext) -> Result<Vec<AgentTickResult>>;
@@ -298,54 +298,89 @@ println!("Total agents: {}", population.count());
 
 ### ResourceAllocator
 
-Manages resource capacity and task allocation.
+Tracks resource capacity and the tasks queued for it. Every task takes one unit
+of capacity. Pending tasks are allocated highest priority first (ties in
+insertion order); an allocated task finishes once `estimated_duration` has
+elapsed, which releases its capacity and removes it.
 
 ```rust
 pub struct ResourceAllocator<R: Resource, T: Task> { /* ... */ }
 
 impl<R: Resource, T: Task> ResourceAllocator<R, T> {
     pub fn new() -> Self;
-    pub fn add_resource(&mut self, resource: R) -> Result<ResourceId>;
-    pub fn add_task(&mut self, task: T) -> Result<TaskId>;
-    pub fn assign_tasks(
-        &mut self,
-        strategy: &dyn AllocationStrategy<R, T>,
-        current_time: DateTime<Utc>
-    ) -> Result<Vec<Assignment>>;
-    pub fn get_completed_tasks(&mut self, current_time: DateTime<Utc>)
-        -> Result<Vec<(TaskId, Option<WorkflowInstanceId>)>>;
+
+    // Resources
+    pub fn add_resource(&mut self, resource: R) -> Result<()>;      // error on duplicate ID
+    pub fn remove_resource(&mut self, id: ResourceId) -> Result<bool>; // error while tasks are allocated to it
     pub fn resource_count(&self) -> usize;
+    pub fn resource_capacity(&self, id: ResourceId) -> Option<usize>;
+    pub fn resource_available(&self, id: ResourceId) -> Option<usize>;
+    pub fn find_available_resources_by_type(&self, resource_type: &str) -> Vec<ResourceId>;
+
+    // Tasks
+    pub fn add_task(&mut self, task: T) -> Result<()>;              // error on duplicate ID
+    pub fn remove_task(&mut self, id: TaskId) -> Result<bool>;      // releases capacity if allocated
+    pub fn complete_task(&mut self, id: TaskId) -> Result<CompletedTask>; // finish early
     pub fn pending_task_count(&self) -> usize;
-    pub fn export_batch(&self) -> (RecordBatch, RecordBatch);
+    pub fn allocated_task_count(&self) -> usize;
+    pub fn pending_tasks(&self) -> impl Iterator<Item = TaskId>;
+    pub fn get_assignment(&self, id: TaskId) -> Option<ResourceId>;
+    pub fn assignments(&self) -> Vec<Assignment>;
+
+    // Allocation and completion
+    pub fn assign_tasks(&mut self, strategy: &dyn AllocationStrategy, now: DateTime<Utc>)
+        -> Result<Vec<Assignment>>;
+    pub fn allocate_batch(&mut self, ids: impl IntoIterator<Item = TaskId>,
+        strategy: &dyn AllocationStrategy, now: DateTime<Utc>) -> Result<Vec<Assignment>>;
+    pub fn get_completed_tasks(&mut self, now: DateTime<Utc>) -> Result<Vec<CompletedTask>>;
+
+    // Snapshots
+    pub fn export_batch(&self) -> Result<(RecordBatch, RecordBatch)>;
     pub fn import_batch(&mut self, resources: RecordBatch, tasks: RecordBatch) -> Result<()>;
+}
+
+pub struct CompletedTask {
+    pub task_id: TaskId,
+    pub resource_id: ResourceId,
+    pub workflow_instance_id: Option<WorkflowInstanceId>,
 }
 ```
 
-**Example:**
+Inside a `SimulationRunner` you rarely call these directly: each `tick()`
+completes due tasks, creates workflow tasks and allocates.
+
+### AllocationStrategy
+
+Chooses a resource for one pending task. The allocator passes only resources
+of the required type with free capacity, in the order they were added.
 
 ```rust
-use sim_core::{ResourceAllocator, LeastLoaded};
+pub trait AllocationStrategy: Send + Sync {
+    fn assign(&self, task: &TaskCandidate<'_>, candidates: &[ResourceCandidate<'_>])
+        -> Option<ResourceId>;   // None leaves the task pending
+}
 
-let mut allocator = ResourceAllocator::new();
+pub struct TaskCandidate<'a> {
+    pub id: TaskId,
+    pub required_resource_type: &'a str,
+    pub priority: i32,
+    pub workflow_instance_id: Option<WorkflowInstanceId>,
+}
 
-// Add resources
-allocator.add_resource(KitchenStation { capacity: 5, /* ... */ })?;
-
-// Add tasks
-allocator.add_task(FoodOrder { /* ... */ })?;
-
-// Allocate using strategy
-let assignments = allocator.assign_tasks(&LeastLoaded, current_time)?;
-
-// Check for completed tasks
-let completed = allocator.get_completed_tasks(current_time)?;
+pub struct ResourceCandidate<'a> {
+    pub id: ResourceId,
+    pub resource_type: &'a str,
+    pub capacity: usize,
+    pub available: usize,       // current_load() = capacity - available
+}
 ```
 
-**Built-in Allocation Strategies:**
+**Built-in strategies** (`sim_core::resources`):
 
-- `LeastLoaded` - Assigns to resource with lowest current load
-- `Random` - Random assignment to available resources
-- `RoundRobin` - Cyclic assignment across resources
+- `LeastLoaded` (runner default): lowest current load, ties to the first added
+- `FirstFit`: first candidate
+- `RoundRobin`: rotates through the candidates
+- `Random`: uniform; use `Random::with_seed(derive_seed(seed, "allocation"))` for reproducible runs
 
 ---
 
@@ -374,6 +409,7 @@ where
     pub fn set_workflow_registry(&mut self, registry: WorkflowRegistry<W>);  // use this, not set_workflow_engine
     pub fn set_task_factory(&mut self, factory: Box<dyn TaskFactory<T>>);
     pub fn set_demand_generator(&mut self, generator: Box<dyn DemandGenerator>);
+    pub fn set_allocation_strategy(&mut self, strategy: Box<dyn AllocationStrategy>); // default LeastLoaded
     pub fn set_hooks(&mut self, hooks: Box<dyn SimulationHooks>);
     pub fn set_time_mode(&mut self, mode: TimeMode);
 
@@ -391,14 +427,13 @@ where
         where F: FnMut(&SimulationContext, &SimulationStats) -> bool;
     pub fn run_controlled(&mut self) -> Result<()>;          // runs until Stop
     pub fn run_controlled_for(&mut self, max_steps: usize) -> Result<()>;
-    pub fn allocate_resources(&mut self, strategy: &dyn AllocationStrategy<R, T>) -> Result<usize>;
+    pub fn allocate_resources(&mut self) -> Result<usize>;  // tick() already does this; for tasks added between ticks
 
     // State management
-    pub fn reset(&mut self);
     pub async fn init_snapshot_manager(&mut self) -> Result<()>;
     pub async fn set_snapshot_backend(&mut self, backend: SnapshotBackend) -> Result<()>;
-    pub async fn save_snapshot(&self, snapshot_id: &str) -> Result<SnapshotMetadata>;
-    pub async fn restore_snapshot(&mut self, snapshot_id: &str) -> Result<SnapshotMetadata>;
+    pub async fn save_snapshot(&self, name: &str) -> Result<SnapshotMetadata>;
+    pub async fn restore_snapshot(&mut self, name: &str) -> Result<SnapshotMetadata>;  // all-or-nothing
 
     // Querying
     pub async fn query(&self, sql: &str) -> Result<Vec<RecordBatch>>;
@@ -409,6 +444,20 @@ where
     pub fn stats(&self) -> &SimulationStats;
 }
 ```
+
+**Tick order.** Each `tick()` runs:
+
+1. `on_before_tick`
+2. demand generation, then `on_demands_generated`
+3. agent ticks, then `on_agents_ticked`
+4. task completion: allocated tasks whose duration has elapsed release their
+   resource (`on_tasks_completed`); workflow tasks advance their instance, and
+   each step event goes to `on_workflow_step_completed`
+5. the `TaskFactory` creates a task for every workflow instance ready for its
+   next step
+6. pending tasks are allocated with the runner's strategy, then
+   `on_resources_allocated`
+7. time advances, then `on_after_tick`
 
 **Example:**
 
@@ -449,6 +498,7 @@ pub trait SimulationHooks: Send + Sync {
     fn on_end(&mut self, ctx: &SimulationContext) -> Result<()> { Ok(()) }
     fn on_agents_ticked(&mut self, ctx: &SimulationContext, results: &[AgentTickResult]) -> Result<()> { Ok(()) }
     fn on_resources_allocated(&mut self, ctx: &SimulationContext, assignments: &[Assignment]) -> Result<()> { Ok(()) }
+    fn on_tasks_completed(&mut self, ctx: &SimulationContext, completed: &[CompletedTask]) -> Result<()> { Ok(()) }
     fn on_workflow_step_completed(&mut self, ctx: &SimulationContext, event: &WorkflowStepEvent) -> Result<()> { Ok(()) }
     fn on_demands_generated(&mut self, ctx: &SimulationContext, demands: &[Demand]) -> Result<()> { Ok(()) }
 }
@@ -652,7 +702,6 @@ pub struct WorkflowEngine<W: Workflow> {
     pub fn new() -> Self;
     pub fn register_workflow(&mut self, workflow: W);
     pub fn start_instance(&mut self, workflow_id: WorkflowId) -> Result<WorkflowInstance>;
-    pub fn tick(&mut self, current_time: DateTime<Utc>) -> Result<Vec<WorkflowStepEvent>>;
     pub fn advance_instance_step(
         &mut self,
         instance_id: WorkflowInstanceId,
@@ -664,15 +713,18 @@ pub struct WorkflowEngine<W: Workflow> {
 
 ### WorkflowRegistry
 
-Multi-workflow orchestration (Phase 9).
+Named workflow engines. Engines iterate in name order, so task creation and
+event order are deterministic.
 
 ```rust
 pub struct WorkflowRegistry<W: Workflow> {
     pub fn new() -> Self;
-    pub fn register(&mut self, name: String, engine: WorkflowEngine<W>);
-    pub fn get_engine(&self, name: &str) -> Option<&WorkflowEngine<W>>;
-    pub fn get_engine_mut(&mut self, name: &str) -> Option<&mut WorkflowEngine<W>>;
-    pub fn tick_all(&mut self, current_time: DateTime<Utc>) -> Result<Vec<WorkflowStepEvent>>;
+    pub fn register(&mut self, name: String, engine: WorkflowEngine<W>) -> Result<()>;
+    pub fn get(&self, name: &str) -> Option<&WorkflowEngine<W>>;
+    pub fn get_mut(&mut self, name: &str) -> Option<&mut WorkflowEngine<W>>;
+    pub fn engine_for_instance_mut(&mut self, id: WorkflowInstanceId) -> Option<&mut WorkflowEngine<W>>;
+    pub fn engines(&self) -> impl Iterator<Item = &WorkflowEngine<W>>;
+    pub fn total_instance_count(&self) -> usize;
 }
 ```
 
@@ -704,8 +756,16 @@ pub struct SnapshotManager {
     pub async fn new(backend: SnapshotBackend) -> Result<Self>;
     pub async fn save_snapshot(&self, snapshot_id: &str, data: SnapshotData) -> Result<()>;
     pub async fn restore_snapshot(&self, snapshot_id: &str) -> Result<SnapshotData>;
-    pub async fn list_snapshots(&self) -> Result<Vec<String>>;
-    pub async fn delete_snapshot(&self, snapshot_id: &str) -> Result<()>;
+    pub async fn list_snapshots(&self) -> Result<Vec<SnapshotMetadata>>;
+}
+
+pub struct SnapshotData {
+    pub agents: RecordBatch,
+    pub resources: RecordBatch,
+    pub tasks: RecordBatch,
+    pub workflow_instances: RecordBatch,
+    pub locations: Option<RecordBatch>,
+    pub clock: Option<SnapshotClock>,   // sim time + step
 }
 
 pub enum SnapshotBackend {
@@ -720,10 +780,11 @@ pub enum SnapshotBackend {
 // Initialize with Parquet backend
 runner.set_snapshot_backend(SnapshotBackend::Parquet("./snapshots".to_string())).await?;
 
-// Save checkpoint
+// Save checkpoint (agents, resources, tasks, workflow instances, clock)
 runner.save_snapshot("checkpoint_100").await?;
 
-// Restore later
+// Restore later. The runner needs the same workflow engines/definitions
+// registered; restore fails without changing anything otherwise.
 runner.restore_snapshot("checkpoint_100").await?;
 ```
 

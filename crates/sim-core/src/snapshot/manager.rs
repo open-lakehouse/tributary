@@ -150,16 +150,19 @@ pub enum SnapshotBackend {
 /// - `tasks`: Task allocation state
 /// - `workflow_instances`: Workflow execution state
 /// - `locations`: Optional location/spatial data
+/// - `clock`: Optional simulation clock (time and step) at capture
 ///
 /// # Example
 ///
 /// ```rust,ignore
+/// let (resources, tasks) = resource_allocator.export_batch()?;
 /// let snapshot = SnapshotData {
 ///     agents: population_handler.export_batch(),
-///     resources: resource_allocator.export_resources(),
-///     tasks: resource_allocator.export_tasks(),
-///     workflow_instances: workflow_engine.export_instances(),
+///     resources,
+///     tasks,
+///     workflow_instances: workflow_engine.instance_table.export_batch(),
 ///     locations: None,
+///     clock: None,
 /// };
 /// ```
 #[derive(Debug, Clone)]
@@ -174,6 +177,62 @@ pub struct SnapshotData {
     pub workflow_instances: RecordBatch,
     /// Optional location data for spatial simulations
     pub locations: Option<RecordBatch>,
+    /// Simulation clock at capture (set by [`SimulationRunner`](crate::SimulationRunner))
+    pub clock: Option<SnapshotClock>,
+}
+
+/// Simulation clock captured with a snapshot
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SnapshotClock {
+    /// Simulation time
+    pub sim_time: chrono::DateTime<chrono::Utc>,
+    /// Step counter
+    pub step: usize,
+}
+
+impl SnapshotClock {
+    fn schema() -> arrow::datatypes::SchemaRef {
+        use arrow::datatypes::{DataType, Field, Schema};
+        Arc::new(Schema::new(vec![
+            Field::new("sim_time_nanos", DataType::Int64, false),
+            Field::new("step", DataType::Int64, false),
+        ]))
+    }
+
+    fn to_batch(self) -> Result<RecordBatch> {
+        use arrow::array::Int64Array;
+        let step = i64::try_from(self.step)
+            .map_err(|_| Error::InvalidState(format!("step {} out of range", self.step)))?;
+        let nanos = self.sim_time.timestamp_nanos_opt().ok_or_else(|| {
+            Error::InvalidState(format!("sim time {} out of range", self.sim_time))
+        })?;
+        Ok(RecordBatch::try_new(
+            Self::schema(),
+            vec![
+                Arc::new(Int64Array::from(vec![nanos])),
+                Arc::new(Int64Array::from(vec![step])),
+            ],
+        )?)
+    }
+
+    fn from_batch(batch: &RecordBatch) -> Result<Self> {
+        use arrow::array::{Array, Int64Array};
+        let col = |name: &str| {
+            batch
+                .column_by_name(name)
+                .and_then(|c| c.as_any().downcast_ref::<Int64Array>())
+                .filter(|c| c.len() == 1 && !c.is_null(0))
+                .map(|c| c.value(0))
+                .ok_or_else(|| Error::InvalidState(format!("snapshot clock: bad '{name}' column")))
+        };
+        let nanos = col("sim_time_nanos")?;
+        let step = col("step")?;
+        Ok(Self {
+            sim_time: chrono::DateTime::from_timestamp_nanos(nanos),
+            step: usize::try_from(step)
+                .map_err(|_| Error::InvalidState(format!("snapshot clock: bad step {step}")))?,
+        })
+    }
 }
 
 /// Manages snapshot save/restore operations
@@ -344,6 +403,12 @@ impl SnapshotManager {
                 .register_table(format!("{}_locations", snapshot_id), locations_table)?;
         }
 
+        if let Some(clock) = data.clock {
+            let clock_table = Self::create_mem_table(clock.to_batch()?)?;
+            self.ctx
+                .register_table(format!("{}_clock", snapshot_id), clock_table)?;
+        }
+
         Ok(())
     }
 
@@ -377,12 +442,21 @@ impl SnapshotManager {
             None
         };
 
+        let clock = if self.ctx.table_exist(format!("{}_clock", snapshot_id))? {
+            Some(SnapshotClock::from_batch(
+                &self.read_table(&format!("{}_clock", snapshot_id)).await?,
+            )?)
+        } else {
+            None
+        };
+
         Ok(SnapshotData {
             agents,
             resources,
             tasks,
             workflow_instances,
             locations,
+            clock,
         })
     }
 
@@ -426,6 +500,11 @@ impl SnapshotManager {
         // Write locations if present
         if let Some(locations) = data.locations {
             self.write_batch_to_parquet(&snapshot_dir, snapshot_id, "locations", locations)
+                .await?;
+        }
+
+        if let Some(clock) = data.clock {
+            self.write_batch_to_parquet(&snapshot_dir, snapshot_id, "clock", clock.to_batch()?)
                 .await?;
         }
 
@@ -509,12 +588,23 @@ impl SnapshotManager {
             None
         };
 
+        let clock = if snapshot_dir.join("clock.parquet").exists() {
+            Some(SnapshotClock::from_batch(
+                &self
+                    .read_batch_from_parquet(&snapshot_dir, snapshot_id, "clock")
+                    .await?,
+            )?)
+        } else {
+            None
+        };
+
         Ok(SnapshotData {
             agents,
             resources,
             tasks,
             workflow_instances,
             locations,
+            clock,
         })
     }
 
@@ -928,6 +1018,7 @@ mod tests {
             tasks: create_test_tasks_batch(),
             workflow_instances: create_test_instances_batch(),
             locations: None,
+            clock: None,
         };
 
         // Save snapshot
@@ -961,6 +1052,7 @@ mod tests {
             tasks: create_test_tasks_batch(),
             workflow_instances: create_test_instances_batch(),
             locations: None,
+            clock: None,
         };
 
         // Save snapshot
@@ -1006,6 +1098,7 @@ mod tests {
             tasks: create_test_tasks_batch(),
             workflow_instances: create_test_instances_batch(),
             locations: None,
+            clock: None,
         };
 
         let data2 = data1.clone();

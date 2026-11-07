@@ -397,14 +397,6 @@ impl<W: Workflow> WorkflowEngine<W> {
             })
         }
     }
-
-    /// Process workflow instances for current tick
-    ///
-    /// Currently a placeholder for future time-based workflow steps
-    pub fn tick(&mut self, _current_time: DateTime<Utc>) -> Result<Vec<WorkflowStepEvent>> {
-        // Future: Process time-based workflow steps
-        Ok(Vec::new())
-    }
 }
 
 impl<W: Workflow> Default for WorkflowEngine<W> {
@@ -662,15 +654,6 @@ mod tests {
         // Try to advance again
         let result = engine.advance_instance_step(instance_id, completion_time);
         assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_tick() {
-        let mut engine = WorkflowEngine::<TestWorkflow>::new();
-        let current_time = chrono::Utc::now();
-
-        let events = engine.tick(current_time).unwrap();
-        assert_eq!(events.len(), 0);
     }
 
     #[test]

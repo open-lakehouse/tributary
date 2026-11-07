@@ -35,9 +35,12 @@ use crate::context::{SimulationConfig, SimulationContext, TickResult};
 use crate::demand::DemandGenerator;
 use crate::population::{Agent, AgentTickResult, Demand, PopulationHandler};
 use crate::resources::{
-    AllocationStrategy, Assignment, Resource, ResourceAllocator, Task, TaskFactory,
+    AllocationStrategy, Assignment, CompletedTask, LeastLoaded, Resource, ResourceAllocator, Task,
+    TaskFactory,
 };
-use crate::snapshot::{SnapshotBackend, SnapshotData, SnapshotManager, SnapshotMetadata};
+use crate::snapshot::{
+    SnapshotBackend, SnapshotClock, SnapshotData, SnapshotManager, SnapshotMetadata,
+};
 use crate::workflows::{Workflow, WorkflowRegistry, WorkflowStepEvent};
 use arrow::array::RecordBatch;
 pub use control::ControlReceiver;
@@ -81,6 +84,15 @@ pub trait SimulationHooks: Send + Sync + 'static {
         &mut self,
         _ctx: &SimulationContext,
         _assignments: &[Assignment],
+    ) -> Result<()> {
+        Ok(())
+    }
+
+    /// Called with the tasks that finished this tick (capacity already released)
+    fn on_tasks_completed(
+        &mut self,
+        _ctx: &SimulationContext,
+        _completed: &[CompletedTask],
     ) -> Result<()> {
         Ok(())
     }
@@ -164,6 +176,8 @@ where
     workflow_registry: Option<WorkflowRegistry<W>>,
     /// Task factory for creating tasks from workflow steps (optional)
     task_factory: Option<Box<dyn TaskFactory<T>>>,
+    /// Strategy used to allocate pending tasks each tick
+    allocation_strategy: Box<dyn AllocationStrategy>,
     /// Demand generator (optional)
     demand_generator: Option<Box<dyn DemandGenerator>>,
     /// Lifecycle hooks
@@ -202,20 +216,7 @@ where
     /// The snapshot manager is not initialized by default. Call `init_snapshot_manager()`
     /// or `set_snapshot_backend()` to enable snapshot functionality.
     pub fn new(config: SimulationConfig) -> Self {
-        Self {
-            context: SimulationContext::from_now(config),
-            population: None,
-            resources: None,
-            workflow_registry: None,
-            task_factory: None,
-            demand_generator: None,
-            hooks: Box::new(NoOpHooks),
-            stats: SimulationStats::default(),
-            snapshot_manager: None,
-            control: None,
-            paused: false,
-            _phantom: PhantomData,
-        }
+        Self::with_start_time(chrono::Utc::now(), config)
     }
 
     /// Create a runner with a specific start time
@@ -229,6 +230,7 @@ where
             resources: None,
             workflow_registry: None,
             task_factory: None,
+            allocation_strategy: Box::new(LeastLoaded),
             demand_generator: None,
             hooks: Box::new(NoOpHooks),
             stats: SimulationStats::default(),
@@ -252,6 +254,13 @@ where
     /// Set the task factory for creating tasks from workflow steps
     pub fn set_task_factory(&mut self, factory: Box<dyn TaskFactory<T>>) {
         self.task_factory = Some(factory);
+    }
+
+    /// Set the strategy used to allocate pending tasks each tick
+    ///
+    /// Defaults to [`LeastLoaded`].
+    pub fn set_allocation_strategy(&mut self, strategy: Box<dyn AllocationStrategy>) {
+        self.allocation_strategy = strategy;
     }
 
     /// Set the demand generator
@@ -335,107 +344,109 @@ where
 
     /// Execute a single simulation tick
     ///
+    /// Each tick runs, in order:
+    ///
+    /// 1. [`SimulationHooks::on_before_tick`]
+    /// 2. Demand generation, then [`SimulationHooks::on_demands_generated`]
+    /// 3. Agent ticks, then [`SimulationHooks::on_agents_ticked`]
+    /// 4. Task completion: allocated tasks whose duration has elapsed release
+    ///    their resource ([`SimulationHooks::on_tasks_completed`]); tasks that
+    ///    belong to a workflow advance that instance, and each resulting
+    ///    [`WorkflowStepEvent`] goes to
+    ///    [`SimulationHooks::on_workflow_step_completed`]
+    /// 5. Workflow instances ready for their next step get a task from the
+    ///    [`TaskFactory`]
+    /// 6. Pending tasks are allocated with the runner's
+    ///    [`AllocationStrategy`], then
+    ///    [`SimulationHooks::on_resources_allocated`]
+    /// 7. Time advances, then [`SimulationHooks::on_after_tick`]
+    ///
     /// # Returns
     ///
     /// `Ok(TickResult)` describing whether the simulation should continue,
     /// has reached its configured end time, or has transitioned from Catchup
     /// to Live mode.
     pub fn tick(&mut self) -> Result<TickResult> {
-        // Call before-tick hook
         self.hooks.on_before_tick(&self.context)?;
 
-        // Generate demands
         if let Some(generator) = &self.demand_generator {
             let demands = generator.generate(&self.context);
             self.hooks.on_demands_generated(&self.context, &demands)?;
         }
 
-        // Tick agents if population exists
         if let Some(population) = &mut self.population {
             let results = population.tick_agents(&self.context)?;
             self.stats.total_agent_ticks += results.len();
             self.hooks.on_agents_ticked(&self.context, &results)?;
         }
 
-        // Process workflow registry (multi-workflow support)
         let current_time = self.context.current_time();
-        let mut all_workflow_events = Vec::new();
+        let step = i64::try_from(self.context.step()).unwrap_or(i64::MAX);
 
-        if let Some(registry) = &mut self.workflow_registry {
-            // Step 1: Tick all workflow engines in registry (process time-based steps)
-            let registry_events = registry.tick_all(current_time)?;
-            all_workflow_events.extend(registry_events);
-
-            // Step 2: Get completed tasks from resources and advance workflow instances
-            if let Some(resources) = &mut self.resources {
-                let completed_tasks = resources.get_completed_tasks(current_time)?;
-
-                // Step 3: Advance workflow instances for completed tasks across all engines
-                for (_task_id, instance_id) in completed_tasks {
-                    // Find the engine that owns this instance and advance it
-                    for engine in registry.engines_mut() {
-                        if engine.instance_table.get_row_index(instance_id).is_some() {
-                            if let Some(event) =
-                                engine.advance_instance_step(instance_id, current_time)?
-                            {
-                                all_workflow_events.push(event);
-                                self.stats.total_workflow_steps += 1;
-                            }
-                            break;
-                        }
-                    }
+        if let Some(resources) = &mut self.resources {
+            // Complete due tasks and advance their workflow instances.
+            let completed = resources.get_completed_tasks(current_time)?;
+            let mut workflow_events = Vec::new();
+            for task in &completed {
+                let Some(instance_id) = task.workflow_instance_id else {
+                    continue;
+                };
+                let engine = self
+                    .workflow_registry
+                    .as_mut()
+                    .and_then(|r| r.engine_for_instance_mut(instance_id))
+                    .ok_or_else(|| {
+                        crate::Error::Workflow(format!(
+                            "Task {} belongs to unknown workflow instance {instance_id}",
+                            task.task_id
+                        ))
+                    })?;
+                engine.instance_table.set_current_tick(step);
+                if let Some(event) = engine.advance_instance_step(instance_id, current_time)? {
+                    workflow_events.push(event);
+                    self.stats.total_workflow_steps += 1;
                 }
+            }
+            if !completed.is_empty() {
+                self.hooks.on_tasks_completed(&self.context, &completed)?;
+            }
+            for event in &workflow_events {
+                self.hooks
+                    .on_workflow_step_completed(&self.context, event)?;
+            }
 
-                // Step 4: Create tasks for ready workflow instances (if task factory is set)
-                if let Some(task_factory) = &self.task_factory {
-                    // Collect info about ready instances first (to avoid borrow issues)
-                    let mut instances_to_create = Vec::new();
-
-                    for engine in registry.engines_mut() {
-                        let ready_instances = engine.instance_table.get_ready_instances();
-                        for instance in ready_instances {
-                            if let Some(workflow) = engine.get_workflow(instance.workflow_id)
-                                && let Some(step) = workflow.get_step(instance.current_step)
-                            {
-                                instances_to_create.push((instance.id, step.clone(), current_time));
-                            }
-                        }
-                    }
-
-                    // Now create tasks and mark instances as having tasks assigned
-                    for (instance_id, step, time) in instances_to_create {
-                        // Create task from workflow step
-                        let task = task_factory.create_task(instance_id, &step, time);
-
-                        // Add task to resource allocator
-                        let _ = resources.add_task(task);
-
-                        // Mark instance as having a task assigned to prevent duplicate task creation
-                        for engine in registry.engines_mut() {
-                            if engine.instance_table.get_row_index(instance_id).is_some() {
-                                engine.mark_task_assigned(instance_id)?;
-                                break;
-                            }
-                        }
+            // Create tasks for workflow instances waiting on their next step.
+            if let (Some(registry), Some(task_factory)) =
+                (&mut self.workflow_registry, &self.task_factory)
+            {
+                for engine in registry.engines_mut() {
+                    engine.instance_table.set_current_tick(step);
+                    for instance in engine.instance_table.get_ready_instances() {
+                        let workflow_step = engine
+                            .get_workflow(instance.workflow_id)
+                            .and_then(|w| w.get_step(instance.current_step))
+                            .ok_or_else(|| {
+                                crate::Error::Workflow(format!(
+                                    "Instance {} is at step {} of workflow {}, which does not exist",
+                                    instance.id, instance.current_step, instance.workflow_id
+                                ))
+                            })?;
+                        let task =
+                            task_factory.create_task(instance.id, workflow_step, current_time);
+                        resources.add_task(task)?;
+                        engine.mark_task_assigned(instance.id)?;
                     }
                 }
             }
         }
 
-        // Emit all workflow events through hooks
-        for event in all_workflow_events {
-            self.hooks
-                .on_workflow_step_completed(&self.context, &event)?;
-        }
+        self.allocate_resources()?;
 
-        // Advance time according to current TimeMode
         let tick_result = self.context.advance();
         self.stats.total_steps += 1;
 
-        // Call after-tick hook
         self.hooks.on_after_tick(&self.context)?;
 
-        // Sleep if Live/Catchup-post-transition mode requests it
         self.post_tick_sleep();
 
         Ok(tick_result)
@@ -645,7 +656,8 @@ where
         })
     }
 
-    /// Save a snapshot using explicit IDs, delegating to the SnapshotManager.
+    /// Save a snapshot under a caller-supplied ID and record it in the
+    /// manager's catalog
     pub async fn save_snapshot_with_id(
         &self,
         snapshot_id: uuid::Uuid,
@@ -653,58 +665,54 @@ where
         label: Option<&str>,
         sim_time: chrono::DateTime<chrono::Utc>,
     ) -> crate::Result<SnapshotMetadata> {
-        let manager = self.snapshot_manager.as_ref().ok_or_else(|| {
-            crate::Error::InvalidState("Snapshot manager not initialized".to_string())
-        })?;
+        let manager = self.snapshot_manager()?;
+        let data = self.capture_snapshot_data()?;
+        manager
+            .save_snapshot_with_id(snapshot_id, simulation_id, label, sim_time, data)
+            .await
+    }
 
-        let agents = if let Some(pop) = &self.population {
-            pop.export_batch()
-        } else {
-            RecordBatch::new_empty(crate::population::agent_schema())
+    fn snapshot_manager(&self) -> crate::Result<&SnapshotManager> {
+        self.snapshot_manager.as_ref().ok_or_else(|| {
+            crate::Error::InvalidState("Snapshot manager not initialized".to_string())
+        })
+    }
+
+    /// Collect the state of every component (and the clock) for a snapshot
+    fn capture_snapshot_data(&self) -> crate::Result<SnapshotData> {
+        let agents = match &self.population {
+            Some(pop) => pop.export_batch(),
+            None => RecordBatch::new_empty(crate::population::agent_schema()),
         };
 
-        let (resources, tasks) = if let Some(res) = &self.resources {
-            res.export_batch()
-        } else {
-            (
+        let (resources, tasks) = match &self.resources {
+            Some(res) => res.export_batch()?,
+            None => (
                 RecordBatch::new_empty(crate::resources::resource_schema()),
                 RecordBatch::new_empty(crate::resources::task_schema()),
-            )
+            ),
         };
 
-        let workflow_instances = if let Some(registry) = &self.workflow_registry {
-            let mut batches: Vec<RecordBatch> = registry
-                .engines()
-                .map(|engine| engine.instance_table.export_batch())
-                .filter(|b| b.num_rows() > 0)
-                .collect();
-            if batches.is_empty() {
-                RecordBatch::new_empty(crate::workflows::workflow_instance_schema())
-            } else if batches.len() == 1 {
-                batches.remove(0)
-            } else {
-                let schema = batches[0].schema();
-                arrow::compute::concat_batches(&schema, &batches).map_err(|e| {
-                    crate::Error::Workflow(format!(
-                        "Failed to concatenate workflow instance batches: {e}"
-                    ))
-                })?
-            }
-        } else {
-            RecordBatch::new_empty(crate::workflows::workflow_instance_schema())
-        };
+        let schema = crate::workflows::workflow_instance_schema();
+        let batches: Vec<RecordBatch> = self
+            .workflow_registry
+            .iter()
+            .flat_map(|registry| registry.engines())
+            .map(|engine| engine.instance_table.export_batch())
+            .collect();
+        let workflow_instances = arrow::compute::concat_batches(&schema, &batches)?;
 
-        let snapshot_data = SnapshotData {
+        Ok(SnapshotData {
             agents,
             resources,
             tasks,
             workflow_instances,
             locations: None,
-        };
-
-        manager
-            .save_snapshot_with_id(snapshot_id, simulation_id, label, sim_time, snapshot_data)
-            .await
+            clock: Some(SnapshotClock {
+                sim_time: self.context.current_time(),
+                step: self.context.step(),
+            }),
+        })
     }
 
     /// Run the simulation driven by the attached control channel.
@@ -789,29 +797,26 @@ where
         Ok(())
     }
 
-    /// Allocate resources using a strategy
+    /// Allocate pending tasks now, then call
+    /// [`SimulationHooks::on_resources_allocated`]
     ///
-    /// # Arguments
+    /// [`tick`](Self::tick) already does this every step. Call it directly
+    /// only to allocate tasks a domain wrapper added between ticks without
+    /// waiting for the next one.
     ///
-    /// * `strategy` - Allocation strategy to use
-    ///
-    /// # Returns
-    ///
-    /// Number of assignments made
-    pub fn allocate_resources(&mut self, strategy: &dyn AllocationStrategy<R, T>) -> Result<usize> {
-        if let Some(resources) = &mut self.resources {
-            let current_time = self.context.current_time();
-
-            let assignments = resources.assign_tasks(strategy, current_time)?;
-            let count = assignments.len();
-            self.stats.total_assignments += count;
-
-            self.hooks
-                .on_resources_allocated(&self.context, &assignments)?;
-            Ok(count)
-        } else {
-            Ok(0)
-        }
+    /// Returns the number of assignments made.
+    pub fn allocate_resources(&mut self) -> Result<usize> {
+        let Some(resources) = &mut self.resources else {
+            return Ok(0);
+        };
+        let assignments = resources.assign_tasks(
+            self.allocation_strategy.as_ref(),
+            self.context.current_time(),
+        )?;
+        self.stats.total_assignments += assignments.len();
+        self.hooks
+            .on_resources_allocated(&self.context, &assignments)?;
+        Ok(assignments.len())
     }
 
     /// Run the simulation for a specified number of steps
@@ -883,13 +888,6 @@ where
         self.run_until(|ctx, _stats| ctx.current_time() >= end_time)
     }
 
-    /// Reset the simulation to its initial state
-    pub fn reset(&mut self) {
-        let config = self.context.config().clone();
-        self.context = SimulationContext::from_now(config);
-        self.stats = SimulationStats::default();
-    }
-
     /// Initialize the snapshot manager with Memory backend
     ///
     /// This is a convenience method to initialize snapshot functionality with
@@ -936,210 +934,175 @@ where
         Ok(())
     }
 
-    /// Save a snapshot of the current simulation state
+    /// Save a snapshot of the current simulation state under `name`
     ///
-    /// Collects RecordBatches from all active handlers (PopulationHandler,
-    /// ResourceAllocator, WorkflowEngine) and persists them via the SnapshotManager.
-    ///
-    /// # Arguments
-    ///
-    /// * `snapshot_id` - Unique identifier for this snapshot (used as directory name)
-    ///
-    /// # Returns
-    ///
-    /// SnapshotMetadata containing counts of saved entities
+    /// Captures agents, resources, tasks, workflow instances and the clock.
+    /// Restore it with [`restore_snapshot`](Self::restore_snapshot) using the
+    /// same name. The returned metadata carries `name` as its label.
     ///
     /// # Errors
     ///
-    /// Returns Error if:
-    /// - No snapshot manager is configured
-    /// - Backend write operation fails
-    /// - RecordBatch export fails from any handler
+    /// Returns an error if no snapshot manager is configured or the backend
+    /// write fails.
     ///
     /// # Example
     ///
     /// ```rust,ignore
-    /// // Save checkpoint after 100 steps
     /// runner.run_for_steps(100)?;
     /// let metadata = runner.save_snapshot("checkpoint_100").await?;
     /// println!("Saved snapshot with {} agents", metadata.agent_count);
     /// ```
-    pub async fn save_snapshot(&self, snapshot_id: &str) -> crate::Result<SnapshotMetadata> {
-        let manager = self.snapshot_manager.as_ref().ok_or_else(|| {
-            crate::Error::InvalidState("Snapshot manager not initialized".to_string())
-        })?;
-
-        // Collect RecordBatches from all handlers
-        let agents = if let Some(pop) = &self.population {
-            pop.export_batch()
-        } else {
-            // Create empty batch with schema
-            RecordBatch::new_empty(crate::population::agent_schema())
-        };
-
-        let (resources, tasks) = if let Some(res) = &self.resources {
-            res.export_batch()
-        } else {
-            // Create empty batches with schemas
-            (
-                RecordBatch::new_empty(crate::resources::resource_schema()),
-                RecordBatch::new_empty(crate::resources::task_schema()),
-            )
-        };
-
-        let workflow_instances = if let Some(registry) = &self.workflow_registry {
-            // Export and concatenate instances from all engines in the registry
-            let mut batches: Vec<RecordBatch> = registry
-                .engines()
-                .map(|engine| engine.instance_table.export_batch())
-                .filter(|b| b.num_rows() > 0)
-                .collect();
-            if batches.is_empty() {
-                RecordBatch::new_empty(crate::workflows::workflow_instance_schema())
-            } else if batches.len() == 1 {
-                batches.remove(0)
-            } else {
-                let schema = batches[0].schema();
-                arrow::compute::concat_batches(&schema, &batches).map_err(|e| {
-                    crate::Error::Workflow(format!(
-                        "Failed to concatenate workflow instance batches: {}",
-                        e
-                    ))
-                })?
-            }
-        } else {
-            // Create empty batch with schema
-            RecordBatch::new_empty(crate::workflows::workflow_instance_schema())
-        };
-
-        // Create snapshot data
-        let snapshot_data = SnapshotData {
-            agents: agents.clone(),
-            resources: resources.clone(),
-            tasks: tasks.clone(),
-            workflow_instances: workflow_instances.clone(),
-            locations: None, // No LocationHandler yet
-        };
-
-        // Save via snapshot manager
-        manager.save_snapshot(snapshot_id, snapshot_data).await?;
-
-        // Create and return metadata
-        let metadata = SnapshotMetadata::new(
-            "1.0".to_string(),
-            agents.num_rows(),
-            resources.num_rows(),
-            tasks.num_rows(),
-            workflow_instances.num_rows(),
-            0, // No locations yet
-        );
-
+    pub async fn save_snapshot(&self, name: &str) -> crate::Result<SnapshotMetadata> {
+        let manager = self.snapshot_manager()?;
+        let data = self.capture_snapshot_data()?;
+        let metadata = Self::describe(&data, &self.context, Some(name));
+        manager.save_snapshot(name, data).await?;
         Ok(metadata)
+    }
+
+    fn describe(
+        data: &SnapshotData,
+        ctx: &SimulationContext,
+        label: Option<&str>,
+    ) -> SnapshotMetadata {
+        SnapshotMetadata::with_ids(
+            uuid::Uuid::now_v7(),
+            ctx.simulation_id(),
+            label.map(str::to_string),
+            data.clock.map_or(ctx.current_time(), |c| c.sim_time),
+            "1.0".to_string(),
+            data.agents.num_rows(),
+            data.resources.num_rows(),
+            data.tasks.num_rows(),
+            data.workflow_instances.num_rows(),
+            data.locations.as_ref().map_or(0, |l| l.num_rows()),
+        )
     }
 
     /// Restore simulation state from a snapshot
     ///
-    /// Loads RecordBatches from the SnapshotManager and distributes them to all
-    /// handlers. This performs an all-or-nothing restore - if any handler fails
-    /// to import, the entire operation fails and the simulation state remains unchanged.
+    /// Replaces agents, resources, tasks and workflow instances, and rewinds
+    /// the clock if the snapshot captured it. Workflow instances are routed to
+    /// the registered engine that owns their workflow definition, so the
+    /// runner must have the same engines and workflows registered as when the
+    /// snapshot was taken.
     ///
-    /// # Arguments
-    ///
-    /// * `snapshot_id` - Identifier of the snapshot to restore
-    ///
-    /// # Returns
-    ///
-    /// SnapshotMetadata describing the restored state
+    /// Restore is all-or-nothing: everything is validated into staging copies
+    /// first, and the runner is only modified once all of it succeeds.
     ///
     /// # Errors
     ///
-    /// Returns Error if:
-    /// - No snapshot manager is configured
-    /// - Snapshot doesn't exist
-    /// - Backend read operation fails
-    /// - RecordBatch import fails for any handler
-    /// - State consistency validation fails
-    ///
-    /// # Example
-    ///
-    /// ```rust,ignore
-    /// // Restore from checkpoint
-    /// let metadata = runner.restore_snapshot("checkpoint_100").await?;
-    /// println!("Restored {} agents", metadata.agent_count);
-    ///
-    /// // Continue simulation from restored state
-    /// runner.run_for_steps(50)?;
-    /// ```
+    /// Returns an error if no snapshot manager is configured, the snapshot
+    /// doesn't exist, a batch fails to import, a workflow instance belongs to
+    /// a workflow no engine knows, or the snapshot holds data for a component
+    /// this runner doesn't have.
     pub async fn restore_snapshot(&mut self, snapshot_id: &str) -> crate::Result<SnapshotMetadata> {
-        let manager = self.snapshot_manager.as_ref().ok_or_else(|| {
-            crate::Error::InvalidState("Snapshot manager not initialized".to_string())
-        })?;
+        let data = self
+            .snapshot_manager()?
+            .restore_snapshot(snapshot_id)
+            .await?;
+        let metadata = Self::describe(&data, &self.context, Some(snapshot_id));
 
-        // Restore data from snapshot manager
-        let snapshot_data = manager.restore_snapshot(snapshot_id).await?;
+        // Stage every component; nothing below mutates `self` until all succeed.
+        let population = match &self.population {
+            Some(_) => {
+                let mut staged = PopulationHandler::<A>::new();
+                staged.import_batch(data.agents.clone())?;
+                Some(staged)
+            }
+            None if data.agents.num_rows() > 0 => {
+                return Err(crate::Error::InvalidState(
+                    "Snapshot has agents but the runner has no population handler".into(),
+                ));
+            }
+            None => None,
+        };
 
-        // Step 1: Perform imports (errors will roll back via Result)
-        if let Some(pop) = &mut self.population {
-            pop.import_batch(snapshot_data.agents.clone())?;
+        let resources = match &self.resources {
+            Some(_) => {
+                let mut staged = ResourceAllocator::<R, T>::new();
+                staged.import_batch(data.resources.clone(), data.tasks.clone())?;
+                Some(staged)
+            }
+            None if data.resources.num_rows() + data.tasks.num_rows() > 0 => {
+                return Err(crate::Error::InvalidState(
+                    "Snapshot has resources or tasks but the runner has no resource allocator"
+                        .into(),
+                ));
+            }
+            None => None,
+        };
+
+        let instance_tables = self.stage_workflow_instances(&data.workflow_instances)?;
+
+        if let Some(population) = population {
+            self.population = Some(population);
         }
-
-        if let Some(res) = &mut self.resources {
-            res.import_batch(snapshot_data.resources.clone(), snapshot_data.tasks.clone())?;
+        if let Some(resources) = resources {
+            self.resources = Some(resources);
         }
-
-        // Note: snapshot restore does not redistribute workflow instances across registry engines;
-        // the snapshot stores a flat batch of all instances. This is a known limitation.
-
-        // Step 2: Verify state consistency
-        // Count entities to ensure data was imported correctly
-        let agent_count = self.population.as_ref().map(|p| p.count()).unwrap_or(0);
-
-        let resource_count = self
-            .resources
-            .as_ref()
-            .map(|r| r.resource_count())
-            .unwrap_or(0);
-
-        let task_count = snapshot_data.tasks.num_rows();
-
-        let workflow_instance_count = snapshot_data.workflow_instances.num_rows();
-
-        // Verify counts match what we imported
-        if agent_count != snapshot_data.agents.num_rows() {
-            return Err(crate::Error::InvalidState(format!(
-                "Agent count mismatch after restore: expected {}, got {}",
-                snapshot_data.agents.num_rows(),
-                agent_count
-            )));
+        if let (Some(registry), Some(tables)) = (&mut self.workflow_registry, instance_tables) {
+            for (engine, table) in registry.engines_mut().zip(tables) {
+                engine.instance_table = table;
+            }
         }
-
-        if resource_count != snapshot_data.resources.num_rows() {
-            return Err(crate::Error::InvalidState(format!(
-                "Resource count mismatch after restore: expected {}, got {}",
-                snapshot_data.resources.num_rows(),
-                resource_count
-            )));
+        if let Some(clock) = data.clock {
+            self.context.restore_clock(clock.sim_time, clock.step);
         }
-
-        if task_count != snapshot_data.tasks.num_rows() {
-            return Err(crate::Error::InvalidState(format!(
-                "Task count mismatch after restore: expected {}, got {}",
-                snapshot_data.tasks.num_rows(),
-                task_count
-            )));
-        }
-
-        // Create and return metadata
-        let metadata = SnapshotMetadata::new(
-            "1.0".to_string(),
-            agent_count,
-            resource_count,
-            task_count,
-            workflow_instance_count,
-            0, // No locations yet
-        );
 
         Ok(metadata)
+    }
+
+    /// Split a flat workflow-instance batch into one table per registered engine
+    ///
+    /// Returns tables in `engines()` order, or `None` if there is no registry.
+    fn stage_workflow_instances(
+        &self,
+        batch: &RecordBatch,
+    ) -> crate::Result<Option<Vec<crate::workflows::WorkflowInstanceTable>>> {
+        use arrow::array::{Array, BinaryArray, BooleanArray};
+
+        let Some(registry) = &self.workflow_registry else {
+            if batch.num_rows() > 0 {
+                return Err(crate::Error::InvalidState(
+                    "Snapshot has workflow instances but the runner has no workflow registry"
+                        .into(),
+                ));
+            }
+            return Ok(None);
+        };
+
+        let workflow_ids = batch
+            .column_by_name("workflow_id")
+            .and_then(|c| c.as_any().downcast_ref::<BinaryArray>())
+            .ok_or_else(|| {
+                crate::Error::Workflow("workflow_instances batch has no workflow_id column".into())
+            })?;
+        let owners: Vec<usize> = (0..batch.num_rows())
+            .map(|row| {
+                let id = crate::WorkflowId::from_bytes(workflow_ids.value(row)).map_err(|e| {
+                    crate::Error::Workflow(format!("Invalid workflow ID at row {row}: {e}"))
+                })?;
+                registry
+                    .engines()
+                    .position(|e| e.get_workflow(id).is_some())
+                    .ok_or_else(|| {
+                        crate::Error::Workflow(format!(
+                            "Snapshot instance at row {row} uses workflow {id}, which no registered engine knows"
+                        ))
+                    })
+            })
+            .collect::<crate::Result<_>>()?;
+
+        let mut tables = Vec::with_capacity(registry.count());
+        for idx in 0..registry.count() {
+            let mask: BooleanArray = owners.iter().map(|&o| Some(o == idx)).collect();
+            let rows = arrow::compute::filter_record_batch(batch, &mask)?;
+            let mut table = crate::workflows::WorkflowInstanceTable::new();
+            table.import_batch(rows)?;
+            tables.push(table);
+        }
+        Ok(Some(tables))
     }
 
     /// Execute SQL query across simulation entities
@@ -1476,25 +1439,11 @@ mod tests {
         assert_eq!(runner.stats().total_steps, 5);
     }
 
-    #[test]
-    fn test_reset() {
-        let config = SimulationConfig::default();
-        let mut runner: SimulationRunner<TestAgent, TestResource, TestTask, TestWorkflow> =
-            SimulationRunner::new(config);
-
-        runner.run_for_steps(10).unwrap();
-        assert_eq!(runner.stats().total_steps, 10);
-
-        runner.reset();
-        assert_eq!(runner.context().step(), 0);
-        assert_eq!(runner.stats().total_steps, 0);
-    }
-
     // Workflow integration tests
 
     #[test]
     fn test_runner_advances_workflows_on_task_completion() {
-        use crate::resources::{LeastLoaded, ResourceAllocator};
+        use crate::resources::ResourceAllocator;
         use crate::workflows::{WorkflowEngine, WorkflowRegistry};
         use std::collections::HashMap;
 
@@ -1555,7 +1504,7 @@ mod tests {
         runner.set_resource_allocator(allocator);
 
         // Allocate the task
-        runner.allocate_resources(&LeastLoaded).unwrap();
+        runner.allocate_resources().unwrap();
 
         // Verify workflow is at step 0
         assert_eq!(
@@ -1656,7 +1605,7 @@ mod tests {
 
     #[test]
     fn test_runner_emits_workflow_events() {
-        use crate::resources::{LeastLoaded, ResourceAllocator};
+        use crate::resources::ResourceAllocator;
         use crate::workflows::{WorkflowEngine, WorkflowRegistry, WorkflowStepEvent};
         use std::collections::HashMap;
 
@@ -1737,7 +1686,7 @@ mod tests {
             .unwrap();
 
         runner.set_resource_allocator(allocator);
-        runner.allocate_resources(&LeastLoaded).unwrap();
+        runner.allocate_resources().unwrap();
 
         // Tick until task completes
         for _ in 0..12 {
@@ -2007,8 +1956,133 @@ mod tests {
         let save_metadata = runner.save_snapshot("workflow_test").await.unwrap();
         assert_eq!(save_metadata.workflow_instance_count, 2);
 
-        // Restore snapshot and verify the metadata reflects the saved instance count
+        // Restore snapshot and verify the instances are really back in the engine
+        runner
+            .workflow_registry_mut()
+            .unwrap()
+            .get_mut("test")
+            .unwrap()
+            .start_instance(workflow_id)
+            .unwrap();
         let restore_metadata = runner.restore_snapshot("workflow_test").await.unwrap();
         assert_eq!(restore_metadata.workflow_instance_count, 2);
+        assert_eq!(
+            runner.workflow_registry().unwrap().total_instance_count(),
+            2
+        );
+    }
+
+    #[tokio::test]
+    async fn test_restore_resumes_workflow_execution() {
+        use crate::resources::TaskFactory;
+        use crate::utils::idents::WorkflowInstanceId;
+        use std::collections::HashMap;
+
+        struct StepTasks;
+        impl TaskFactory<TestTask> for StepTasks {
+            fn create_task(
+                &self,
+                instance_id: WorkflowInstanceId,
+                step: &WorkflowStep,
+                _now: chrono::DateTime<chrono::Utc>,
+            ) -> TestTask {
+                TestTask {
+                    id: TaskId::new(),
+                    workflow_instance_id: Some(instance_id),
+                    duration: step.expected_duration,
+                }
+            }
+        }
+
+        let config = SimulationConfig {
+            time_step: chrono::Duration::seconds(5),
+            ..Default::default()
+        };
+        let mut runner: SimulationRunner<TestAgent, TestResource, TestTask, TestWorkflow> =
+            SimulationRunner::new(config);
+        runner.init_snapshot_manager().await.unwrap();
+
+        let step = |secs| WorkflowStep {
+            step_index: 0,
+            required_resource_type: "test".to_string(),
+            expected_duration: chrono::Duration::seconds(secs),
+            metadata: HashMap::new(),
+        };
+        let mut engine = WorkflowEngine::new();
+        let workflow = TestWorkflow {
+            id: WorkflowId::new(),
+            steps: vec![step(10), step(10)],
+        };
+        let workflow_id = workflow.id();
+        engine.register_workflow(workflow);
+        let instance_id = engine.start_instance(workflow_id).unwrap().id;
+        let mut registry = WorkflowRegistry::new();
+        registry.register("test".to_string(), engine).unwrap();
+        runner.set_workflow_registry(registry);
+        let mut allocator = ResourceAllocator::new();
+        allocator
+            .add_resource(TestResource {
+                id: ResourceId::new(),
+                capacity: 1,
+                load: 0,
+            })
+            .unwrap();
+        runner.set_resource_allocator(allocator);
+        runner.set_task_factory(Box::new(StepTasks));
+
+        let current_step =
+            |r: &SimulationRunner<TestAgent, TestResource, TestTask, TestWorkflow>| {
+                let i = r
+                    .workflow_registry()
+                    .unwrap()
+                    .get("test")
+                    .unwrap()
+                    .instance_table
+                    .get_instance(instance_id)
+                    .unwrap();
+                (i.current_step, i.is_complete)
+            };
+
+        // T=0: step-0 task allocated. Snapshot mid-step at T=5.
+        runner.tick().unwrap();
+        let saved_step = runner.context().step();
+        runner.save_snapshot("mid_step").await.unwrap();
+
+        // Run to completion: step 0 ends at T=10, step 1 at T=20.
+        let mut ticks_to_finish = 0;
+        while current_step(&runner) != (2, true) {
+            runner.tick().unwrap();
+            ticks_to_finish += 1;
+            assert!(ticks_to_finish < 20, "workflow never completed");
+        }
+        assert_eq!(
+            runner.resources().unwrap().resource_available(
+                runner
+                    .resources()
+                    .unwrap()
+                    .find_available_resources_by_type("test")[0]
+            ),
+            Some(1)
+        );
+
+        // Restore: instance is back at step 0 with its task still allocated.
+        runner.restore_snapshot("mid_step").await.unwrap();
+        assert_eq!(runner.context().step(), saved_step);
+        assert_eq!(current_step(&runner), (0, false));
+        assert_eq!(runner.resources().unwrap().allocated_task_count(), 1);
+        assert!(
+            runner
+                .resources()
+                .unwrap()
+                .find_available_resources_by_type("test")
+                .is_empty()
+        );
+
+        // Replaying from the snapshot takes exactly as long as the first time.
+        for _ in 0..ticks_to_finish {
+            runner.tick().unwrap();
+        }
+        assert_eq!(current_step(&runner), (2, true));
+        assert_eq!(runner.resources().unwrap().allocated_task_count(), 0);
     }
 }

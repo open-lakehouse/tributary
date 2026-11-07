@@ -408,15 +408,12 @@ impl SimulationManager {
                 .map_err(|e| Error::Custom(format!("read_dir simulations: {e}")))?;
             for entry in entries.flatten() {
                 let path = entry.path();
-                if path.extension().and_then(|e| e.to_str()) == Some("json")
-                    && let Ok(contents) = std::fs::read_to_string(&path)
-                    && let Ok(rec) = serde_json::from_str::<SimulationCatalogRecord>(&contents)
-                {
-                    let id: Uuid = rec
-                        .id
-                        .parse()
-                        .map_err(|_| Error::InvalidState("bad sim uuid".into()))?;
-                    let created_at: DateTime<Utc> = rec.created_at.parse().unwrap_or_default();
+                if path.extension().and_then(|e| e.to_str()) == Some("json") {
+                    let rec: SimulationCatalogRecord = read_catalog_json(&path)?;
+                    rec.id.parse::<Uuid>().map_err(|e| {
+                        Error::InvalidState(format!("{}: bad simulation id: {e}", path.display()))
+                    })?;
+                    let created_at = parse_catalog_time(&path, "created_at", &rec.created_at)?;
                     let batch = RecordBatch::try_new(
                         simulations_schema(),
                         vec![
@@ -436,7 +433,6 @@ impl SimulationManager {
                     .map_err(Error::Arrow)?;
                     self.append_to_table("system_simulations", batch, simulations_schema())
                         .await?;
-                    let _ = id; // used above
                 }
             }
         }
@@ -446,12 +442,10 @@ impl SimulationManager {
                 .map_err(|e| Error::Custom(format!("read_dir snapshots: {e}")))?;
             for entry in entries.flatten() {
                 let path = entry.path();
-                if path.extension().and_then(|e| e.to_str()) == Some("json")
-                    && let Ok(contents) = std::fs::read_to_string(&path)
-                    && let Ok(rec) = serde_json::from_str::<SnapshotCatalogRecord>(&contents)
-                {
-                    let sim_time: DateTime<Utc> = rec.sim_time.parse().unwrap_or_default();
-                    let created_at: DateTime<Utc> = rec.created_at.parse().unwrap_or_default();
+                if path.extension().and_then(|e| e.to_str()) == Some("json") {
+                    let rec: SnapshotCatalogRecord = read_catalog_json(&path)?;
+                    let sim_time = parse_catalog_time(&path, "sim_time", &rec.sim_time)?;
+                    let created_at = parse_catalog_time(&path, "created_at", &rec.created_at)?;
                     let batch = RecordBatch::try_new(
                         snapshots_schema(),
                         vec![
@@ -563,6 +557,20 @@ impl SimulationManager {
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
+
+/// Read and parse one catalog JSON file, naming the file on failure
+fn read_catalog_json<T: serde::de::DeserializeOwned>(path: &std::path::Path) -> Result<T> {
+    let contents = std::fs::read_to_string(path)
+        .map_err(|e| Error::Custom(format!("read {}: {e}", path.display())))?;
+    serde_json::from_str(&contents)
+        .map_err(|e| Error::InvalidState(format!("parse {}: {e}", path.display())))
+}
+
+fn parse_catalog_time(path: &std::path::Path, field: &str, value: &str) -> Result<DateTime<Utc>> {
+    value
+        .parse()
+        .map_err(|e| Error::InvalidState(format!("{}: bad {field} '{value}': {e}", path.display())))
+}
 
 #[cfg(test)]
 mod manager_tests;

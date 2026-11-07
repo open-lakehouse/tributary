@@ -11,6 +11,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed: sim-core allocation, tick and snapshot correctness
+- Tasks without a workflow instance now complete and release their resource.
+  Previously they held capacity forever. Completing or removing a task releases
+  capacity exactly once (completed tasks are removed), so `available` can no
+  longer exceed `capacity`.
+- `AllocationStrategy` is honoured. The allocator used to ignore it and always
+  pick the first fitting resource. Pending tasks are allocated highest priority
+  first.
+- `SimulationRunner::tick()` now allocates pending tasks and calls
+  `on_resources_allocated` itself, matching the documented tick order. A failed
+  `add_task` for a workflow step is now an error instead of leaving the
+  instance stuck.
+- `restore_snapshot` restores workflow instances (routed to the engine that
+  owns each workflow) and the simulation clock, and is all-or-nothing. Before,
+  instances were silently dropped and the clock was left where it was.
+- Workflow engines iterate in name order, so task and event order no longer
+  vary between processes.
+- Snapshot metadata carries the simulation time instead of the wall clock.
+- An agent that fails to decode is now an error instead of being skipped every
+  tick. Unreadable simulation/snapshot catalog files are reported instead of
+  ignored (their timestamps used to fall back to 1970).
+
+### Changed (breaking): sim-core
+- `AllocationStrategy` is no longer generic. It receives a `TaskCandidate` and
+  `ResourceCandidate` views (the allocator never held the domain objects). New
+  `FirstFit` strategy; `SimulationRunner::set_allocation_strategy` (default
+  `LeastLoaded`). `allocate_resources()` takes no strategy.
+- `ResourceAllocator` keeps state in plain collections (Arrow only at the
+  snapshot boundary); mutations are O(1)/O(log n) instead of rebuilding a
+  `RecordBatch`. `get_completed_tasks` and `complete_task` return
+  `CompletedTask`; `remove_task`/`remove_resource` return `bool`;
+  `assignments()` returns `Vec<Assignment>`; `export_batch()` returns `Result`;
+  `deallocate_batch` is gone. New `resource_capacity`, `resource_available`,
+  `allocated_task_count`. The task snapshot column `estimated_duration_secs` is
+  now `estimated_duration_millis`, and the `completed` status is gone.
+- New `SimulationHooks::on_tasks_completed` (default no-op). `Assignment`
+  carries the task's `workflow_instance_id`.
+- `SnapshotData` has a `clock: Option<SnapshotClock>` field.
+- Removed: `WorkflowEngine::tick` and `WorkflowRegistry::tick_all` (no-ops),
+  `SimulationRunner::reset` (only reset the clock), `PopulationHandler::get_agent_mut`
+  (returned a copy; use `get_agent` + `update_agent`), `SnapshotMetadata::new`
+  (stamped wall-clock time; use `with_ids`), and sim-kitchen's `process_demands`
+  (an unused duplicate that allocated against wall-clock time).
+
 ### Documentation
 - Docs no longer reference the removed `set_workflow_engine` (examples use
   `WorkflowRegistry`), the old `migration/` tree, a nonexistent `sim-runner`

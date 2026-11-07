@@ -119,35 +119,79 @@ pub trait Task: Send + Sync + fmt::Debug {
     }
 }
 
-/// Strategy for assigning tasks to resources
+/// A resource that can accept the task being allocated, as seen by an
+/// [`AllocationStrategy`].
+///
+/// The allocator tracks capacity itself, so strategies see the allocator's
+/// bookkeeping rather than the domain resource object.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ResourceCandidate<'a> {
+    /// Resource identifier
+    pub id: ResourceId,
+    /// Resource type (always equal to the task's required type)
+    pub resource_type: &'a str,
+    /// Total capacity
+    pub capacity: usize,
+    /// Free capacity (always at least 1 for a candidate)
+    pub available: usize,
+}
+
+impl ResourceCandidate<'_> {
+    /// Units of capacity currently in use
+    pub fn current_load(&self) -> usize {
+        self.capacity.saturating_sub(self.available)
+    }
+}
+
+/// The task being allocated, as seen by an [`AllocationStrategy`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TaskCandidate<'a> {
+    /// Task identifier
+    pub id: TaskId,
+    /// Resource type the task requires
+    pub required_resource_type: &'a str,
+    /// Task priority (higher = more urgent)
+    pub priority: i32,
+    /// Owning workflow instance, if any
+    pub workflow_instance_id: Option<WorkflowInstanceId>,
+}
+
+/// Strategy for choosing which resource a pending task is assigned to
+///
+/// The allocator calls [`assign`](Self::assign) once per pending task, in
+/// priority order (highest first, ties in insertion order), passing only the
+/// resources of the required type that have free capacity. Candidates are in
+/// the order resources were added.
 ///
 /// # Example
 ///
-/// ```rust,ignore
-/// struct PriorityStrategy;
+/// ```
+/// use sim_core::resources::{AllocationStrategy, ResourceCandidate, TaskCandidate};
+/// use sim_core::ResourceId;
 ///
-/// impl AllocationStrategy<MyResource, MyTask> for PriorityStrategy {
-///     fn assign(&self, task: &MyTask, available: &[&MyResource]) -> Option<ResourceId> {
-///         // Sort by priority and assign to least loaded
-///         available
-///             .iter()
-///             .min_by_key(|r| r.current_load())
-///             .map(|r| r.id())
+/// /// Always pick the resource with the most free capacity.
+/// struct MostFree;
+///
+/// impl AllocationStrategy for MostFree {
+///     fn assign(
+///         &self,
+///         _task: &TaskCandidate<'_>,
+///         candidates: &[ResourceCandidate<'_>],
+///     ) -> Option<ResourceId> {
+///         candidates.iter().max_by_key(|c| c.available).map(|c| c.id)
 ///     }
 /// }
 /// ```
-pub trait AllocationStrategy<R: Resource, T: Task>: Send + Sync {
-    /// Assign a task to one of the available resources
+pub trait AllocationStrategy: Send + Sync {
+    /// Choose a resource for `task` from `candidates`
     ///
-    /// # Arguments
-    ///
-    /// * `task` - The task to assign
-    /// * `available` - List of resources that can accept this task type
-    ///
-    /// # Returns
-    ///
-    /// The ID of the chosen resource, or None if no suitable resource is available
-    fn assign(&self, task: &T, available: &[&R]) -> Option<ResourceId>;
+    /// Returning `None` leaves the task pending. Returning an ID that is not
+    /// among `candidates` is an error.
+    fn assign(
+        &self,
+        task: &TaskCandidate<'_>,
+        candidates: &[ResourceCandidate<'_>],
+    ) -> Option<ResourceId>;
 }
 
 #[cfg(test)]

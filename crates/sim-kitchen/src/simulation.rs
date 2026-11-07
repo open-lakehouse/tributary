@@ -68,9 +68,7 @@ use sim_artifacts::{
 };
 use sim_core::{
     AgentId, PopulationHandler, ResourceAllocator, SimEvent, SimulationContext, SimulationHooks,
-    SimulationRunner, TaskId,
-    population::AgentTickResult,
-    resources::{Assignment, LeastLoaded},
+    SimulationRunner, TaskId, population::AgentTickResult, resources::Assignment,
     utils::idents::WorkflowInstanceId,
 };
 use sim_events::{Event, EventDispatcher};
@@ -1020,59 +1018,6 @@ pub fn add_customers(
     runner.set_population_handler(population);
 }
 
-/// Process demands and create orders
-pub fn process_demands(
-    runner: &mut SimulationRunner<Customer, Kitchen, Order, FoodPrepWorkflow>,
-    results: &[AgentTickResult],
-) -> sim_core::Result<()> {
-    if let Some(allocator) = runner.resources_mut() {
-        for result in results {
-            for demand in &result.demands {
-                if demand.demand_type == "food_order" {
-                    let order_id = demand
-                        .metadata
-                        .get("order_id")
-                        .and_then(|v: &serde_json::Value| v.as_str())
-                        .unwrap_or("unknown")
-                        .to_string();
-
-                    let customer_id = demand
-                        .metadata
-                        .get("customer_id")
-                        .and_then(|v: &serde_json::Value| v.as_str())
-                        .unwrap_or("unknown")
-                        .to_string();
-
-                    let items: Vec<String> = demand
-                        .metadata
-                        .get("items")
-                        .and_then(|v: &serde_json::Value| v.as_array())
-                        .map(|arr| {
-                            arr.iter()
-                                .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                                .collect()
-                        })
-                        .unwrap_or_default();
-
-                    let order = Order::new(order_id, customer_id, items);
-                    let _ = allocator.add_task(order); // OK to ignore - just adding tasks
-                }
-            }
-        }
-
-        // Allocate orders to kitchens
-        let current_time = chrono::Utc::now();
-        let assignments = allocator.assign_tasks(&LeastLoaded, current_time)?;
-
-        // Log assignments if verbose
-        if runner.context().config().verbose && !assignments.is_empty() {
-            println!("📋 Assigned {} orders to kitchens", assignments.len());
-        }
-    }
-
-    Ok(())
-}
-
 /// Kitchen simulation orchestrator that manages the complete lifecycle
 ///
 /// This struct wraps the SimulationRunner and adds kitchen-specific logic
@@ -1170,7 +1115,7 @@ impl KitchenSimulation {
         }
 
         // 3. Allocate orders to kitchens
-        let _ = self.runner.allocate_resources(&LeastLoaded);
+        let _ = self.runner.allocate_resources();
 
         // 4. Deliver completed orders to customers
         self.deliver_completed_orders()?;
@@ -1387,7 +1332,7 @@ impl KitchenSimulation {
 
         if let Some(population) = self.runner.population_mut() {
             for (order_id, customer_id) in completed {
-                if let Some(mut customer) = population.get_agent_mut(customer_id) {
+                if let Some(mut customer) = population.get_agent(customer_id) {
                     let finish_time = current_time + customer.eating_duration;
                     customer.start_eating(current_time);
 

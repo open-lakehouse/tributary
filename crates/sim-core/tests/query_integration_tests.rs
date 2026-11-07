@@ -7,7 +7,6 @@ use arrow::array::{Array, Int32Array, Int64Array, StringArray};
 use geo::Point;
 use sim_core::context::SimulationContext;
 use sim_core::population::AgentTickResult;
-use sim_core::resources::LeastLoaded;
 use sim_core::utils::idents::{AgentId, ResourceId, TaskId, WorkflowId, WorkflowInstanceId};
 use sim_core::{
     Agent, AgentStatus, PopulationHandler, Resource, ResourceAllocator, SimulationConfig,
@@ -324,7 +323,7 @@ async fn test_query_join_agents_tasks() {
     let mut runner = create_test_runner_with_all_components();
 
     // First, allocate tasks to resources
-    runner.allocate_resources(&LeastLoaded).unwrap();
+    runner.allocate_resources().unwrap();
 
     // Note: Tasks don't have assigned_agent_id, so we'll query tasks with workflow instances
     let result = runner

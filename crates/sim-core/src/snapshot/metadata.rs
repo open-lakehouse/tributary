@@ -49,38 +49,6 @@ pub struct SnapshotMetadata {
 }
 
 impl SnapshotMetadata {
-    /// Creates a new snapshot metadata instance, generating IDs internally.
-    ///
-    /// # Arguments
-    ///
-    /// * `version` - Version string for the snapshot format (e.g., "1.0")
-    /// * `agent_count` - Number of agents in the snapshot
-    /// * `resource_count` - Number of resources in the snapshot
-    /// * `task_count` - Number of tasks in the snapshot
-    /// * `workflow_instance_count` - Number of workflow instances in the snapshot
-    /// * `location_count` - Number of locations in the snapshot
-    pub fn new(
-        version: String,
-        agent_count: usize,
-        resource_count: usize,
-        task_count: usize,
-        workflow_instance_count: usize,
-        location_count: usize,
-    ) -> Self {
-        Self::with_ids(
-            Uuid::now_v7(),
-            Uuid::now_v7(),
-            None,
-            Utc::now(),
-            version,
-            agent_count,
-            resource_count,
-            task_count,
-            workflow_instance_count,
-            location_count,
-        )
-    }
-
     /// Creates a snapshot metadata instance with caller-supplied IDs.
     #[allow(clippy::too_many_arguments)]
     pub fn with_ids(
@@ -125,24 +93,19 @@ impl SnapshotMetadata {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_new_metadata() {
-        let metadata = SnapshotMetadata::new("1.0".to_string(), 100, 50, 200, 25, 10);
-
-        assert_eq!(metadata.version, "1.0");
-        assert_eq!(metadata.agent_count, 100);
-        assert_eq!(metadata.resource_count, 50);
-        assert_eq!(metadata.task_count, 200);
-        assert_eq!(metadata.workflow_instance_count, 25);
-        assert_eq!(metadata.location_count, 10);
-        assert!(metadata.label.is_none());
-    }
-
-    #[test]
-    fn test_new_generates_unique_ids() {
-        let m1 = SnapshotMetadata::new("1.0".to_string(), 0, 0, 0, 0, 0);
-        let m2 = SnapshotMetadata::new("1.0".to_string(), 0, 0, 0, 0, 0);
-        assert_ne!(m1.snapshot_id, m2.snapshot_id);
+    fn sample() -> SnapshotMetadata {
+        SnapshotMetadata::with_ids(
+            Uuid::now_v7(),
+            Uuid::now_v7(),
+            None,
+            Utc::now(),
+            "1.0".to_string(),
+            100,
+            50,
+            200,
+            25,
+            10,
+        )
     }
 
     #[test]
@@ -169,7 +132,7 @@ mod tests {
 
     #[test]
     fn test_json_roundtrip() {
-        let original = SnapshotMetadata::new("1.0".to_string(), 100, 50, 200, 25, 10);
+        let original = sample();
 
         let json = original.to_json().expect("Failed to serialize");
         let restored = SnapshotMetadata::from_json(&json).expect("Failed to deserialize");
@@ -182,7 +145,7 @@ mod tests {
 
     #[test]
     fn test_timestamp_is_set() {
-        let metadata = SnapshotMetadata::new("1.0".to_string(), 0, 0, 0, 0, 0);
+        let metadata = sample();
 
         let now = Utc::now();
         let diff = now.signed_duration_since(metadata.timestamp);
@@ -198,7 +161,7 @@ mod tests {
 
     #[test]
     fn test_json_contains_new_fields() {
-        let metadata = SnapshotMetadata::new("1.0".to_string(), 100, 50, 200, 25, 10);
+        let metadata = sample();
 
         let json = metadata.to_json().expect("Failed to serialize");
 

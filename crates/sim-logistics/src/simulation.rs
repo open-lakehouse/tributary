@@ -46,7 +46,7 @@ use sim_core::{
     PoissonDemandGenerator, PopulationHandler, ResourceAllocator, SimulationConfig,
     SimulationHooks, SimulationRunner, Workflow, WorkflowId, WorkflowRegistry,
     population::{AgentTickResult, Demand},
-    resources::{Assignment, LeastLoaded},
+    resources::Assignment,
     workflows::WorkflowEngine,
 };
 use sim_events::{Event, EventDispatcher};
@@ -513,7 +513,7 @@ impl LogisticsSimulation {
         }
 
         // Allocate tasks to sorting stations
-        let _ = self.runner.allocate_resources(&LeastLoaded);
+        let _ = self.runner.allocate_resources();
 
         Ok(())
     }

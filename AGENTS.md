@@ -84,7 +84,7 @@ SimulationConfig, SimulationContext
 // Agents & Population
 Agent, AgentStatus, Demand, PopulationHandler
 
-// Resources
+// Resources (strategies: LeastLoaded, FirstFit, RoundRobin, Random in sim_core::resources)
 Resource, ResourceAllocator, Task, AllocationStrategy
 
 // Workflows (registry is the only path — no single-engine mode)
@@ -137,17 +137,23 @@ runner.set_resource_allocator(ResourceAllocator::new());
 runner.set_workflow_registry(registry);   // WorkflowRegistry is the ONLY workflow path
 runner.set_task_factory(Box::new(factory));
 runner.set_demand_generator(Box::new(generator));
+runner.set_allocation_strategy(Box::new(LeastLoaded)); // optional; LeastLoaded is the default
 runner.set_hooks(Box::new(MyHooks::new()));
 ```
 
 Each simulation step (via `runner.tick()` or `runner.run_for_steps(n)`):
 1. `on_before_tick()`
-2. Tick all agents
-3. `on_agents_ticked()` — domain hook: process demands, emit events
-4. Tick workflow registry — advance time-based steps, create/complete tasks
-5. Allocate tasks to resources
-6. `on_resources_allocated()` — domain hook: track assignments
-7. `on_after_tick()` — domain hook: check completions
+2. Generate demand, then `on_demands_generated()`
+3. Tick all agents, then `on_agents_ticked()` — domain hook: process demands, emit events
+4. Complete tasks whose duration has elapsed (releasing capacity), then
+   `on_tasks_completed()`; workflow tasks advance their instance and fire
+   `on_workflow_step_completed()`
+5. Create a task (via the `TaskFactory`) for each workflow instance ready for its next step
+6. Allocate pending tasks with the runner's strategy, then `on_resources_allocated()`
+7. Advance time, then `on_after_tick()`
+
+`runner.allocate_resources()` repeats step 6 on demand, for tasks a domain
+wrapper adds between ticks.
 
 ### SimulationHooks Trait
 
@@ -159,6 +165,7 @@ pub trait SimulationHooks: Send + Sync + 'static {
     fn on_end(&mut self, ctx: &SimulationContext) -> Result<()>;
     fn on_agents_ticked(&mut self, ctx: &SimulationContext, results: &[AgentTickResult]) -> Result<()>;
     fn on_resources_allocated(&mut self, ctx: &SimulationContext, assignments: &[Assignment]) -> Result<()>;
+    fn on_tasks_completed(&mut self, ctx: &SimulationContext, completed: &[CompletedTask]) -> Result<()>;
     fn on_workflow_step_completed(&mut self, ctx: &SimulationContext, event: &WorkflowStepEvent) -> Result<()>;
     fn on_demands_generated(&mut self, ctx: &SimulationContext, demands: &[Demand]) -> Result<()>;
 }
