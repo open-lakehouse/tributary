@@ -109,3 +109,67 @@ fn capacity_breach_is_flagged() {
         report.violations
     );
 }
+
+/// Build a logistics event with the given type and package id.
+fn pkg(id: &str, event_type: &str, package_id: &str) -> EventRecord {
+    EventRecord {
+        data: json!({ "package_id": package_id }),
+        ..ev(id, event_type, package_id)
+    }
+}
+
+const PACKAGE_STAGES: [&str; 5] = [
+    "io.logistics.package.received",
+    "io.logistics.package.sorted",
+    "io.logistics.package.loaded",
+    "io.logistics.package.in_transit",
+    "io.logistics.package.delivered",
+];
+
+#[test]
+fn logistics_full_lifecycle_is_clean() {
+    let events: Vec<EventRecord> = PACKAGE_STAGES
+        .iter()
+        .enumerate()
+        .map(|(i, ty)| pkg(&format!("e{i}"), ty, "PKG-1"))
+        .collect();
+    let report = validate_events(&events, &DomainProfile::logistics());
+    assert!(report.is_ok(), "{:?}", report.violations);
+}
+
+#[test]
+fn logistics_in_transit_without_loaded_is_flagged() {
+    let events: Vec<EventRecord> = PACKAGE_STAGES
+        .iter()
+        .enumerate()
+        .filter(|(_, ty)| !ty.ends_with(".loaded"))
+        .map(|(i, ty)| pkg(&format!("e{i}"), ty, "PKG-1"))
+        .collect();
+    let report = validate_events(&events, &DomainProfile::logistics());
+    assert!(
+        report.violations.iter().any(
+            |v| v.rule == "lifecycle-pair" && v.message.contains("io.logistics.package.loaded")
+        ),
+        "{:?}",
+        report.violations
+    );
+}
+
+#[test]
+fn logistics_duplicate_load_is_flagged() {
+    let mut events: Vec<EventRecord> = PACKAGE_STAGES
+        .iter()
+        .enumerate()
+        .map(|(i, ty)| pkg(&format!("e{i}"), ty, "PKG-1"))
+        .collect();
+    events.insert(3, pkg("e9", "io.logistics.package.loaded", "PKG-1"));
+    let report = validate_events(&events, &DomainProfile::logistics());
+    assert!(
+        report
+            .violations
+            .iter()
+            .any(|v| v.rule == "no-duplicate-terminal"),
+        "{:?}",
+        report.violations
+    );
+}
