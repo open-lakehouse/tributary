@@ -4336,7 +4336,6 @@ name = "sim-artifacts"
 version = "0.0.1"
 dependencies = [
  "chrono",
- "parquet",
  "serde",
  "serde_json",
  "tempfile",

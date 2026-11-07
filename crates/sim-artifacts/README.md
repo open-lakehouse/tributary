@@ -9,10 +9,12 @@ analytics events, and data or document exports.
   generator receives an `ArtifactContext` with the event, simulation time,
   profiles and run id.
 - Register generators on an `ArtifactCollector<P>`, then wrap it in an
-  `ArtifactCollectorProcessor<P>`. The processor implements
-  `LocalEventProcessor`, so it plugs into the `sim-events` pipeline.
-- Call `flush_to_storage()` at the end of a run. `ParquetArtifactStorage` writes
-  one Parquet file per artifact kind (under `output/artifacts/` by default);
-  `NoOpStorage` discards them, for tests.
+  `ArtifactCollectorProcessor<P>` and feed it each event's CloudEvents JSON
+  (`Event::to_cloudevents_json()`) with `process`. Generator errors and events
+  without a valid `time` are returned as errors.
+- Call `flush_to_storage()` to write what has accumulated (it can be called
+  repeatedly). `JsonlArtifactStorage` writes one JSON Lines file per artifact
+  kind under the directory you give it; the first flush replaces old files and
+  later ones append. `NoOpStorage` discards artifacts.
 
 `sim-kitchen` is the reference user; see its `artifact_generators` module.
