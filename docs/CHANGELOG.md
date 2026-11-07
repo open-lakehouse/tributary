@@ -11,6 +11,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed: caspers-cli
+- `caspers run --no-tui` exits non-zero when the simulation fails, its thread
+  panics, or `--events-out` can't be written. It used to print the summary and
+  exit 0.
+- The TUI clock uses the simulation's real step (30 s). It assumed 60 s, so
+  displayed times ran at double speed.
+- `RUST_LOG` is honoured (the filter was hardcoded).
+- A single OpenTelemetry tracer provider is installed and shut down on exit.
+  A second, never-flushed provider used to be installed globally.
+- Falling back to an in-memory catalog when `.caspers` can't be opened no
+  longer panics (it called `block_on` inside the async runtime).
+- `--events-out` also works with the TUI. New `--artifacts-out <DIR>`
+  (default `output/artifacts`).
+
 ### Fixed (breaking): sim-geo
 - `MovementHandler::advance_journeys(now, time_step)` takes the simulation
   time. It used to reconstruct "now" from the journey start and an assumed

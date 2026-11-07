@@ -64,9 +64,13 @@ pub(crate) struct RunArgs {
     seed: Option<u64>,
 
     /// Write the run's events to this Parquet file when the simulation ends.
-    /// Required input for `caspers validate`. Only honored in --no-tui mode.
+    /// Required input for `caspers validate`.
     #[arg(long, value_name = "FILE")]
     events_out: Option<std::path::PathBuf>,
+
+    /// Directory for generated artifacts (JSON Lines), written when the run ends.
+    #[arg(long, value_name = "DIR", default_value = "output/artifacts")]
+    artifacts_out: std::path::PathBuf,
 }
 
 impl RunArgs {
@@ -74,6 +78,81 @@ impl RunArgs {
     pub(crate) fn is_headless(&self) -> bool {
         self.no_tui
     }
+}
+
+/// Optional `(start, end)` simulation times
+type TimeRange = (Option<DateTime<Utc>>, Option<DateTime<Utc>>);
+
+/// Parse `--start-time` / `--end-time`
+fn parse_times(args: &RunArgs) -> Result<TimeRange> {
+    let parse = |flag: &str, value: &Option<String>| {
+        value
+            .as_deref()
+            .map(|s| {
+                parse_sim_time(s)
+                    .map_err(|e| crate::error::Error::Other(format!("invalid --{flag}: {e}")))
+            })
+            .transpose()
+    };
+    Ok((
+        parse("start-time", &args.start_time)?,
+        parse("end-time", &args.end_time)?,
+    ))
+}
+
+/// The simulation catalog under `.caspers`, or an in-memory one if that fails
+async fn open_manager() -> Result<SimulationManager> {
+    match SimulationManager::new_with_persistence(".caspers").await {
+        Ok(manager) => Ok(manager),
+        Err(e) => {
+            tracing::warn!("cannot open .caspers catalog ({e}); using an in-memory catalog");
+            SimulationManager::new(SimulationManagerBackend::Memory)
+                .await
+                .map_err(|e| crate::error::Error::Other(format!("in-memory catalog: {e}")))
+        }
+    }
+}
+
+/// Build the kitchen simulation the flags describe
+fn build_sim(
+    args: &RunArgs,
+    sim_id: Uuid,
+    start_time: Option<DateTime<Utc>>,
+    end_time: Option<DateTime<Utc>>,
+) -> KitchenSimulation {
+    let mut sim =
+        KitchenSimulation::new_seeded(args.num_kitchens, args.kitchen_capacity, false, args.seed)
+            .with_artifact_dir(&args.artifacts_out);
+    sim.add_customers(args.num_customers);
+    sim.runner_mut().context_mut().set_simulation_id(sim_id);
+    if let Some(st) = start_time {
+        sim.runner_mut().context_mut().set_current_time(st);
+    }
+    sim.runner_mut().set_time_mode(match args.mode {
+        RunMode::Range => TimeMode::Range { end_time },
+        RunMode::Live => TimeMode::Live,
+        RunMode::Catchup => TimeMode::Catchup,
+    });
+    sim
+}
+
+/// Step limit for `run_controlled_for`: `--duration` in range mode, unbounded otherwise
+fn max_steps(args: &RunArgs) -> usize {
+    match args.mode {
+        RunMode::Range => args.duration,
+        _ => usize::MAX,
+    }
+}
+
+/// Write events to `--events-out`, if given
+fn save_events(sim: &mut KitchenSimulation, path: Option<&std::path::Path>) -> Result<()> {
+    if let Some(path) = path {
+        let n = sim.save_events(path).map_err(|e| {
+            crate::error::Error::Other(format!("writing events to {}: {e}", path.display()))
+        })?;
+        eprintln!("Wrote {n} events to {}", path.display());
+    }
+    Ok(())
 }
 
 pub(super) async fn handle(args: RunArgs) -> Result<()> {
@@ -84,86 +163,32 @@ pub(super) async fn handle(args: RunArgs) -> Result<()> {
 }
 
 async fn handle_headless(args: RunArgs) -> Result<()> {
-    let duration = args.duration;
-
-    let start_time: Option<DateTime<Utc>> = args
-        .start_time
-        .as_deref()
-        .map(|s| {
-            parse_sim_time(s)
-                .map_err(|e| crate::error::Error::Other(format!("invalid --start-time: {e}")))
-        })
-        .transpose()?;
-
-    let end_time: Option<DateTime<Utc>> = args
-        .end_time
-        .as_deref()
-        .map(|s| {
-            parse_sim_time(s)
-                .map_err(|e| crate::error::Error::Other(format!("invalid --end-time: {e}")))
-        })
-        .transpose()?;
-
-    let mut sim_manager = SimulationManager::new_with_persistence(".caspers")
-        .await
-        .unwrap_or_else(|_| {
-            tokio::runtime::Handle::current()
-                .block_on(SimulationManager::new(SimulationManagerBackend::Memory))
-                .expect("in-memory manager")
-        });
-
+    let (start_time, end_time) = parse_times(&args)?;
+    let mut sim_manager = open_manager().await?;
     let sim_id = sim_manager
         .create_simulation(None, None)
         .await
-        .unwrap_or_else(|_| Uuid::now_v7());
+        .map_err(|e| crate::error::Error::Other(format!("registering simulation: {e}")))?;
 
     let (controller, receiver) = control_channel(128);
-
-    let mode = args.mode.clone();
-    let sim_handle = std::thread::spawn(move || {
+    let mut sim = build_sim(&args, sim_id, start_time, end_time);
+    let max = max_steps(&args);
+    let events_out = args.events_out.clone();
+    let sim_handle = std::thread::spawn(move || -> Result<()> {
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
-            .build()
-            .expect("sim thread runtime");
+            .build()?;
         let _guard = rt.enter();
-
-        let mut sim = KitchenSimulation::new_seeded(
-            args.num_kitchens,
-            args.kitchen_capacity,
-            false,
-            args.seed,
-        )
-        .with_artifact_dir("output/artifacts");
-        sim.add_customers(args.num_customers);
-        sim.runner_mut().context_mut().set_simulation_id(sim_id);
-        if let Some(st) = start_time {
-            sim.runner_mut().context_mut().set_current_time(st);
-        }
-        let time_mode = match mode {
-            RunMode::Range => TimeMode::Range { end_time },
-            RunMode::Live => TimeMode::Live,
-            RunMode::Catchup => TimeMode::Catchup,
-        };
-        sim.runner_mut().set_time_mode(time_mode);
         sim.runner_mut().attach_control(receiver);
-        let max = match args.mode {
-            RunMode::Range => duration,
-            _ => usize::MAX,
-        };
-        let _ = sim.run_controlled_for(max);
-
-        // Persist events for downstream validation if requested.
-        if let Some(path) = args.events_out {
-            match sim.save_events(&path) {
-                Ok(n) => eprintln!("Wrote {n} events to {}", path.display()),
-                Err(e) => eprintln!("Failed to write events to {}: {e}", path.display()),
-            }
-        }
+        sim.run_controlled_for(max)
+            .map_err(|e| crate::error::Error::Other(format!("simulation failed: {e}")))?;
+        save_events(&mut sim, events_out.as_deref())
     });
 
     let mut cumulative: HashMap<String, u64> = HashMap::new();
     let mut steps = 0usize;
     let mut sim_time: Option<DateTime<Utc>> = None;
+    let mut sim_error: Option<String> = None;
 
     loop {
         match controller.try_recv() {
@@ -188,7 +213,7 @@ async fn handle_headless(args: RunArgs) -> Result<()> {
             }
             Some(SimEvent::SimulationEnded { .. }) => break,
             Some(SimEvent::Error(e)) => {
-                eprintln!("\nError: {e}");
+                sim_error = Some(e);
                 break;
             }
             Some(_) => {}
@@ -202,39 +227,32 @@ async fn handle_headless(args: RunArgs) -> Result<()> {
     }
     eprintln!();
 
-    let _ = sim_handle.join();
+    let outcome = sim_handle
+        .join()
+        .map_err(|_| crate::error::Error::Other("simulation thread panicked".into()))?;
 
     let output = serde_json::json!({
         "steps": steps,
         "sim_time": sim_time.map(|t| t.to_rfc3339()),
         "events_by_type": cumulative,
     });
-    println!("{}", serde_json::to_string_pretty(&output).unwrap());
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&output).expect("summary serializes")
+    );
 
-    Ok(())
+    outcome?;
+    match sim_error {
+        Some(e) => Err(crate::error::Error::Other(format!(
+            "simulation failed: {e}"
+        ))),
+        None => Ok(()),
+    }
 }
 
 async fn handle_tui(args: RunArgs) -> Result<()> {
     let duration = args.duration;
-
-    // Parse optional start/end times using human-friendly parser
-    let start_time: Option<DateTime<Utc>> = args
-        .start_time
-        .as_deref()
-        .map(|s| {
-            parse_sim_time(s)
-                .map_err(|e| crate::error::Error::Other(format!("invalid --start-time: {e}")))
-        })
-        .transpose()?;
-
-    let end_time: Option<DateTime<Utc>> = args
-        .end_time
-        .as_deref()
-        .map(|s| {
-            parse_sim_time(s)
-                .map_err(|e| crate::error::Error::Other(format!("invalid --end-time: {e}")))
-        })
-        .transpose()?;
+    let (start_time, end_time) = parse_times(&args)?;
 
     let initial_mode_str = match args.mode {
         RunMode::Range => "Range",
@@ -243,19 +261,8 @@ async fn handle_tui(args: RunArgs) -> Result<()> {
     }
     .to_string();
 
-    // Default time_step for kitchen sim is 60s
-    let time_step_secs: i64 = 60;
-
     // ── Phase 1: Launch screen ────────────────────────────────────────────────
-    // Load (or create) the SimulationManager catalog from disk.
-    let mut sim_manager = SimulationManager::new_with_persistence(".caspers")
-        .await
-        .unwrap_or_else(|_| {
-            // Fall back to in-memory if disk is unavailable
-            tokio::runtime::Handle::current()
-                .block_on(SimulationManager::new(SimulationManagerBackend::Memory))
-                .expect("in-memory manager should always succeed")
-        });
+    let mut sim_manager = open_manager().await?;
 
     let existing_sims = sim_manager.list_simulations().await.unwrap_or_default();
 
@@ -390,73 +397,42 @@ async fn handle_tui(args: RunArgs) -> Result<()> {
         }
     };
 
+    let mut sim = build_sim(&args, sim_id, start_time, end_time);
+
     // Transition app to Simulation screen
     app.screen = Screen::Simulation;
     app.total_steps = duration;
     app.time_mode = initial_mode_str.clone();
-    app.time_step_secs = time_step_secs;
+    app.time_step_secs = sim.runner().context().time_step().num_seconds();
     app.range_end_time = end_time;
 
     // ── Phase 2: Spawn simulation thread ─────────────────────────────────────
     // Controller lives on the TUI side; receiver goes to the sim thread.
     let (controller, receiver) = control_channel(128);
 
-    let mode = args.mode.clone();
+    let max = max_steps(&args);
+    let events_out = args.events_out.clone();
     let sim_handle = std::thread::spawn(move || {
-        // Build a dedicated single-threaded tokio runtime for snapshot I/O.
-        // The sim thread has no ambient runtime; Handle::current() panics without this.
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .expect("sim thread runtime");
-        let _guard = rt.enter();
-
-        let mut sim = KitchenSimulation::new_seeded(
-            args.num_kitchens,
-            args.kitchen_capacity,
-            false,
-            args.seed,
-        )
-        .with_artifact_dir("output/artifacts");
-        sim.add_customers(args.num_customers);
-
-        // Inject the pre-registered simulation ID
-        sim.runner_mut().context_mut().set_simulation_id(sim_id);
-
-        // Apply start time if provided
-        if let Some(st) = start_time {
-            sim.runner_mut().context_mut().set_current_time(st);
-        }
-
-        // Configure time mode
-        let time_mode = match mode {
-            RunMode::Range => TimeMode::Range { end_time },
-            RunMode::Live => TimeMode::Live,
-            RunMode::Catchup => TimeMode::Catchup,
-        };
-        sim.runner_mut().set_time_mode(time_mode);
-
-        // Initialize snapshot manager with Parquet storage for this simulation
-        rt.block_on(async {
-            let backend =
-                sim_core::SnapshotBackend::Parquet(format!(".caspers/snapshots/{sim_id}"));
-            sim.runner_mut()
-                .set_snapshot_backend(backend)
-                .await
-                .expect("snapshot manager init");
-        });
-
-        // Attach control channel
-        sim.runner_mut().attach_control(receiver);
-
-        let max = match args.mode {
-            RunMode::Range => duration,
-            _ => usize::MAX,
-        };
-
-        if let Err(e) = sim.run_controlled_for(max) {
+        // Snapshot I/O needs a runtime; the sim thread has no ambient one.
+        let result =
+            (|| -> Result<()> {
+                let rt = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()?;
+                let _guard = rt.enter();
+                rt.block_on(sim.runner_mut().set_snapshot_backend(
+                    sim_core::SnapshotBackend::Parquet(format!(".caspers/snapshots/{sim_id}")),
+                ))
+                .map_err(|e| crate::error::Error::Other(format!("snapshot storage: {e}")))?;
+                sim.runner_mut().attach_control(receiver);
+                sim.run_controlled_for(max)
+                    .map_err(|e| crate::error::Error::Other(e.to_string()))?;
+                save_events(&mut sim, events_out.as_deref())
+            })();
+        if let Err(e) = &result {
             sim.runner_mut().emit_event(SimEvent::Error(e.to_string()));
         }
+        result
     });
     let tick_rate = std::time::Duration::from_millis(50);
 

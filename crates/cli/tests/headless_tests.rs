@@ -38,3 +38,71 @@ fn headless_run_exits_at_step_limit() {
         serde_json::from_slice(&output.stdout).expect("JSON summary on stdout");
     assert_eq!(summary["steps"], 20);
 }
+
+/// Headless runs report failures through the exit code (they used to print a
+/// summary and exit 0 whatever happened).
+#[test]
+fn headless_run_fails_when_events_cannot_be_written() {
+    let workdir = tempfile::tempdir().unwrap();
+    // A file where the output directory should be makes the write fail.
+    std::fs::write(workdir.path().join("blocked"), "").unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_caspers"))
+        .args([
+            "run",
+            "--no-tui",
+            "--duration",
+            "5",
+            "--events-out",
+            "blocked/events.parquet",
+        ])
+        .current_dir(workdir.path())
+        .output()
+        .expect("run caspers");
+    assert!(!output.status.success(), "expected a non-zero exit");
+}
+
+/// `--events-out` and `--artifacts-out` produce output that `caspers validate`
+/// accepts.
+#[test]
+fn headless_output_validates() {
+    let workdir = tempfile::tempdir().unwrap();
+    let run = Command::new(env!("CARGO_BIN_EXE_caspers"))
+        .args([
+            "run",
+            "--no-tui",
+            "--duration",
+            "120",
+            "--seed",
+            "3",
+            "--events-out",
+            "events.parquet",
+            "--artifacts-out",
+            "artifacts",
+        ])
+        .current_dir(workdir.path())
+        .output()
+        .expect("run caspers");
+    assert!(
+        run.status.success(),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    let validate = Command::new(env!("CARGO_BIN_EXE_caspers"))
+        .args([
+            "validate",
+            "--events",
+            "events.parquet",
+            "--artifacts",
+            "artifacts",
+            "--kitchen-capacity",
+            "15",
+        ])
+        .current_dir(workdir.path())
+        .output()
+        .expect("run caspers validate");
+    assert!(
+        validate.status.success(),
+        "{}",
+        String::from_utf8_lossy(&validate.stdout)
+    );
+}

@@ -32,7 +32,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Only the interactive `run` (with the TUI) needs log output suppressed.
     let tui_mode = matches!(&cli.command, Commands::Run(args) if !args.is_headless());
 
-    telemetry::init_tracer_provider();
     let _guard = telemetry::init_tracing_subscriber(tui_mode);
 
     match cli.command {
