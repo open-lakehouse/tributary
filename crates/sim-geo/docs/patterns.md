@@ -103,7 +103,7 @@ fn main() -> sim_geo::Result<()> {
     movement.start_journey(journey)?;
 
     // Advance by 1 minute
-    movement.advance_journeys(Duration::minutes(1))?;
+    movement.advance_journeys(now, Duration::minutes(1))?;
 
     // Check progress
     for journey in movement.active_journeys() {
@@ -137,7 +137,7 @@ for (origin, dest) in route_requests {
 ### Batch Journey Updates
 ```rust
 // Do this: Single batch update
-movement.advance_journeys(time_step)?;
+movement.advance_journeys(now, time_step)?;
 
 // Not this: Multiple calls per step
 for journey in journeys {

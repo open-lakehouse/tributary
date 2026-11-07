@@ -198,7 +198,9 @@ fn main() {
         let max_steps = 1000;
 
         while steps < max_steps {
-            handler.advance_journeys(time_step).unwrap();
+            handler
+                .advance_journeys(start_time + time_step * steps, time_step)
+                .unwrap();
             steps += 1;
 
             // Check if journey completed

@@ -54,7 +54,8 @@ fn test_journey_with_telemetry() {
         .with_velocity_model(velocity_model);
 
     // 3. Plan journey using network nodes
-    let node_ids: Vec<_> = network.nodes.keys().copied().collect();
+    let mut node_ids: Vec<_> = network.nodes.keys().copied().collect();
+    node_ids.sort_unstable();
     let origin_node = network.get_node(node_ids[0]).unwrap();
     let dest_node = network.get_node(node_ids[50]).unwrap();
 
@@ -114,7 +115,7 @@ fn test_journey_with_telemetry() {
 
         // Advance journey
         handler
-            .advance_journeys(Duration::seconds(10))
+            .advance_journeys(Utc::now(), Duration::seconds(10))
             .expect("Journey advancement should succeed");
 
         // Record agent tick
@@ -241,7 +242,8 @@ fn test_network_routing_generates_traces() {
 
     let mut handler = MovementHandler::new().with_network(network.clone());
 
-    let node_ids: Vec<_> = network.nodes.keys().copied().collect();
+    let mut node_ids: Vec<_> = network.nodes.keys().copied().collect();
+    node_ids.sort_unstable();
     let origin = network.get_node(node_ids[0]).unwrap().position;
     let destination = network.get_node(node_ids[20]).unwrap().position;
 
@@ -262,7 +264,9 @@ fn test_network_routing_generates_traces() {
     while handler.active_count() > 0 && tick < 500 {
         ctx.advance_time();
         telemetry.on_before_tick(&ctx).unwrap();
-        handler.advance_journeys(Duration::seconds(10)).unwrap();
+        handler
+            .advance_journeys(Utc::now(), Duration::seconds(10))
+            .unwrap();
         telemetry.on_after_tick(&ctx).unwrap();
         tick += 1;
     }
@@ -343,7 +347,8 @@ fn test_velocity_changes_generate_metrics() {
     let network = RoadNetwork::load_from_file(test_data_path("small_city_graph.json"))
         .expect("Failed to load test network");
 
-    let node_ids: Vec<_> = network.nodes.keys().copied().collect();
+    let mut node_ids: Vec<_> = network.nodes.keys().copied().collect();
+    node_ids.sort_unstable();
     let origin = network.get_node(node_ids[0]).unwrap().position;
     let destination = network.get_node(node_ids[30]).unwrap().position;
 
@@ -370,7 +375,7 @@ fn test_velocity_changes_generate_metrics() {
         ctx.advance_time();
         rush_telemetry.on_before_tick(&ctx).unwrap();
         rush_handler
-            .advance_journeys(Duration::seconds(10))
+            .advance_journeys(ctx.current_time(), Duration::seconds(10))
             .unwrap();
         rush_telemetry.on_after_tick(&ctx).unwrap();
         rush_ticks += 1;
@@ -401,7 +406,7 @@ fn test_velocity_changes_generate_metrics() {
         ctx.advance_time();
         off_peak_telemetry.on_before_tick(&ctx).unwrap();
         off_peak_handler
-            .advance_journeys(Duration::seconds(10))
+            .advance_journeys(ctx.current_time(), Duration::seconds(10))
             .unwrap();
         off_peak_telemetry.on_after_tick(&ctx).unwrap();
         off_peak_ticks += 1;
@@ -493,7 +498,8 @@ fn test_full_observability_pipeline() {
     let mut handler = MovementHandler::new().with_network(network.clone());
 
     // Create multiple journeys
-    let node_ids: Vec<_> = network.nodes.keys().copied().collect();
+    let mut node_ids: Vec<_> = network.nodes.keys().copied().collect();
+    node_ids.sort_unstable();
     let num_journeys = 3;
 
     for i in 0..num_journeys {
@@ -522,7 +528,9 @@ fn test_full_observability_pipeline() {
 
         telemetry.on_before_tick(&ctx).unwrap();
 
-        handler.advance_journeys(Duration::seconds(10)).unwrap();
+        handler
+            .advance_journeys(Utc::now(), Duration::seconds(10))
+            .unwrap();
 
         // Simulate various events
         telemetry.on_agents_ticked(&ctx, &[]).unwrap();
@@ -661,7 +669,8 @@ fn test_trace_correlation_across_journey_lifecycle() {
 
     let mut handler = MovementHandler::new().with_network(network.clone());
 
-    let node_ids: Vec<_> = network.nodes.keys().copied().collect();
+    let mut node_ids: Vec<_> = network.nodes.keys().copied().collect();
+    node_ids.sort_unstable();
     let origin = network.get_node(node_ids[0]).unwrap().position;
     let destination = network.get_node(node_ids[40]).unwrap().position;
 
@@ -681,7 +690,9 @@ fn test_trace_correlation_across_journey_lifecycle() {
     while handler.active_count() > 0 && tick < 500 {
         ctx.advance_time();
         telemetry.on_before_tick(&ctx).unwrap();
-        handler.advance_journeys(Duration::seconds(10)).unwrap();
+        handler
+            .advance_journeys(Utc::now(), Duration::seconds(10))
+            .unwrap();
         telemetry.on_after_tick(&ctx).unwrap();
         tick += 1;
     }
@@ -812,7 +823,7 @@ fn test_backward_compatibility() {
     let mut tick = 0;
     while handler_no_network.active_count() > 0 && tick < 500 {
         handler_no_network
-            .advance_journeys(Duration::seconds(10))
+            .advance_journeys(Utc::now(), Duration::seconds(10))
             .unwrap();
         tick += 1;
     }
@@ -831,7 +842,8 @@ fn test_backward_compatibility() {
 
     let mut handler_with_network = MovementHandler::new().with_network(network.clone());
 
-    let node_ids: Vec<_> = network.nodes.keys().copied().collect();
+    let mut node_ids: Vec<_> = network.nodes.keys().copied().collect();
+    node_ids.sort_unstable();
     let origin = network.get_node(node_ids[0]).unwrap().position;
     let destination = network.get_node(node_ids[20]).unwrap().position;
 
@@ -848,7 +860,7 @@ fn test_backward_compatibility() {
     let mut tick = 0;
     while handler_with_network.active_count() > 0 && tick < 500 {
         handler_with_network
-            .advance_journeys(Duration::seconds(10))
+            .advance_journeys(Utc::now(), Duration::seconds(10))
             .unwrap();
         tick += 1;
     }

@@ -400,7 +400,7 @@ impl SimulationHooks for GeoHooks {
                 self.movement.start_journey(journey)?;
             }
         }
-        self.movement.advance_journeys(ctx.time_step())?;
+        self.movement.advance_journeys(ctx.current_time(), ctx.time_step())?;
         Ok(())
     }
 }

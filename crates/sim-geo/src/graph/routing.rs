@@ -135,6 +135,12 @@ impl RoadNetwork {
         let fast_graph = self
             .fast_graph_cache
             .get_or_init(|| self.build_fast_graph());
+        // Nodes without edges are not in the preprocessed graph; fast_paths
+        // panics on out-of-range nodes, so treat them as unreachable.
+        let num_nodes = fast_graph.get_num_nodes();
+        if start as usize >= num_nodes || goal as usize >= num_nodes {
+            return None;
+        }
         let mut calculator = fast_paths::create_calculator(fast_graph);
 
         // Calculate path
@@ -748,5 +754,36 @@ mod tests {
                 avg_query_time
             );
         }
+    }
+
+    #[test]
+    fn edges_added_after_a_query_are_routed() {
+        // Regression: the preprocessed graph was cached on the first query and
+        // never rebuilt, so later edges were silently ignored.
+        use crate::graph::{RoadEdge, RoadNetwork, RoadNode, RoadType};
+        use geo::{LineString, Point};
+        let mut network = RoadNetwork::new();
+        for (id, x) in [(1, 0.0), (2, 0.001), (3, 0.002)] {
+            network.add_node(RoadNode {
+                id,
+                position: Point::new(x, 0.0),
+            });
+        }
+        let edge = |id, from, to| RoadEdge {
+            id,
+            from_node: from,
+            to_node: to,
+            distance_m: 100.0,
+            geometry: LineString::from(vec![(0.0, 0.0), (0.001, 0.0)]),
+            road_type: RoadType::Residential,
+            speed_limit_mps: 8.0,
+        };
+        network.add_edge(edge(1, 1, 2));
+        assert!(network.find_shortest_path(1, 3).is_none());
+        network.add_edge(edge(2, 2, 3));
+        assert_eq!(
+            network.find_shortest_path(1, 3).unwrap().node_path,
+            vec![1, 2, 3]
+        );
     }
 }

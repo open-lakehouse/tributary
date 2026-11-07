@@ -250,24 +250,22 @@ impl MovementHandler {
         self.active_journeys.insert(id, journey);
     }
 
-    /// Advance all journeys by time step
+    /// Advance all journeys by one time step starting at `now`
     ///
-    /// This method updates journey progress based on the velocity model and elapsed time.
-    /// For time-aware velocity models (like TimeOfDayVelocity), the current simulation
-    /// time is computed from each journey's start time and current progress.
+    /// Each journey moves at the velocity model's speed at `now` (so
+    /// time-of-day models see the real simulation time) for `time_step`.
     ///
-    /// # Arguments
+    /// # Errors
     ///
-    /// * `time_step` - Duration to advance the simulation
-    ///
-    /// # Returns
-    ///
-    /// Result indicating success or an error if any journey has invalid data
-    pub fn advance_journeys(&mut self, time_step: Duration) -> crate::Result<()> {
-        let time_step_secs = time_step.num_seconds() as f64;
+    /// Returns an error if a journey has a non-positive distance.
+    pub fn advance_journeys(
+        &mut self,
+        now: DateTime<Utc>,
+        time_step: Duration,
+    ) -> crate::Result<()> {
+        let time_step_secs = time_step.num_milliseconds() as f64 / 1000.0;
 
         for journey in self.active_journeys.values_mut() {
-            // Validate distance is positive and non-zero
             if journey.distance_m <= 0.0 {
                 return Err(crate::Error::Journey(format!(
                     "Journey {} has invalid distance: {}. Distance must be positive.",
@@ -275,21 +273,10 @@ impl MovementHandler {
                 )));
             }
 
-            // Calculate current simulation time based on journey progress
-            // Estimate: elapsed_time = progress * total_time
-            // We use a simple heuristic: current_time = start_time + (progress * estimated_duration)
-            // This isn't perfect but gives us a reasonable approximation for time-aware models
-            let elapsed_fraction = journey.progress;
-            let estimated_total_seconds = journey.distance_m / 5.0; // Assume average 5 m/s
-            let elapsed_seconds = (elapsed_fraction * estimated_total_seconds) as i64;
-            let current_time = journey.start_time + Duration::seconds(elapsed_seconds);
-
-            let velocity =
-                self.velocity_model
-                    .velocity_m_s_at_time(journey, journey.progress, current_time);
-            let distance_traveled = velocity * time_step_secs;
-            let progress_delta = distance_traveled / journey.distance_m;
-
+            let velocity = self
+                .velocity_model
+                .velocity_m_s_at_time(journey, journey.progress, now);
+            let progress_delta = velocity * time_step_secs / journey.distance_m;
             journey.progress = (journey.progress + progress_delta).min(1.0);
         }
 
@@ -357,7 +344,9 @@ mod tests {
         handler.add_journey(journey);
 
         // Advance by 100 seconds at 5 m/s = 500m
-        handler.advance_journeys(Duration::seconds(100)).unwrap();
+        handler
+            .advance_journeys(Utc::now(), Duration::seconds(100))
+            .unwrap();
 
         let journeys: Vec<_> = handler.active_journeys.values().collect();
         assert_eq!(journeys.len(), 1);
@@ -384,7 +373,9 @@ mod tests {
         handler.add_journey(journey);
 
         // Advance by 200 seconds at 5 m/s = 1000m (more than distance)
-        handler.advance_journeys(Duration::seconds(200)).unwrap();
+        handler
+            .advance_journeys(Utc::now(), Duration::seconds(200))
+            .unwrap();
 
         let completed = handler.get_completed_journeys();
         assert_eq!(completed.len(), 1);
@@ -411,7 +402,7 @@ mod tests {
         handler.add_journey(journey);
 
         // This should fail with Journey error
-        let result = handler.advance_journeys(Duration::seconds(10));
+        let result = handler.advance_journeys(Utc::now(), Duration::seconds(10));
         assert!(result.is_err());
         if let Err(crate::Error::Journey(msg)) = result {
             assert!(msg.contains("invalid distance"));
@@ -440,7 +431,7 @@ mod tests {
         handler.add_journey(journey);
 
         // This should fail with Journey error
-        let result = handler.advance_journeys(Duration::seconds(10));
+        let result = handler.advance_journeys(Utc::now(), Duration::seconds(10));
         assert!(result.is_err());
         if let Err(crate::Error::Journey(msg)) = result {
             assert!(msg.contains("invalid distance"));
@@ -783,11 +774,40 @@ mod tests {
         // At 5 m/s, time = distance / velocity
         let time_needed = (journey_distance / 5.0).ceil() as i64 + 10; // Add buffer
         handler
-            .advance_journeys(Duration::seconds(time_needed))
+            .advance_journeys(Utc::now(), Duration::seconds(time_needed))
             .unwrap();
 
         let completed = handler.get_completed_journeys();
         assert_eq!(completed.len(), 1, "Journey should be completed");
         assert_eq!(completed[0].progress, 1.0, "Progress should be 100%");
+    }
+
+    #[test]
+    fn journeys_move_at_the_speed_of_the_current_time() {
+        // Regression: the clock was reconstructed from start time and an
+        // assumed 5 m/s, so a journey started off-peak never hit rush hour.
+        use chrono::TimeZone;
+        let off_peak = Utc.with_ymd_and_hms(2024, 1, 15, 6, 0, 0).unwrap();
+        let rush = Utc.with_ymd_and_hms(2024, 1, 15, 8, 0, 0).unwrap();
+        let progress_at = |now| {
+            let mut handler = MovementHandler::new()
+                .with_velocity_model(Box::new(velocity::TimeOfDayVelocity::default()));
+            let journey = handler
+                .plan_journey(
+                    AgentId::new(),
+                    Point::new(-122.42, 37.77),
+                    Point::new(-122.40, 37.78),
+                    off_peak,
+                )
+                .unwrap();
+            let id = journey.id;
+            handler.add_journey(journey);
+            handler
+                .advance_journeys(now, Duration::seconds(60))
+                .unwrap();
+            handler.active_journeys[&id].progress
+        };
+        let (normal, slow) = (progress_at(off_peak), progress_at(rush));
+        assert!((slow - normal * 0.5).abs() < 1e-9, "{slow} vs {normal}");
     }
 }

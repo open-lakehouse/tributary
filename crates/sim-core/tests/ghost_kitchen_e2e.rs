@@ -195,7 +195,7 @@ fn test_ghost_kitchen_delivery_simulation() {
         );
 
         // Advance all journeys
-        if let Err(e) = movement_handler.advance_journeys(time_step) {
+        if let Err(e) = movement_handler.advance_journeys(current_time, time_step) {
             eprintln!("   ERROR: Failed to advance journeys: {}", e);
             break;
         }

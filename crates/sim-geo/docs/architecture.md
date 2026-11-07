@@ -256,7 +256,7 @@ impl SimulationHooks for GeoHooks {
             }
         }
 
-        self.movement_handler.advance_journeys(ctx.time_step())?;
+        self.movement_handler.advance_journeys(ctx.current_time(), ctx.time_step())?;
         Ok(())
     }
 }

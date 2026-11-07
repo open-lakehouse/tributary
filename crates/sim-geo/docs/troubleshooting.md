@@ -93,7 +93,7 @@ assert!(speed > 0.0 && speed.is_finite(), "Invalid speed: {}", speed);
 // Ensure advance is called every tick
 impl SimulationHooks for MyHooks {
     fn on_after_tick(&mut self, ctx: &SimulationContext) -> Result<()> {
-        self.movement.advance_journeys(ctx.time_step())?;
+        self.movement.advance_journeys(ctx.current_time(), ctx.time_step())?;
 
         // Check for stuck journeys
         for journey in self.movement.active_journeys() {

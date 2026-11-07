@@ -627,7 +627,7 @@ impl SimulationHooks for CoffeeShopHooks {
         }
 
         // Advance all journeys
-        self.movement.advance_journeys(ctx.time_step())?;
+        self.movement.advance_journeys(ctx.current_time(), ctx.time_step())?;
 
         Ok(())
     }
