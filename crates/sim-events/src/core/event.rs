@@ -14,7 +14,7 @@ use sim_core::utils::idents::EventId;
 /// ```rust,ignore
 /// use sim_events::{Event, EventPayload};
 ///
-/// let event = Event::new(Box::new(my_payload));
+/// let event = Event::new(Box::new(my_payload), ctx.current_time());
 /// println!("Event ID: {}", event.id());
 /// println!("Event type: {}", event.event_type());
 /// ```
@@ -39,32 +39,21 @@ pub struct Event {
 }
 
 impl Event {
-    /// Create a new event from a payload
+    /// Create an event from a payload, stamped with the simulation time it occurred
     ///
-    /// # Arguments
-    ///
-    /// * `payload` - Event payload implementing EventPayload trait
-    ///
-    /// # Returns
-    ///
-    /// A new Event with CloudEvents metadata
-    pub fn new(payload: Box<dyn EventPayload>) -> Self {
+    /// Pass `ctx.current_time()` (or the domain time of the occurrence), never
+    /// the wall clock: event times are what downstream analysis orders by.
+    pub fn new(payload: Box<dyn EventPayload>, time: DateTime<Utc>) -> Self {
         Self {
             id: EventId::new(),
             event_type: payload.event_type().to_string(),
             source: payload.source(),
             spec_version: "1.0".to_string(),
-            time: Utc::now(),
+            time,
             subject: payload.subject(),
             data_content_type: payload.data_content_type().map(|s| s.to_string()),
             payload,
         }
-    }
-
-    /// Create an event with a specific timestamp
-    pub fn with_time(mut self, time: DateTime<Utc>) -> Self {
-        self.time = time;
-        self
     }
 
     /// Get the event ID
@@ -188,7 +177,7 @@ mod tests {
     #[test]
     fn test_event_creation() {
         let payload = Box::new(TestPayload { value: 42 });
-        let event = Event::new(payload);
+        let event = Event::new(payload, DateTime::UNIX_EPOCH);
 
         assert_eq!(event.event_type(), "test.event");
         assert_eq!(event.source(), "/test/source");
@@ -198,7 +187,7 @@ mod tests {
     #[test]
     fn test_event_to_cloudevents_json() {
         let payload = Box::new(TestPayload { value: 42 });
-        let event = Event::new(payload);
+        let event = Event::new(payload, DateTime::UNIX_EPOCH);
 
         let json = event.to_cloudevents_json();
 
@@ -213,7 +202,7 @@ mod tests {
     #[test]
     fn test_event_to_record() {
         let payload = Box::new(TestPayload { value: 42 });
-        let event = Event::new(payload);
+        let event = Event::new(payload, DateTime::UNIX_EPOCH);
 
         let record = event.to_record();
 
@@ -224,10 +213,10 @@ mod tests {
     }
 
     #[test]
-    fn test_event_with_time() {
+    fn test_event_time_is_the_given_time() {
         let payload = Box::new(TestPayload { value: 42 });
-        let custom_time = Utc::now();
-        let event = Event::new(payload).with_time(custom_time);
+        let custom_time = DateTime::from_timestamp(1_700_000_000, 0).unwrap();
+        let event = Event::new(payload, custom_time);
 
         assert_eq!(event.time(), custom_time);
     }

@@ -328,7 +328,7 @@ pub fn complete_task(&mut self, task_id: TaskId, resource_id: ResourceId) -> Res
         task_id,
         resource_id,
         timestamp: Utc::now(),
-    })));
+    }), ctx.current_time()));
 
     Ok(())
 }

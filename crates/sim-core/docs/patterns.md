@@ -344,7 +344,7 @@ impl SimulationHooks for EventEmittingHooks {
             let event = Event::new(Box::new(AgentTickedEvent {
                 agent_id: result.agent_id.to_string(),
                 step: ctx.step(),
-            }));
+            }), ctx.current_time());
             self.dispatcher.emit(event);
         }
         Ok(())
@@ -824,7 +824,7 @@ impl SimulationHooks for IntegratedHooks {
             let event = Event::new(Box::new(JourneyCompletedEvent {
                 agent_id: journey.agent_id.to_string(),
                 destination: journey.destination,
-            }));
+            }), ctx.current_time());
             self.events.emit(event);
         }
 

@@ -181,8 +181,8 @@ impl EventInvariantChecker {
     /// the event stream: created before assigned before completed. For each
     /// customer, eating must appear before done.
     ///
-    /// Note: Event::new() uses wallclock Utc::now() for the `time` field, so
-    /// we validate emission order (buffer position) rather than timestamps.
+    /// Validates emission order (buffer position). Events emitted in the same
+    /// tick share a simulation timestamp, so timestamps alone can't order them.
     fn assert_causal_ordering(&self) {
         // Build per-order emission positions
         let mut order_positions: HashMap<String, Vec<(&str, usize)>> = HashMap::new();

@@ -381,7 +381,7 @@ impl SimulationHooks for CoffeeShopHooks {
                             order_id: TaskId::new(), // Would be actual task ID in real impl
                             customer_id: agent_id,
                             timestamp: ctx.current_time(),
-                        }));
+                        }), ctx.current_time());
                         self.dispatcher.emit(event);
                     }
                 }

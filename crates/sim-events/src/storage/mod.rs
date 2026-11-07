@@ -44,6 +44,10 @@ pub struct ParquetEventWriter {
 impl ParquetEventWriter {
     /// Create a new Parquet writer
     ///
+    /// Creates `path`, replacing any existing file. Call
+    /// [`write_events`](Self::write_events) any number of times, then
+    /// [`close`](Self::close) to finish the file.
+    ///
     /// # Arguments
     ///
     /// * `path` - Path where the Parquet file will be written
@@ -236,6 +240,7 @@ impl ParquetEventReader {
 mod tests {
     use super::*;
     use crate::core::{Event, EventPayload};
+    use chrono::DateTime;
     use serde_json::json;
     use std::fs;
     use tempfile::TempDir;
@@ -264,8 +269,8 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let file_path = temp_dir.path().join("test.parquet");
 
-        let event1 = Event::new(Box::new(TestPayload { value: 1 }));
-        let event2 = Event::new(Box::new(TestPayload { value: 2 }));
+        let event1 = Event::new(Box::new(TestPayload { value: 1 }), DateTime::UNIX_EPOCH);
+        let event2 = Event::new(Box::new(TestPayload { value: 2 }), DateTime::UNIX_EPOCH);
 
         let records = vec![event1.to_record(), event2.to_record()];
 
@@ -287,9 +292,9 @@ mod tests {
         let file_path = temp_dir.path().join("roundtrip.parquet");
 
         let records = vec![
-            Event::new(Box::new(TestPayload { value: 1 })).to_record(),
-            Event::new(Box::new(TestPayload { value: 2 })).to_record(),
-            Event::new(Box::new(TestPayload { value: 3 })).to_record(),
+            Event::new(Box::new(TestPayload { value: 1 }), DateTime::UNIX_EPOCH).to_record(),
+            Event::new(Box::new(TestPayload { value: 2 }), DateTime::UNIX_EPOCH).to_record(),
+            Event::new(Box::new(TestPayload { value: 3 }), DateTime::UNIX_EPOCH).to_record(),
         ];
 
         let mut writer = ParquetEventWriter::new(file_path.clone()).unwrap();

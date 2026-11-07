@@ -77,8 +77,8 @@ impl SimulationHooks for IntegratedSimulationHooks {
                 task_id: assignment.task_id.to_string(),
                 resource_id: assignment.resource_id.to_string(),
                 timestamp: ctx.current_time(),
-            }));
-            self.event_dispatcher.emit(event)?;
+            }), ctx.current_time());
+            self.event_dispatcher.emit(event);
         }
 
         Ok(())
@@ -311,7 +311,7 @@ impl SimulationHooks for GeoEventSimulationHooks {
                     origin: (journey_req.origin.x(), journey_req.origin.y()),
                     destination: (journey_req.destination.x(), journey_req.destination.y()),
                     timestamp: ctx.current_time(),
-                })))?;
+                }), ctx.current_time()))?;
             }
         }
         Ok(())
@@ -332,7 +332,7 @@ impl SimulationHooks for GeoEventSimulationHooks {
                         .signed_duration_since(journey.start_time)
                         .num_seconds() as f64,
                     timestamp: ctx.current_time(),
-                })))?;
+                }), ctx.current_time()))?;
             }
         }
 

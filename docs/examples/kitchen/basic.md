@@ -264,7 +264,7 @@ impl SimulationHooks for KitchenHooks {
                         customer_id: customer_id.to_string(),
                         items: vec!["burger".to_string(), "fries".to_string()],
                         timestamp: ctx.current_time(),
-                    })))?;
+                    }), ctx.current_time()))?;
                 }
             }
         }
@@ -283,7 +283,7 @@ impl SimulationHooks for KitchenHooks {
                 order_id: assignment.task_id.to_string(),
                 kitchen_id: assignment.resource_id.to_string(),
                 timestamp: ctx.current_time(),
-            })))?;
+            }), ctx.current_time()))?;
         }
 
         Ok(())

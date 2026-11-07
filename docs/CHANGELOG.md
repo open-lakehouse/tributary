@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (breaking): sim-events
+- `Event::new(payload, time)` takes the event time. It used to stamp the wall
+  clock, and `with_time` (now removed) was easy to forget: sim-logistics
+  events carried wall-clock times. Pass `ctx.current_time()`.
+- Removed `ParquetEventProcessor`. Its `flush` needed `&mut self`, which a
+  processor owned by the dispatcher can never get, and it lost buffered events
+  on a write error. Write `dispatcher.to_records()` with `ParquetEventWriter`
+  instead.
+
 ### Fixed: sim-core allocation, tick and snapshot correctness
 - Tasks without a workflow instance now complete and release their resource.
   Previously they held capacity forever. Completing or removing a task releases

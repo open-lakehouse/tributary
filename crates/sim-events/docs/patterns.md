@@ -61,7 +61,7 @@ impl SimulationHooks for EventEmittingHooks {
                     customer_id: result.agent_id.to_string(),
                     items: vec!["burger".to_string()],
                     total: 15.99,
-                }));
+                }), ctx.current_time());
                 self.dispatcher.emit(event);
             }
         }

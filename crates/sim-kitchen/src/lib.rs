@@ -136,7 +136,7 @@
 //!     customer_id: customer_id.to_string(),
 //!     items: vec!["burger".to_string()],
 //!     timestamp: ctx.current_time(),
-//! }));
+//! }), ctx.current_time());
 //! dispatcher.emit(event);
 //! ```
 //!

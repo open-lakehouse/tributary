@@ -48,9 +48,7 @@ pub struct Event {
 }
 
 impl Event {
-    pub fn new(payload: Box<dyn EventPayload>) -> Self;
-    pub fn with_time(mut self, time: DateTime<Utc>) -> Self;
-    pub fn with_id(mut self, id: String) -> Self;
+    pub fn new(payload: Box<dyn EventPayload>, time: DateTime<Utc>) -> Self; // pass simulation time
 }
 ```
 
@@ -65,10 +63,7 @@ let event = Event::new(Box::new(OrderCreatedEvent {
     customer_id: "customer-456".to_string(),
     items: vec!["burger".to_string(), "fries".to_string()],
     total_amount: 15.99,
-}));
-
-// Set custom timestamp
-let event = event.with_time(Utc::now());
+}), ctx.current_time());
 ```
 
 ### EventPayload
@@ -179,8 +174,8 @@ use sim_events::EventDispatcher;
 let mut dispatcher = EventDispatcher::new();
 
 // Emit events
-dispatcher.emit(Event::new(Box::new(OrderCreatedEvent { /* ... */ })))?;
-dispatcher.emit(Event::new(Box::new(OrderAssignedEvent { /* ... */ })))?;
+dispatcher.emit(Event::new(Box::new(OrderCreatedEvent { /* ... */ }), ctx.current_time()));
+dispatcher.emit(Event::new(Box::new(OrderAssignedEvent { /* ... */ }), ctx.current_time()));
 
 // Drain for persistence
 let events = dispatcher.drain();
@@ -212,8 +207,8 @@ impl SimulationHooks for MySimulationHooks {
                 task_id: assignment.task_id.to_string(),
                 resource_id: assignment.resource_id.to_string(),
                 timestamp: ctx.current_time(),
-            }));
-            self.event_dispatcher.emit(event)?;
+            }), ctx.current_time());
+            self.event_dispatcher.emit(event);
         }
         Ok(())
     }
@@ -254,8 +249,8 @@ let mut dispatcher = EventDispatcher::new();
 let mut writer = ParquetEventWriter::new("./events/simulation.parquet")?;
 
 // Emit events during simulation
-dispatcher.emit(event1)?;
-dispatcher.emit(event2)?;
+dispatcher.emit(event1);
+dispatcher.emit(event2);
 
 // Periodically flush to disk
 let events = dispatcher.drain();
@@ -580,7 +575,7 @@ struct SamplingEventEmitter {
 impl SamplingEventEmitter {
     fn emit_sampled(&mut self, event: Event) -> Result<()> {
         if rand::random::<f64>() < self.sample_rate {
-            self.dispatcher.emit(event)?;
+            self.dispatcher.emit(event);
         }
         Ok(())
     }
@@ -648,8 +643,8 @@ impl SimulationHooks for EventEmittingHooks {
                 task_id: assignment.task_id.to_string(),
                 resource_id: assignment.resource_id.to_string(),
                 timestamp: ctx.current_time(),
-            }));
-            self.dispatcher.emit(event)?;
+            }), ctx.current_time());
+            self.dispatcher.emit(event);
         }
         Ok(())
     }

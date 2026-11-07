@@ -34,9 +34,9 @@
 //!     }
 //! }
 //!
-//! // Emit events
+//! // Emit events, stamped with simulation time
 //! let mut dispatcher = EventDispatcher::new();
-//! dispatcher.emit(Event::new(Box::new(payload)))?;
+//! dispatcher.emit(Event::new(Box::new(payload), ctx.current_time()));
 //! ```
 
 pub mod core;
@@ -45,9 +45,7 @@ pub mod storage;
 
 // Re-export commonly used types
 pub use core::{Event, EventPayload, EventRecord};
-pub use dispatcher::{
-    ChannelSenderProcessor, EventDispatcher, EventProcessor, ParquetEventProcessor,
-};
+pub use dispatcher::{ChannelSenderProcessor, EventDispatcher, EventProcessor};
 pub use storage::{ParquetEventReader, ParquetEventWriter};
 
 /// Result type used throughout the crate

@@ -238,11 +238,14 @@ impl SimulationHooks for LogisticsSimulationHooks {
             } => {
                 // Emit a CloudEvent for each step completion
                 use crate::events::PackageSortedEvent;
-                let evt = Event::new(Box::new(PackageSortedEvent {
-                    package_id: format!("instance-{}", instance_id),
-                    sorting_station_id: format!("step-{}", step_index),
-                    warehouse_id: String::new(),
-                }));
+                let evt = Event::new(
+                    Box::new(PackageSortedEvent {
+                        package_id: format!("instance-{}", instance_id),
+                        sorting_station_id: format!("step-{}", step_index),
+                        warehouse_id: String::new(),
+                    }),
+                    ctx.current_time(),
+                );
                 self.dispatcher.emit(evt);
             }
 
@@ -259,12 +262,15 @@ impl SimulationHooks for LogisticsSimulationHooks {
 
                     // Emit a delivered CloudEvent
                     use crate::events::PackageDeliveredEvent;
-                    let evt = Event::new(Box::new(PackageDeliveredEvent {
-                        package_id: meta.tracking_number,
-                        driver_id: String::from("unknown"),
-                        delivery_time: *completion_time,
-                        destination: meta.destination,
-                    }));
+                    let evt = Event::new(
+                        Box::new(PackageDeliveredEvent {
+                            package_id: meta.tracking_number,
+                            driver_id: String::from("unknown"),
+                            delivery_time: *completion_time,
+                            destination: meta.destination,
+                        }),
+                        *completion_time,
+                    );
                     self.dispatcher.emit(evt);
                 } else {
                     // Workflow created manually (not via demand generator) — still count time
