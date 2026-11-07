@@ -180,6 +180,11 @@ async fn handle_headless(args: RunArgs) -> Result<()> {
                     eprint!(".");
                 }
             }
+            // KitchenSimulation pauses at the step limit so the TUI stays
+            // alive; headless has nobody to resume it, so stop the run.
+            Some(SimEvent::Paused { .. }) => {
+                let _ = controller.send(ControlCommand::Stop);
+            }
             Some(SimEvent::SimulationEnded { .. }) => break,
             Some(SimEvent::Error(e)) => {
                 eprintln!("\nError: {e}");
