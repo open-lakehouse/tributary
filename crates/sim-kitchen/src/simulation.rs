@@ -46,8 +46,8 @@ use crate::resources::{Kitchen, PrepTask, PrepTaskFactory};
 use crate::workflows::FoodPrepWorkflow;
 use chrono::{DateTime, Utc};
 use sim_artifacts::{
-    ArtifactCollector, ArtifactCollectorProcessor, ArtifactStorage, LocalEventProcessor,
-    NoOpStorage, ParquetArtifactStorage,
+    ArtifactCollector, ArtifactCollectorProcessor, ArtifactStorage, JsonlArtifactStorage,
+    NoOpStorage,
 };
 use sim_core::utils::idents::WorkflowInstanceId;
 use sim_core::workflows::{WorkflowEngine, WorkflowRegistry, WorkflowStepEvent};
@@ -173,11 +173,14 @@ impl KitchenSimulationHooks {
     }
 
     /// Feed events emitted since the last call to the artifact generators
-    fn process_artifacts(&mut self) {
+    fn process_artifacts(&mut self) -> sim_core::Result<()> {
         for event in &self.dispatcher.buffered_events()[self.artifacts_seen..] {
-            self.artifacts.process(&event.to_cloudevents_json());
+            self.artifacts
+                .process(&event.to_cloudevents_json())
+                .map_err(|e| sim_core::Error::Custom(format!("Artifact generation failed: {e}")))?;
         }
         self.artifacts_seen = self.dispatcher.buffered_count();
+        Ok(())
     }
 
     /// Least busy kitchen; ties go to the first one
@@ -419,18 +422,15 @@ impl KitchenSimulation {
         Self { runner }
     }
 
-    /// Persist generated artifacts under `dir` when the run ends
+    /// Write generated artifacts as JSON Lines under `dir` at the end of each
+    /// run (see [`JsonlArtifactStorage`] for the layout)
     ///
     /// Without this, artifacts are generated (see
     /// [`KitchenSimulationHooks::artifact_count`]) but not written.
     pub fn with_artifact_dir(mut self, dir: impl Into<std::path::PathBuf>) -> Self {
-        let storage: Box<dyn ArtifactStorage> = Box::new(ParquetArtifactStorage::new(dir));
-        let hooks = self.hooks_mut();
-        hooks.artifacts = std::mem::replace(
-            &mut hooks.artifacts,
-            ArtifactCollectorProcessor::new(ArtifactCollector::new(), ProfileRegistry::new(), ""),
-        )
-        .with_storage(storage);
+        self.hooks_mut()
+            .artifacts
+            .set_storage(Box::new(JsonlArtifactStorage::new(dir)));
         self
     }
 
@@ -468,7 +468,7 @@ impl KitchenSimulation {
         self.start_new_orders()?;
         self.deliver_ready_orders()?;
         self.report_done_customers()?;
-        self.hooks_mut().process_artifacts();
+        self.hooks_mut().process_artifacts()?;
         Ok(tick)
     }
 
@@ -593,7 +593,7 @@ impl KitchenSimulation {
             std::fs::create_dir_all(parent)?;
         }
         let hooks = self.hooks_mut();
-        hooks.process_artifacts();
+        hooks.process_artifacts()?;
         let records = hooks.dispatcher.to_records();
         hooks.dispatcher.clear();
         hooks.artifacts_seen = 0;
@@ -605,8 +605,9 @@ impl KitchenSimulation {
     }
 
     fn flush_artifacts(&mut self) -> sim_core::Result<()> {
-        self.hooks_mut().process_artifacts();
-        self.hooks()
+        let hooks = self.hooks_mut();
+        hooks.process_artifacts()?;
+        hooks
             .artifacts
             .flush_to_storage()
             .map_err(|e| sim_core::Error::Custom(format!("Failed to write artifacts: {e}")))

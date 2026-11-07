@@ -1,2 +1,2 @@
-pub mod parquet;
-pub use parquet::ParquetArtifactStorage;
+pub mod jsonl;
+pub use jsonl::JsonlArtifactStorage;

@@ -11,6 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed (breaking): sim-artifacts
+- `ParquetArtifactStorage` is now `JsonlArtifactStorage`; it always wrote
+  JSON Lines. Repeated flushes in a run append instead of overwriting the
+  previous flush, and a failed write keeps the buffered artifacts instead of
+  dropping them.
+- `ArtifactCollectorProcessor::process` returns generator errors (they were
+  discarded) and rejects events without a valid `time` (they were stamped
+  1970). It takes `&mut self`, which removes an `unsafe` borrow split and the
+  internal `Arc<Mutex>`; `set_storage` attaches storage after construction.
+  The `LocalEventProcessor` trait is gone.
+
 ### Fixed: sim-logistics delivers packages
 - Shipments never left their first step: only sorting stations were
   registered, but the workflow's five steps need receivers, sorting stations,

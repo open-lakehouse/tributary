@@ -114,17 +114,18 @@ ArtifactContext        // passed to each generator: event, sim_time, profiles, r
 
 // Collection & processing
 ArtifactCollector<P>              // accumulates artifacts from registered generators
-ArtifactCollectorProcessor<P>     // LocalEventProcessor adapter; call flush_to_storage() at run end
+ArtifactCollectorProcessor<P>     // process(&event_json) per event; flush_to_storage() to write
 
 // Artifact types
 Artifact, ApiCallArtifact, EmailArtifact, SmsArtifact,
 PushArtifact, WebEventArtifact, DataArtifact, DocumentArtifact
 
 // Storage
-ArtifactStorage, ParquetArtifactStorage, NoOpStorage
+ArtifactStorage, JsonlArtifactStorage, NoOpStorage
 ```
 
-Output is written to `output/artifacts/` by default.
+Artifacts are written only where a storage is attached (for the kitchen:
+`KitchenSimulation::with_artifact_dir(dir)`; the CLI uses `output/artifacts/`).
 
 ### SimulationRunner
 
@@ -175,7 +176,7 @@ pub trait SimulationHooks: Send + Sync + 'static {
 
 1. **Initialization**: Load configs → construct agents/resources/workflows → build runner
 2. **Simulation Loop**: Runner ticks → hooks inject domain logic → events emitted via CloudEvents
-3. **Artifacts**: `ArtifactCollectorProcessor` converts events → domain artifacts → Parquet files in `output/artifacts/`
+3. **Artifacts**: `ArtifactCollectorProcessor` converts events → domain artifacts → JSON Lines files (e.g. `output/artifacts/`)
 
 ---
 

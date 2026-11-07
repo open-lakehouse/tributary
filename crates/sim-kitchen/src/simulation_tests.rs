@@ -203,3 +203,30 @@ fn no_customers_means_no_events() {
     sim.run_for_steps(10).unwrap();
     assert!(sim.event_records().is_empty());
 }
+
+#[test]
+fn artifact_dir_receives_artifacts_that_reference_events() {
+    let dir = std::env::temp_dir().join(format!("kitchen-artifacts-{}", uuid::Uuid::new_v4()));
+    let mut sim = KitchenSimulation::new(1, 5, false).with_artifact_dir(&dir);
+    let mut population = PopulationHandler::new();
+    population.add_agent(Customer::with_params(
+        geo::Point::new(-122.4, 37.8),
+        1.0,
+        chrono::Duration::minutes(1),
+    ));
+    sim.runner_mut().set_population_handler(population);
+    sim.run_for_steps(12).unwrap();
+    sim.run_for_steps(12).unwrap(); // a second flush appends, it doesn't overwrite
+
+    let event_ids: std::collections::HashSet<String> =
+        sim.event_records().into_iter().map(|e| e.id).collect();
+    let tickets = std::fs::read_to_string(dir.join("structured/kitchen_ticket.jsonl")).unwrap();
+    let payments = std::fs::read_to_string(dir.join("api_calls/api_calls.jsonl")).unwrap();
+    assert_eq!(tickets.lines().count(), 1);
+    assert!(payments.lines().count() >= 1);
+    for line in tickets.lines() {
+        let v: serde_json::Value = serde_json::from_str(line).unwrap();
+        assert!(event_ids.contains(v["source_event_id"].as_str().unwrap()));
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}

@@ -10,5 +10,5 @@ pub use artifact::{
 };
 pub use collector::ArtifactCollector;
 pub use generator::{ArtifactContext, ArtifactError, ArtifactGenerator};
-pub use processor::{ArtifactCollectorProcessor, LocalEventProcessor};
+pub use processor::ArtifactCollectorProcessor;
 pub use storage::{ArtifactStorage, NoOpStorage};
