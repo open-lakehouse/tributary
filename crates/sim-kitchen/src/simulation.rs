@@ -41,6 +41,7 @@ use crate::artifact_generators::{
     CustomerDoneArtifactGenerator, OrderCompletedArtifactGenerator, OrderCreatedArtifactGenerator,
 };
 use crate::events::*;
+pub use crate::pricing::menu_price;
 use crate::profiles::ProfileRegistry;
 use crate::resources::{Kitchen, PrepTask, PrepTaskFactory};
 use crate::workflows::FoodPrepWorkflow;
@@ -73,17 +74,6 @@ const ORDER_PROBABILITY: f64 = 0.2;
 
 /// Time a customer spends eating
 const EATING_MINUTES: i64 = 15;
-
-/// Menu price of an item
-pub fn menu_price(item: &str) -> f64 {
-    match item {
-        "burger" => 12.50,
-        "fries" => 4.50,
-        "salad" => 9.00,
-        "pizza" => 15.00,
-        _ => 10.00,
-    }
-}
 
 #[derive(Debug)]
 struct KitchenInfo {

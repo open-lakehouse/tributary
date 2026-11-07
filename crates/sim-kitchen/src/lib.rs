@@ -45,6 +45,7 @@
 pub mod agents;
 pub mod artifact_generators;
 pub mod events;
+pub mod pricing;
 pub mod profiles;
 pub mod resources;
 pub mod simulation;
@@ -52,8 +53,7 @@ pub mod workflows;
 
 pub use agents::{Customer, CustomerStatus};
 pub use events::*;
+pub use pricing::{OrderCharges, menu_price};
 pub use resources::{Kitchen, PrepTask, PrepTaskFactory};
-pub use simulation::{
-    FOOD_PREP_ENGINE, KitchenRunner, KitchenSimulation, KitchenSimulationHooks, menu_price,
-};
+pub use simulation::{FOOD_PREP_ENGINE, KitchenRunner, KitchenSimulation, KitchenSimulationHooks};
 pub use workflows::FoodPrepWorkflow;

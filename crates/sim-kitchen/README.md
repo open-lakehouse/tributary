@@ -70,8 +70,16 @@ bound).
 | `order.completed` | kitchen ticket, ingredient usage, quality-control record |
 | `customer.done` | HTML receipt, loyalty transaction, review request |
 
-Artifacts are only written when you call `with_artifact_dir`. Synthetic
-customer details come from `ProfileRegistry`, derived from the customer ID.
+Artifacts are only written when you call `with_artifact_dir`.
+
+Amounts come from `OrderCharges::for_subtotal(total_price)`: the event's menu
+subtotal plus 8.5% tax and an 18% tip, rounded to cents. The payment
+authorization, confirmation email, receipt and loyalty record all show the
+same `total`. Session, message and document IDs are UUID v5s derived from the
+order ID, so a seeded run reproduces every artifact field except
+`source_event_id`, which points at the (random) CloudEvents `id`. A generator
+fails on an event that lacks a field it needs instead of filling in a
+placeholder.
 
 ## Tests
 
@@ -81,4 +89,5 @@ cargo test -p sim-kitchen
 
 `tests/lifecycle_invariant_tests.rs` checks event-stream invariants
 (complete lifecycles, causal order, no duplicates, capacity), and
-`tests/determinism_tests.rs` checks that a seed reproduces the event stream.
+`tests/determinism_tests.rs` checks that a seed reproduces the event stream
+and the artifacts.
