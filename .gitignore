@@ -49,11 +49,7 @@ crates/sim-kitchen/output/
 
 .caspers/
 
-# UI
-ui/node_modules/
-ui/dist/
-node_modules/
-
 # Claude Code
 .claude/worktrees/
 .claude/projects/
+.isaac/

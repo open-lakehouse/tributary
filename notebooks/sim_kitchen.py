@@ -37,11 +37,13 @@ def _(mo):
     )
     run_button = mo.ui.run_button(label="Run Simulation")
 
-    mo.vstack([
-        mo.hstack([steps_slider, kitchens_slider, capacity_slider, customers_slider]),
-        output_dir_input,
-        run_button,
-    ])
+    mo.vstack(
+        [
+            mo.hstack([steps_slider, kitchens_slider, capacity_slider, customers_slider]),
+            output_dir_input,
+            run_button,
+        ]
+    )
     return (
         capacity_slider,
         customers_slider,
@@ -74,8 +76,9 @@ def _(
         output_dir=output_dir_input.value,
     )
 
-    mo.vstack([
-        mo.md(f"""
+    mo.vstack(
+        [
+            mo.md(f"""
         **Simulation complete**
 
         | Metric | Value |
@@ -85,7 +88,8 @@ def _(
         | Assignments | {result.total_assignments} |
         | Events path | `{result.events_path}` |
         """),
-    ])
+        ]
+    )
     return (result,)
 
 
@@ -118,22 +122,22 @@ def _(mo):
 @app.cell
 def _(events, mo, pl):
     summary = (
-        events.group_by("event_type")
-        .agg(pl.len().alias("count"))
-        .sort("count", descending=True)
+        events.group_by("event_type").agg(pl.len().alias("count")).sort("count", descending=True)
     )
 
     time_min = events["timestamp"].min()
     time_max = events["timestamp"].max()
 
-    mo.vstack([
-        mo.md(
-            f"**Time range**: {time_min} &rarr; {time_max}  \n"
-            f"**Total events**: {events.height}  \n"
-            f"**Distinct types**: {summary.height}"
-        ),
-        mo.ui.table(summary, label="Event counts by type"),
-    ])
+    mo.vstack(
+        [
+            mo.md(
+                f"**Time range**: {time_min} &rarr; {time_max}  \n"
+                f"**Total events**: {events.height}  \n"
+                f"**Distinct types**: {summary.height}"
+            ),
+            mo.ui.table(summary, label="Event counts by type"),
+        ]
+    )
     return (summary,)
 
 
@@ -182,12 +186,7 @@ def _(events, pl, px):
     cumulative = (
         events.select("timestamp", "event_type")
         .sort("timestamp")
-        .with_columns(
-            pl.lit(1)
-            .cum_sum()
-            .over("event_type")
-            .alias("cumulative_count")
-        )
+        .with_columns(pl.lit(1).cum_sum().over("event_type").alias("cumulative_count"))
     )
     px.line(
         cumulative,
@@ -230,16 +229,22 @@ def _(events, mo, pl):
             )
             .sort("first_event")
         )
-        mo.vstack([
-            mo.md(f"Found **{workflow_traces.height}** distinct order workflows"),
-            mo.ui.table(
-                workflow_traces.select(
-                    "order_id", "customer_id", "event_count",
-                    "first_event", "last_event", "event_types",
+        mo.vstack(
+            [
+                mo.md(f"Found **{workflow_traces.height}** distinct order workflows"),
+                mo.ui.table(
+                    workflow_traces.select(
+                        "order_id",
+                        "customer_id",
+                        "event_count",
+                        "first_event",
+                        "last_event",
+                        "event_types",
+                    ),
+                    label="Order Workflow Traces",
                 ),
-                label="Order Workflow Traces",
-            ),
-        ])
+            ]
+        )
     return (order_events,)
 
 
@@ -257,9 +262,7 @@ def _(go, mo, order_events, pl, px):
             .sort("start")
         )
 
-        gantt_df = gantt_data.with_columns(
-            pl.col("order_id").str.slice(-12).alias("short_id")
-        )
+        gantt_df = gantt_data.with_columns(pl.col("order_id").str.slice(-12).alias("short_id"))
 
         sample = gantt_df.head(200)
 
@@ -271,7 +274,7 @@ def _(go, mo, order_events, pl, px):
             subset = sample.filter(pl.col("event_type") == et)
             durations = [
                 max((e - s).total_seconds(), 1)
-                for s, e in zip(subset["start"].to_list(), subset["end"].to_list())
+                for s, e in zip(subset["start"].to_list(), subset["end"].to_list(), strict=False)
             ]
             fig.add_trace(
                 go.Bar(
@@ -304,24 +307,20 @@ def _(mo):
 
 @app.cell
 def _(events, mo, pl, px):
-    order_created = (
-        events.filter(pl.col("event_type") == "io.kitchen.order.created")
-        .select("order_id", pl.col("timestamp").alias("created_at"))
+    order_created = events.filter(pl.col("event_type") == "io.kitchen.order.created").select(
+        "order_id", pl.col("timestamp").alias("created_at")
     )
 
-    order_assigned = (
-        events.filter(pl.col("event_type") == "io.kitchen.order.assigned")
-        .select("order_id", pl.col("timestamp").alias("assigned_at"))
+    order_assigned = events.filter(pl.col("event_type") == "io.kitchen.order.assigned").select(
+        "order_id", pl.col("timestamp").alias("assigned_at")
     )
 
-    order_completed = (
-        events.filter(pl.col("event_type") == "io.kitchen.order.completed")
-        .select("order_id", pl.col("timestamp").alias("completed_at"))
+    order_completed = events.filter(pl.col("event_type") == "io.kitchen.order.completed").select(
+        "order_id", pl.col("timestamp").alias("completed_at")
     )
 
-    customer_eating = (
-        events.filter(pl.col("event_type") == "io.kitchen.customer.eating")
-        .select("order_id", pl.col("timestamp").alias("eating_at"))
+    customer_eating = events.filter(pl.col("event_type") == "io.kitchen.customer.eating").select(
+        "order_id", pl.col("timestamp").alias("eating_at")
     )
 
     durations = order_created
@@ -336,9 +335,7 @@ def _(events, mo, pl, px):
     duration_cols = []
     if "assigned_at" in durations.columns:
         durations = durations.with_columns(
-            (pl.col("assigned_at") - pl.col("created_at"))
-            .dt.total_seconds()
-            .alias("wait_time_s"),
+            (pl.col("assigned_at") - pl.col("created_at")).dt.total_seconds().alias("wait_time_s"),
         )
         duration_cols.append("wait_time_s")
 
@@ -360,9 +357,7 @@ def _(events, mo, pl, px):
 
     if "eating_at" in durations.columns:
         durations = durations.with_columns(
-            (pl.col("eating_at") - pl.col("created_at"))
-            .dt.total_seconds()
-            .alias("order_to_eat_s"),
+            (pl.col("eating_at") - pl.col("created_at")).dt.total_seconds().alias("order_to_eat_s"),
         )
         duration_cols.append("order_to_eat_s")
 
@@ -373,9 +368,7 @@ def _(events, mo, pl, px):
             "created &rarr; assigned &rarr; completed._"
         )
     else:
-        valid = durations.filter(
-            pl.any_horizontal(pl.col(c).is_not_null() for c in duration_cols)
-        )
+        valid = durations.filter(pl.any_horizontal(pl.col(c).is_not_null() for c in duration_cols))
         if valid.height == 0:
             mo.md("_All duration values are null — orders may not have progressed far enough._")
         else:
@@ -386,18 +379,20 @@ def _(events, mo, pl, px):
                 value_name="seconds",
             ).filter(pl.col("seconds").is_not_null())
 
-            mo.vstack([
-                mo.md(f"**{valid.height}** orders with timing data"),
-                px.histogram(
-                    duration_long,
-                    x="seconds",
-                    color="metric",
-                    barmode="overlay",
-                    template="plotly_dark",
-                    title="Order Duration Distributions (seconds)",
-                    opacity=0.7,
-                ),
-            ])
+            mo.vstack(
+                [
+                    mo.md(f"**{valid.height}** orders with timing data"),
+                    px.histogram(
+                        duration_long,
+                        x="seconds",
+                        color="metric",
+                        barmode="overlay",
+                        template="plotly_dark",
+                        title="Order Duration Distributions (seconds)",
+                        opacity=0.7,
+                    ),
+                ]
+            )
     return
 
 
@@ -425,8 +420,9 @@ def _(events, mo, pl, type_filter):
         else events
     )
     mo.ui.table(
-        filtered.select("timestamp", "event_type", "order_id", "customer_id", "kitchen_id", "data")
-        .sort("timestamp"),
+        filtered.select(
+            "timestamp", "event_type", "order_id", "customer_id", "kitchen_id", "data"
+        ).sort("timestamp"),
         label=f"{filtered.height} events",
     )
     return

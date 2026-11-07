@@ -270,7 +270,7 @@ impl<W: Workflow> WorkflowRegistry<W> {
     pub fn tick_all(&mut self, current_time: DateTime<Utc>) -> Result<Vec<WorkflowStepEvent>> {
         let mut all_events = Vec::new();
 
-        for (_name, engine) in self.engines.iter_mut() {
+        for engine in self.engines.values_mut() {
             let events = engine.tick(current_time)?;
             all_events.extend(events);
         }

@@ -197,8 +197,9 @@ mod tests {
 
     #[test]
     fn test_very_high_rate() {
-        // Test with very high rate to ensure no overflow
-        let generator = PoissonDemandGenerator::new(1000.0, "order");
+        // Test with very high rate to ensure no overflow. Seeded: the ±100
+        // window is ~3σ for λ = 1000, so an entropy-seeded run is flaky.
+        let generator = PoissonDemandGenerator::with_seed(1000.0, "order", 1000);
 
         let config = SimulationConfig {
             time_step: chrono::Duration::seconds(3600), // 1 hour

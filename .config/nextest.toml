@@ -1,16 +1,16 @@
 # nextest configuration. See https://nexte.st/docs/configuration/
 
 [profile.ci]
-# Run every test even after a failure so the JUnit report is complete, and
-# surface flaky tests by retrying a couple of times before declaring failure.
+# Surface flakiness as failures rather than masking it with reruns.
+retries = 0
+# Run every test and report each failure instead of stopping at the first, so
+# the JUnit report is complete.
 fail-fast = false
-retries = 2
-
-# CI is quieter on stdout (the JUnit report and the test-reporter check carry
-# the detail); show output for failures so logs stay actionable.
+# Quieter on stdout (the JUnit report and the test-reporter check carry the
+# detail); show output for failures so logs stay actionable.
 failure-output = "immediate-final"
 status-level = "fail"
 
 [profile.ci.junit]
-# Consumed by the CI workflow's dorny/test-reporter and uploaded as an artifact.
+# Emitted to target/nextest/ci/junit.xml; consumed by dorny/test-reporter.
 path = "junit.xml"

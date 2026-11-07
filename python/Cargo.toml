@@ -11,11 +11,14 @@ rust-version = { workspace = true }
 [lib]
 name = "caspers"
 crate-type = ["cdylib"]
+# The extension module shares its name with the `caspers` CLI binary; skip it
+# in rustdoc to avoid an output filename collision.
+doc = false
 
 [dependencies]
-sim-kitchen = { path = "../crates/sim-kitchen" }
-sim-logistics = { path = "../crates/sim-logistics" }
+sim-kitchen = { workspace = true }
+sim-logistics = { workspace = true }
 
 thiserror = { workspace = true }
 
-pyo3 = "0.26.0"
+pyo3 = { workspace = true }

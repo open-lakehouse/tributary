@@ -303,7 +303,8 @@ mod tests {
         h3_probs.insert(cell2, 0.3); // 30%
         h3_probs.insert(cell3, 0.2); // 20%
 
-        let generator = SpatialDemandGenerator::new(base, h3_probs);
+        // Seeded so the distribution assertions below are deterministic.
+        let generator = SpatialDemandGenerator::with_seed(base, h3_probs, 7);
 
         let config = SimulationConfig::default();
         let ctx = SimulationContext::from_now(config);

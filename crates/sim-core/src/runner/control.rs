@@ -156,7 +156,7 @@ unsafe impl Send for SimulationController {}
 
 /// The runner-side handle.  Created alongside `SimulationController` by
 /// [`control_channel`] and passed to the runner via
-/// [`SimulationRunner::attach_control`].
+/// [`SimulationRunner::attach_control`](crate::SimulationRunner::attach_control).
 pub struct ControlReceiver {
     cmd_rx: mpsc::Receiver<ControlCommand>,
     event_tx: mpsc::SyncSender<SimEvent>,

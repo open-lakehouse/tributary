@@ -7,18 +7,18 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-sim-core = { path = "../sim-core" }
-sim-geo = { path = "../sim-geo" }
-sim-events = { path = "../sim-events" }
-sim-artifacts = { path = "../sim-artifacts" }
+sim-core = { workspace = true }
+sim-geo = { workspace = true }
+sim-events = { workspace = true }
+sim-artifacts = { workspace = true }
 
 chrono = { workspace = true }
-geo = { version = "0.31", features = ["serde"] }
-h3o = { version = "0.9", features = ["geo"] }
-rand = { version = "0.9" }
+geo = { workspace = true, features = ["serde"] }
+h3o = { workspace = true, features = ["geo"] }
+rand = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]
-approx = "0.5.1"
+approx = { workspace = true }

@@ -494,7 +494,7 @@ impl<A: Agent> PopulationHandler<A> {
         self.agents = self.remove_row_from_batch(row_idx);
 
         // Update all indices after the removed row
-        for (_, idx) in self.id_to_row.iter_mut() {
+        for idx in self.id_to_row.values_mut() {
             if *idx > row_idx {
                 *idx -= 1;
             }

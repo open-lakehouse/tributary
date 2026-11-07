@@ -7,13 +7,13 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-sim-core = { path = "../sim-core" }
-sim-events = { path = "../sim-events" }
+sim-core = { workspace = true }
+sim-events = { workspace = true }
 
 chrono = { workspace = true }
-geo = { version = "0.31", features = ["serde"] }
-h3o = { version = "0.9" }
-rand = { version = "0.9" }
+geo = { workspace = true, features = ["serde"] }
+h3o = { workspace = true }
+rand = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

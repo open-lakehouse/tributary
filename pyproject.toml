@@ -1,37 +1,17 @@
 [project]
-name = "management"
+name = "tributary-notebooks"
 version = "0.1.0"
-description = "Add your description here"
+description = "Development environment for the tributary analysis notebooks"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-  "daft>=0.4.14",
   "delta-spark==4.0.1",
-  "deltalake>=0.25.5",
-  "duckdb>=1.2.2",
   "folium>=0.20.0",
-  "geoarrow-pandas>=0.1.1",
-  "geoarrow-pyarrow>=0.1.2",
-  "geoarrow-rust-core>=0.3.0",
-  "geoarrow-rust-io>=0.3.0",
-  "geojson>=3.2.0",
-  "geopandas>=1.0.1",
-  "geoplot>=0.5.1",
-  "geopy>=2.4.1",
-  "h3>=4.2.2",
-  "lonboard>=0.13.0",
-  "marimo[recommended]>=0.15.2",
-  "matplotlib>=3.10.1",
-  "maturin>=1.9.6",
-  "networkx>=3.4.2",
-  "osmnx>=2.0.2",
-  "pint>=0.24.4",
+  "marimo[recommended]>=0.18.4",
   "plotly>=6.0.1",
+  "polars>=1.0.0",
   "pyarrow>=19.0.1",
-  "pyarrow-stubs>=19.1",
   "pyspark==4.0.1",
-  "pyspark-connect>=4.0",
-  "shapely>=2.1.0",
 ]
 
 [tool.uv]
@@ -43,3 +23,15 @@ members = ["python/"]
 [tool.pyright]
 venvPath = "."
 venv = ".venv"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+# marimo cells: a bare trailing expression renders output, cells end in a bare
+# `return`, and each cell re-imports what it uses.
+"notebooks/*.py" = ["B018", "E501", "F401", "F811"]

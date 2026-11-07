@@ -99,15 +99,15 @@ pub enum Dialog {
         input: String,
         error: Option<String>,
     },
-    /// [n] on Launch screen — collect a name for a new simulation
+    /// `n` on Launch screen — collect a name for a new simulation
     NewSimName {
         input: String,
     },
-    /// [t] in SnapshotBrowser — collect a label for a new snapshot
+    /// `t` in SnapshotBrowser — collect a label for a new snapshot
     TakeSnapshot {
         input: String,
     },
-    /// [Enter] on a snapshot row — confirm before restoring
+    /// `Enter` on a snapshot row — confirm before restoring
     ConfirmRestore {
         snapshot_id: Uuid,
         label: Option<String>,

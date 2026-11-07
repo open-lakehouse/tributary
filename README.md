@@ -23,7 +23,7 @@ Tributary is a workspace containing multiple crates for building simulations, ev
 
 ## Requirements
 
-- Rust 1.91 or later
+- Rust 1.95 or later
 - Python 3.x (for Python bindings)
 
 ## Development

@@ -1,0 +1,359 @@
+# Agent Instructions
+
+Instructions for AI coding agents working in this repository. This is the single
+canonical file: `CLAUDE.md` imports it, and other agents read it directly. Human
+contributor detail lives in [`CONTRIBUTING.md`](CONTRIBUTING.md); design records
+live in [`docs/`](docs/).
+
+## Quick Reference
+
+| Task | Command | Notes |
+|------|---------|-------|
+| Run simulation (TUI) | `just run [duration]` | Default: 100 steps; opens live TUI |
+| Run sim-kitchen | `just sim-kitchen [steps]` | Default: 100 steps, writes artifacts |
+| Python dev | `just build-py` | Build Python bindings |
+| Notebooks | `just scratch` | Launch Marimo notebook |
+| Inspect events | `just inspect` | Open sim_events.py Marimo notebook |
+| Kitchen notebook | `just kitchen` | Run + analyze in one Marimo notebook |
+| Format/lint | `just fmt` | Runs pre-commit hooks + justfile format |
+| Auto-fix | `just fix` | `clippy --fix`, then `cargo fmt` |
+| Pre-push gate | `just check` | Everything CI gates on: lint, test, doc |
+| MSRV check | `just msrv` | `cargo +1.95 check` on the declared floor |
+
+## Project Identity
+
+**What this is**: A high-performance agent-based simulation system for generating realistic operational data for a fictional ghost kitchen management company (project name: Tributary).
+
+**What this is NOT**: A production restaurant management system.
+
+### Core Technologies Stack
+- **Rust** (Primary): Simulation engine, CLI, TUI. Edition, MSRV (`rust-version`) and dependency versions live in the workspace `Cargo.toml`; the dev toolchain is pinned in `rust-toolchain.toml`
+- **Apache Arrow/DataFusion**: Columnar data processing
+- **GeoArrow / H3**: Geospatial operations (H3 hexagonal indexing via h3o, geo)
+- **Python**: Analysis tools and bindings (via PyO3/Maturin, requires Python 3.11+)
+- **CloudEvents**: Event infrastructure (CloudEvents 1.0 spec)
+- **OpenTelemetry**: Observability
+
+---
+
+## Architecture Overview
+
+### Crate Structure
+
+```
+tributary/
+├── crates/
+│   ├── sim-core/          # Generic agent-based simulation framework (domain-agnostic)
+│   ├── sim-events/        # CloudEvents 1.0 event infrastructure
+│   ├── sim-artifacts/     # Artifact generation from events (emails, API calls, web events, etc.)
+│   ├── sim-geo/           # Geospatial abstractions (H3, road networks, routing)
+│   ├── sim-kitchen/       # Ghost kitchen domain — reference implementation
+│   ├── sim-logistics/     # Package delivery domain — validates framework generality
+│   ├── sim-telemetry/     # OpenTelemetry-compatible telemetry generation
+│   ├── sim-validate/      # Output-validation harness (invariants over emitted events)
+│   └── cli/               # Binary (caspers) — TUI runner (no server)
+├── python/                # Python bindings (PyO3/Maturin) — wraps sim-kitchen & sim-logistics
+├── notebooks/             # Marimo/Jupyter analysis notebooks
+├── docs/                  # Documentation (ARCHITECTURE.md lives here)
+└── output/                # Simulation output (artifacts written here; gitignored)
+```
+
+### The sim-* Framework
+
+The `sim-*` crates form a layered, domain-agnostic framework:
+
+```
+sim-core        ← Core abstractions: agents, resources, workflows, runner, snapshots
+sim-events      ← CloudEvents emission and Parquet persistence
+sim-artifacts   ← Artifact generation: converts events into domain artifacts
+sim-geo         ← Geospatial: H3, road network routing, journeys
+sim-telemetry   ← OTel-compatible telemetry from simulation events
+sim-validate    ← Output validation: invariant rules over emitted events and artifacts
+sim-kitchen     ← Ghost kitchen domain (reference impl, uses all above)
+sim-logistics   ← Package delivery domain (validates framework generality)
+```
+
+**Key principle**: `sim-kitchen` and `sim-logistics` use the framework with zero modifications to `sim-core`/`sim-events` — domain logic lives entirely in the domain crates.
+
+### sim-core Public API
+
+```rust
+// Context & Config
+SimulationConfig, SimulationContext
+
+// Agents & Population
+Agent, AgentStatus, Demand, PopulationHandler
+
+// Resources
+Resource, ResourceAllocator, Task, AllocationStrategy
+
+// Workflows (registry is the only path — no single-engine mode)
+Workflow, WorkflowEngine, WorkflowRegistry, WorkflowStep, WorkflowStepEvent
+
+// Runner
+SimulationRunner, SimulationHooks, NoOpHooks, SimulationStats
+
+// Demand Generation
+DemandGenerator, CompositeDemandGenerator, PoissonDemandGenerator,
+SpatialDemandGenerator, TimeOfDayDemandGenerator
+
+// Snapshots
+SnapshotBackend, SnapshotData, SnapshotManager, SnapshotMetadata
+
+// Utilities
+AgentId, LocationId, ResourceId, TaskId, WorkflowId
+move_towards(location, target, speed, step_secs) -> Point
+```
+
+### sim-artifacts Public API
+
+```rust
+// Core trait — implement this to generate artifacts from events
+ArtifactGenerator<P>   // P = domain profiles (e.g. customer data, pricing tables)
+ArtifactContext        // passed to each generator: event, sim_time, profiles, run_id
+
+// Collection & processing
+ArtifactCollector<P>              // accumulates artifacts from registered generators
+ArtifactCollectorProcessor<P>     // LocalEventProcessor adapter; call flush_to_storage() at run end
+
+// Artifact types
+Artifact, ApiCallArtifact, EmailArtifact, SmsArtifact,
+PushArtifact, WebEventArtifact, DataArtifact, DocumentArtifact
+
+// Storage
+ArtifactStorage, ParquetArtifactStorage, NoOpStorage
+```
+
+Output is written to `output/artifacts/` by default.
+
+### SimulationRunner
+
+The runner is the central orchestrator. Build it with the builder pattern:
+
+```rust
+SimulationRunner::new(config)
+    .with_population(PopulationHandler::new())
+    .with_resources(ResourceAllocator::new())
+    .set_workflow_registry(registry)      // WorkflowRegistry is the ONLY workflow path
+    .set_task_factory(factory)
+    .set_demand_generator(generator)
+    .set_hooks(MyHooks::new())
+    .set_snapshot_manager(manager)
+```
+
+Each simulation step (via `runner.tick()` or `runner.run_for_steps(n)`):
+1. `on_before_tick()`
+2. Tick all agents
+3. `on_agents_ticked()` — domain hook: process demands, emit events
+4. Tick workflow registry — advance time-based steps, create/complete tasks
+5. Allocate tasks to resources
+6. `on_resources_allocated()` — domain hook: track assignments
+7. `on_after_tick()` — domain hook: check completions
+
+### SimulationHooks Trait
+
+```rust
+pub trait SimulationHooks: Send + Sync + 'static {
+    fn on_start(&mut self, ctx: &SimulationContext) -> Result<()>;
+    fn on_before_tick(&mut self, ctx: &SimulationContext) -> Result<()>;
+    fn on_after_tick(&mut self, ctx: &SimulationContext) -> Result<()>;
+    fn on_end(&mut self, ctx: &SimulationContext) -> Result<()>;
+    fn on_agents_ticked(&mut self, ctx: &SimulationContext, results: &[AgentTickResult]) -> Result<()>;
+    fn on_resources_allocated(&mut self, ctx: &SimulationContext, assignments: &[Assignment]) -> Result<()>;
+    fn on_workflow_step_completed(&mut self, ctx: &SimulationContext, event: &WorkflowStepEvent) -> Result<()>;
+    fn on_demands_generated(&mut self, ctx: &SimulationContext, demands: &[Demand]) -> Result<()>;
+}
+```
+
+### Data Flow
+
+1. **Initialization**: Load configs → construct agents/resources/workflows → build runner
+2. **Simulation Loop**: Runner ticks → hooks inject domain logic → events emitted via CloudEvents
+3. **Artifacts**: `ArtifactCollectorProcessor` converts events → domain artifacts → Parquet files in `output/artifacts/`
+
+---
+
+## Domain Models
+
+### sim-kitchen (Ghost Kitchen)
+
+- **Customer agents**: State machine — `Idle → Ordering → WaitingForFood → Eating → Done`
+- **Kitchen resources**: Capacity-constrained, auto-tracked load via `ResourceAllocator`
+- **Order tasks**: Flow through kitchen pipeline
+- **Events**: `io.kitchen.order.{created,assigned,completed}`, `io.kitchen.customer.{eating,done}`
+- **Artifacts**: payment authorizations, order confirmations, web events, inventory reports
+- **Entry points**: `KitchenSimulation::new(num_kitchens, capacity, verbose)` or `build_simulation()`
+- **Run methods**: `run_for_steps(n)` (no channel) or `run_controlled_for(max)` (control channel, all modes)
+
+### sim-logistics (Package Delivery)
+
+- **Package agents**: Passive — represent packages being processed
+- **Driver agents**: Active — transport packages between locations
+- **Resources**: `SortingStation` (capacity), `LoadingDock` (vehicle loading)
+- **Workflows**: `PackageShipmentWorkflow` — 5-step pipeline via `WorkflowRegistry`
+- **Locations**: `Warehouse`, `DeliveryAddress` (H3-indexed)
+- **Entry point**: `LogisticsSimulation::new(config)`
+
+---
+
+## Commits, PRs and stacks
+
+- Conventional commits: `<type>(<scope>): <subject>`, types `feat fix refactor
+  docs test chore` (plus `perf build ci`). Scope is the crate's package name
+  (`sim-core`, `sim-kitchen`, `caspers-cli`, …), or omit it for workspace-wide
+  changes.
+- **PRs are squash-merged; the PR title is the commit that lands on `main`.**
+  CI lints it (`pr-title.yml`). Commits inside a PR are for review only.
+- **One coherent change = one PR.** Use a [`gh stack`](https://github.com/github/gh-stack)
+  (one layer per `type(scope)`) when work should land as separate commits.
+- **Never commit to `main`.** Stage files by name; never `git add -A` / `git add .`.
+- Commits are GPG-signed. Agents commit unsigned (`git commit --no-gpg-sign`), push and
+  open the PR, then hand over a single sign + force-push command (see the
+  maintainer's machine-wide conventions).
+- Before staging, update affected docs in the same commit:
+  `docs/CHANGELOG.md` (`[Unreleased]`, every user-visible change),
+  `docs/api-reference/` (changed public interfaces), this file (commands,
+  rules, public APIs), `README.md` (entry points).
+
+### Pre-push check (mirrors CI)
+
+```bash
+just fix     # cargo clippy --fix, then cargo fmt (in that order: clippy may rewrite code)
+just check   # fmt check, clippy -D warnings, machete, ruff, typos, nextest, doctests, rustdoc
+```
+
+---
+
+## Critical Rules
+
+### NEVER DO THIS
+1. **Use non-workspace dependencies** — must be defined in root `Cargo.toml` `[workspace.dependencies]`
+2. **Commit `.caspers/` or `output/` directories** — runtime data only, gitignored
+3. **Commit `.claude/worktrees/` or `.claude/projects/`** — agent working state, gitignored
+4. **Mix time zones** — all timestamps are UTC, use `ctx.current_time()` for simulation time
+5. **Use `set_workflow_engine()`** — removed; use `set_workflow_registry()` only
+6. **Hardcode step duration as `30.0`** — use `ctx.time_step().num_seconds() as f64`
+7. **Stage files before running clippy and fmt**: run `just fix` (clippy, then fmt) first
+
+### ALWAYS DO THIS
+1. **Use `WorkflowRegistry`** when wiring workflows in `SimulationRunner`
+2. **Use `ctx.time_step()`** for step duration in agent tick logic
+3. **Use `ctx.current_time()`** for simulation timestamps; never `Utc::now()` in simulation code. The one exception is the wall-clock anchor of the Live/Catchup time modes in `sim-core/src/context/mod.rs`
+4. **Use `sim_core::move_towards()`** for movement — don't duplicate in domain crates
+5. **Add tests** in `*_tests.rs` files alongside implementation
+
+---
+
+## Development Workflows
+
+### Adding a New Domain Simulation
+
+Model after `sim-kitchen` (reference implementation):
+
+1. Create a new crate: `crates/sim-<domain>/`
+2. Add to workspace in root `Cargo.toml`
+3. Define agents implementing `sim_core::Agent`
+4. Define resources implementing `sim_core::Resource`
+5. Define tasks implementing `sim_core::Task`
+6. Define workflows implementing `sim_core::Workflow` (registered via `WorkflowRegistry`)
+7. Implement `SimulationHooks` for domain-specific logic
+8. Create a top-level `<Domain>Simulation` wrapper struct
+9. Add integration tests
+
+### Adding a New Agent (within a domain crate)
+
+1. Create `src/agents/my_agent.rs`
+2. Implement `sim_core::Agent` (requires `tick(&mut self, ctx: &SimulationContext)`)
+3. Use `ctx.time_step().num_seconds() as f64` for step duration
+4. Use `sim_core::move_towards()` for position updates
+5. Register in `src/agents/mod.rs`
+6. Add corresponding tests in `my_agent_tests.rs`
+
+### Python Integration
+
+- Build bindings: `just build-py`
+- Python code in `python/` exposes `sim-kitchen` and `sim-logistics` to Python
+  (`run_kitchen_simulation`, `run_logistics_simulation`); importable as `caspers`
+- Use for analysis, NOT for core simulation logic
+- Marimo notebooks in `notebooks/` for interactive exploration (`just scratch`, `just inspect`, `just kitchen`)
+
+---
+
+## Testing
+
+```bash
+just test                           # All tests, as in CI (nextest + doctests)
+cargo test                          # All tests
+cargo test -p sim-core              # Package-specific
+cargo test -p sim-kitchen           # Ghost kitchen tests
+cargo test -p sim-logistics         # Logistics tests
+cargo test kitchen                  # Pattern match
+
+# Sim-kitchen integration (writes artifact output)
+just sim-kitchen 500
+```
+
+The workspace has 840+ tests. Run `just check` before pushing.
+
+---
+
+## Running Simulations
+
+```bash
+# Run CLI simulation (new sim-kitchen framework, shows live TUI)
+just run 500       # or: cargo run --bin caspers -- run --duration 500
+
+# Custom parameters
+cargo run --bin caspers -- run --duration 200 --num-kitchens 5 --num-customers 30
+
+# Sim-kitchen library example — writes artifacts to output/artifacts/ (no TUI)
+just sim-kitchen 100
+
+# With tracing (requires Docker — starts Jaeger)
+just run-tracing
+# Then visit http://localhost:16686
+```
+
+---
+
+## Troubleshooting
+
+### Clippy must stay clean
+```bash
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+```
+The whole workspace is warning-clean; keep it that way before committing.
+
+### Local build fails with "failed to select a version" for a fresh crate
+The maintainer's machine-level Cargo config routes crates.io through an
+age-filtering proxy that hides versions published in the last 7 days. CI builds
+against crates.io and is unaffected. Wait for the proxy to catch up, or use the
+`/crates-proxy` skill. Never commit a `[patch]` or a lock resolved under one.
+
+### Builds and disk
+Dev builds keep line tables for workspace crates and no debug info for
+dependencies (`[profile.dev]` in `Cargo.toml`), so panic locations and backtraces
+still work. For a debugger use `cargo build --profile debugging`. Run
+`cargo clean` in a worktree before removing it.
+
+### Python bindings fail to build
+```bash
+uv pip install maturin[zig] && just build-py
+```
+
+---
+
+## Related Documentation
+
+- `README.md` — Project overview and crate list
+- `docs/ARCHITECTURE.md` — High-level design decisions
+- `justfile` — All available commands and build tasks
+- `Cargo.toml` — Workspace dependencies and versions (every external dependency is declared here)
+- `CONTRIBUTING.md` — Setup and the pre-push gate
+
+## File Conventions
+
+| Pattern | Usage |
+|---------|-------|
+| `*_tests.rs` | Unit/integration tests |
+| `output/artifacts/` | Simulation artifact output (Parquet) |

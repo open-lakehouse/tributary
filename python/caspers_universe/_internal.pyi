@@ -30,7 +30,7 @@ class LogisticsResult:
 
     @property
     def driver_utilization_percent(self) -> float:
-        """Average driver utilization as a percentage (0–100)."""
+        """Average driver utilization as a percentage (0-100)."""
 
     @property
     def average_delivery_time_secs(self) -> float:

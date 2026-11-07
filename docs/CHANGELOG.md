@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed: workspace tooling and CI brought in line with sibling repos
+- Every external dependency is now declared once in `[workspace.dependencies]`;
+  crates inherit with `{ workspace = true }`. Workspace `rust-version` 1.91 → 1.95.
+- Dev toolchain pinned to 1.99 in `rust-toolchain.toml`. `[profile.dev]` keeps
+  line tables for workspace crates only; `--profile debugging` gives full debug info.
+- CI: `--locked` everywhere, dedicated `msrv`, `machete`, `doc` (`-D warnings`) and
+  `ruff` jobs, a single `ci` roll-up check, refreshed action pins, and a `zizmor`
+  workflow. nextest's `ci` profile no longer retries failing tests.
+- `just lint` / `test` / `doc` / `msrv` / `check` / `fix` recipes mirror CI.
+- `AGENTS.md` is the canonical agent guide; `CLAUDE.md` imports it.
+- Root `pyproject.toml` renamed to `tributary-notebooks`, trimmed to what the
+  notebooks import, with a ruff configuration.
+- Removed dead files: `biome.json`, `prompts/`, `generate_test_data.py`,
+  `test_data/`, `crates/cli/pyproject.toml`, the `build-py-cli` recipe and the
+  `buf-format` pre-commit hook. Typos config moved into `Cargo.toml`.
+
 ### Changed — align dependencies with Hydrofoil for integration
 - Bumped workspace dependencies to match the Hydrofoil sibling repository so
   Tributary can be consumed as a dependency from it without graph conflicts:

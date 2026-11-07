@@ -7,7 +7,7 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-sim-core = { path = "../sim-core" }
+sim-core = { workspace = true }
 
 arrow = { workspace = true }
 chrono = { workspace = true }
@@ -18,5 +18,4 @@ thiserror = { workspace = true }
 tokio = { workspace = true }
 
 [dev-dependencies]
-tokio = { version = "1", features = ["full"] }
-tempfile = "3"
+tempfile = { workspace = true }

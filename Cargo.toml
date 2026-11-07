@@ -7,17 +7,32 @@ version = "0.0.1"
 authors = ["Robert Pack <robstar.pack@gmail.com>"]
 edition = "2024"
 license = "MIT OR Apache-2.0"
-rust-version = "1.91"
+rust-version = "1.95"
 
 [workspace.dependencies]
+# internal crates
+sim-artifacts = { path = "crates/sim-artifacts" }
+sim-core = { path = "crates/sim-core" }
+sim-events = { path = "crates/sim-events" }
+sim-geo = { path = "crates/sim-geo" }
+sim-kitchen = { path = "crates/sim-kitchen" }
+sim-logistics = { path = "crates/sim-logistics" }
+sim-telemetry = { path = "crates/sim-telemetry" }
+sim-validate = { path = "crates/sim-validate" }
+
+# general
 chrono = { version = "0.4.44", features = ["serde"] }
+dashmap = { version = "6" }
+futures = { version = "0.3" }
+humantime = { version = "2" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0" }
 thiserror = { version = "2" }
 tokio = { version = "1", features = ["full"] }
-tracing = { version = "0.1", features = ["log"] }
 uuid = { version = "1", features = ["serde"] }
-humantime = { version = "2" }
+
+# randomness
+rand = { version = "0.9" }
 
 # arrow
 arrow = { version = "58" }
@@ -25,3 +40,58 @@ parquet = { version = "58", features = ["async", "object_store"] }
 
 # datafusion
 datafusion = "53.1"
+
+# geospatial
+fast_paths = { version = "1.0.0" }
+geo = { version = "0.31" }
+geo-types = { version = "0.7.16" }
+h3o = { version = "0.9.3" }
+
+# cli / tui
+clap = { version = "4.5.37", features = ["derive", "env"] }
+crossterm = { version = "0.28", features = ["event-stream"] }
+ratatui = { version = "0.29" }
+
+# observability
+opentelemetry = { version = "0.31.0" }
+opentelemetry-otlp = { version = "0.31.0", features = ["grpc-tonic"] }
+opentelemetry_sdk = { version = "0.31.0" }
+tracing = { version = "0.1", features = ["log"] }
+tracing-opentelemetry = { version = "0.32.0" }
+tracing-subscriber = { version = "0.3.20", features = ["env-filter"] }
+
+# python
+pyo3 = { version = "0.26.0" }
+
+# dev / test
+approx = { version = "0.5.1" }
+criterion = { version = "0.5" }
+tempfile = { version = "3.14" }
+
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+# Full debug info for a debugger: `cargo build --profile debugging`
+# (builds into target/debugging/, separate from the dev artifacts).
+[profile.debugging]
+inherits = "dev"
+debug = true
+
+[profile.debugging.package."*"]
+debug = true
+
+[workspace.metadata.typos]
+files.extend-exclude = ["crates/cli/assets/"]
+
+# These are not misspellings:
+#   - "Noe": Noe Valley, a San Francisco neighborhood used in test fixtures.
+#   - hex span IDs: OpenTelemetry example trace/span IDs in docs.
+[workspace.metadata.typos.default.extend-words]
+Noe = "Noe"
+
+[workspace.metadata.typos.default.extend-identifiers]
+"00f067aa0ba902b7" = "00f067aa0ba902b7"
+"00f067aa0ba902b6" = "00f067aa0ba902b6"
