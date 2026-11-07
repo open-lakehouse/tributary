@@ -21,14 +21,25 @@ geo-types = { workspace = true }
 h3o = { workspace = true, features = ["geo"] }
 rand = { workspace = true }
 rand_distr = { workspace = true }
-sim-telemetry = { workspace = true }
+sim-telemetry = { workspace = true, optional = true }
 
 [dev-dependencies]
 approx = { workspace = true }
 criterion = { workspace = true, features = ["html_reports"] }
 sim-geo = { workspace = true }
-sim-kitchen = { workspace = true }
 tempfile = { workspace = true }
+
+[features]
+# `runner::telemetry`: SimulationHooks that emit sim-telemetry records
+telemetry = ["dep:sim-telemetry"]
+
+[[test]]
+name = "cross_phase_integration"
+required-features = ["telemetry"]
+
+[[test]]
+name = "ghost_kitchen_e2e"
+required-features = ["telemetry"]
 
 [[bench]]
 name = "batch_operations"
