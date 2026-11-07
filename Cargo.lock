@@ -623,6 +623,7 @@ dependencies = [
  "sim-core",
  "sim-events",
  "sim-kitchen",
+ "sim-logistics",
  "sim-validate",
  "tempfile",
  "thiserror 2.0.21",

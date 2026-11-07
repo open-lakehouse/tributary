@@ -315,6 +315,10 @@ just run 500       # or: cargo run --bin caspers -- run --duration 500
 # Custom parameters
 cargo run --bin caspers -- run --duration 200 --num-kitchens 5 --num-customers 30
 
+# Headless logistics run (events to output/events.parquet), then validate
+cargo run --bin caspers -- run --no-tui --domain logistics --duration 480 --seed 42
+cargo run --bin caspers -- validate --domain logistics --events output/events.parquet
+
 # Sim-kitchen library example — writes events and artifacts under .caspers/sim-kitchen (no TUI)
 just sim-kitchen 100
 

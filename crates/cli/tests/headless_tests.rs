@@ -61,48 +61,116 @@ fn headless_run_fails_when_events_cannot_be_written() {
     assert!(!output.status.success(), "expected a non-zero exit");
 }
 
-/// `--events-out` and `--artifacts-out` produce output that `caspers validate`
-/// accepts.
-#[test]
-fn headless_output_validates() {
-    let workdir = tempfile::tempdir().unwrap();
-    let run = Command::new(env!("CARGO_BIN_EXE_caspers"))
-        .args([
-            "run",
-            "--no-tui",
-            "--duration",
-            "120",
-            "--seed",
-            "3",
-            "--events-out",
-            "events.parquet",
-            "--artifacts-out",
-            "artifacts",
-        ])
-        .current_dir(workdir.path())
+/// Run `caspers` in `dir` and return its output, failing on a non-zero exit
+fn caspers(dir: &std::path::Path, args: &[&str]) -> std::process::Output {
+    let output = Command::new(env!("CARGO_BIN_EXE_caspers"))
+        .args(args)
+        .current_dir(dir)
         .output()
         .expect("run caspers");
     assert!(
-        run.status.success(),
-        "{}",
-        String::from_utf8_lossy(&run.stderr)
+        output.status.success(),
+        "caspers {args:?} failed:\n{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
     );
-    let validate = Command::new(env!("CARGO_BIN_EXE_caspers"))
-        .args([
+    output
+}
+
+fn summary(output: &std::process::Output) -> serde_json::Value {
+    serde_json::from_slice(&output.stdout).expect("JSON summary on stdout")
+}
+
+/// A default headless run writes events and artifacts under `output/`, and
+/// `caspers validate` accepts both.
+#[test]
+fn headless_output_validates() {
+    let workdir = tempfile::tempdir().unwrap();
+    let dir = workdir.path();
+    caspers(
+        dir,
+        &["run", "--no-tui", "--duration", "120", "--seed", "3"],
+    );
+    assert!(dir.join("output/events.parquet").is_file());
+    caspers(
+        dir,
+        &[
             "validate",
             "--events",
-            "events.parquet",
+            "output/events.parquet",
             "--artifacts",
-            "artifacts",
+            "output/artifacts",
             "--kitchen-capacity",
             "15",
-        ])
+        ],
+    );
+}
+
+/// Without `--start-time`, a seeded run starts at a fixed instant instead of
+/// the wall clock, so its event times reproduce.
+#[test]
+fn seeded_runs_start_at_a_fixed_time() {
+    let workdir = tempfile::tempdir().unwrap();
+    let run = || {
+        summary(&caspers(
+            workdir.path(),
+            &["run", "--no-tui", "--duration", "10", "--seed", "1"],
+        ))
+    };
+    let first = run();
+    assert_eq!(first["sim_time"], "2026-01-05T11:05:00+00:00");
+    assert_eq!(first, run());
+}
+
+/// `--domain logistics` runs the package simulation, and its events pass the
+/// logistics invariants.
+#[test]
+fn logistics_output_validates() {
+    let workdir = tempfile::tempdir().unwrap();
+    let dir = workdir.path();
+    let run = summary(&caspers(
+        dir,
+        &[
+            "run",
+            "--no-tui",
+            "--domain",
+            "logistics",
+            "--duration",
+            "480",
+            "--seed",
+            "5",
+        ],
+    ));
+    assert_eq!(run["steps"], 480);
+    assert!(
+        run["packages_delivered"].as_u64().unwrap() > 0,
+        "four hours should deliver packages: {run}"
+    );
+    let validate = caspers(
+        dir,
+        &[
+            "validate",
+            "--domain",
+            "logistics",
+            "--events",
+            "output/events.parquet",
+        ],
+    );
+    let report = String::from_utf8_lossy(&validate.stdout);
+    assert!(
+        report.contains("io.logistics.package.in_transit"),
+        "{report}"
+    );
+}
+
+/// The TUI only knows the kitchen.
+#[test]
+fn logistics_needs_no_tui() {
+    let workdir = tempfile::tempdir().unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_caspers"))
+        .args(["run", "--domain", "logistics", "--duration", "5"])
         .current_dir(workdir.path())
         .output()
-        .expect("run caspers validate");
-    assert!(
-        validate.status.success(),
-        "{}",
-        String::from_utf8_lossy(&validate.stdout)
-    );
+        .expect("run caspers");
+    assert!(!output.status.success(), "expected a non-zero exit");
 }

@@ -19,6 +19,8 @@ println!("{} of {} packages delivered, drivers {:.0}% busy",
 sim.save_events("output/logistics-events.parquet")?;
 ```
 
+From the CLI: `caspers run --no-tui --domain logistics --duration 2880 --seed 42`
+(then `caspers validate --domain logistics --events output/events.parquet`).
 From Python: `caspers.run_logistics_simulation(steps=2880)`.
 
 ## Domain model

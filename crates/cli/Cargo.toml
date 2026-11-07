@@ -13,6 +13,7 @@ path = "src/main.rs"
 [dependencies]
 sim-core = { workspace = true }
 sim-kitchen = { workspace = true }
+sim-logistics = { workspace = true }
 sim-events = { workspace = true }
 sim-validate = { workspace = true }
 
