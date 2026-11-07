@@ -4359,7 +4359,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sim-geo",
- "sim-kitchen",
  "sim-telemetry",
  "tempfile",
  "thiserror 2.0.21",

@@ -25,6 +25,7 @@
 
 pub mod control;
 mod queries;
+#[cfg(feature = "telemetry")]
 pub mod telemetry;
 
 pub use control::{ControlCommand, SimEvent, SimulationController, control_channel};

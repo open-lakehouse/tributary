@@ -20,7 +20,6 @@ use sim_telemetry::generators::{
     EventToLogGenerator, EventToMetricGenerator, EventToTraceGenerator,
 };
 use std::collections::HashMap;
-use std::fs;
 use std::path::PathBuf;
 
 // Ghost kitchen location in San Francisco (approximate downtown location)
@@ -770,17 +769,6 @@ fn export_telemetry(records: &[TelemetryRecord]) -> HashMap<String, serde_json::
             results.insert(format!("metrics ({} bytes)", size), metrics);
         }
         Err(e) => eprintln!("Failed to export metrics: {}", e),
-    }
-
-    // Write to temp files for inspection
-    for (name, data) in &results {
-        let filename = format!(
-            "/tmp/ghost_kitchen_otlp_{}.json",
-            name.split_whitespace().next().unwrap()
-        );
-        if let Err(e) = fs::write(&filename, serde_json::to_string_pretty(data).unwrap()) {
-            eprintln!("Failed to write {}: {}", filename, e);
-        }
     }
 
     results

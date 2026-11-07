@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed: workspace hygiene
+- sim-core's `runner::telemetry` (and its `sim-telemetry` dependency) is
+  behind a new `telemetry` feature. Nothing in the products used it, but every
+  build compiled it.
+- sim-core no longer dev-depends on sim-kitchen: the population test that used
+  the kitchen `Customer` moved to `sim-kitchen/tests`. The telemetry demo
+  test no longer writes files into `/tmp`.
+- Dropped the unused `async`/`object_store` features of `parquet`.
+
 ### Fixed: caspers-cli
 - `caspers run --no-tui` exits non-zero when the simulation fails, its thread
   panics, or `--events-out` can't be written. It used to print the summary and

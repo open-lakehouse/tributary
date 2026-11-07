@@ -1,11 +1,7 @@
-//! End-to-end integration tests for Phase 6 Week 1 refinements
-//!
-//! These tests verify that all refinements work together correctly:
-//! - Batch operations across multiple handlers
-//! - Error handling maintains consistency
-//! - Domain integration (sim-kitchen)
+//! `PopulationHandler` with a real domain agent: batch operations, Arrow
+//! round trips and updates keep `Customer` state consistent.
 
-use geo_types::Point;
+use geo::Point;
 use sim_core::{Agent, SimulationConfig, SimulationContext, population::PopulationHandler};
 use sim_kitchen::agents::{Customer, CustomerStatus};
 
