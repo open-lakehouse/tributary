@@ -49,8 +49,12 @@ cargo run --bin caspers -- run
 cargo run --bin caspers -- run --duration 200 --num-kitchens 5 --num-customers 30
 
 # Headless, seeded run, then validate its output
-cargo run --bin caspers -- run --no-tui --duration 200 --seed 42 --events-out events.parquet
-cargo run --bin caspers -- validate --events events.parquet --artifacts output/artifacts
+cargo run --bin caspers -- run --no-tui --duration 200 --seed 42
+cargo run --bin caspers -- validate --events output/events.parquet --artifacts output/artifacts
+
+# Headless logistics run, then validate it
+cargo run --bin caspers -- run --no-tui --domain logistics --duration 480 --seed 42
+cargo run --bin caspers -- validate --domain logistics --events output/events.parquet
 
 # Build and install the Python package into the current environment
 just build-py

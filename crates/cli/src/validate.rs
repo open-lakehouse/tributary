@@ -4,7 +4,8 @@ use crate::error::{Error, Result};
 use sim_events::ParquetEventReader;
 use sim_validate::{DomainProfile, check_artifacts, read_artifact_dir, validate_events};
 
-/// Which domain's invariants to check.
+/// A simulation domain: what `caspers run` simulates and whose invariants
+/// `caspers validate` checks.
 #[derive(Debug, Clone, Default, clap::ValueEnum)]
 pub(crate) enum Domain {
     /// Ghost-kitchen order lifecycle.

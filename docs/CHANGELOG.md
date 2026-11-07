@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed: caspers-cli
+- `caspers run --domain logistics --no-tui` runs the package simulation
+  (range mode only) and prints its delivery metrics. Logistics used to have
+  no CLI entry point.
+- `--events-out` defaults to `output/events.parquet`, so every run writes
+  the events `caspers validate` needs. It used to write none unless asked.
+- A seeded range-mode run without `--start-time` starts at
+  `2026-01-05T11:00:00Z` instead of the wall clock, so its event times and
+  artifacts reproduce.
+
 ### Changed: sim-validate
 - `DomainProfile::logistics()` checks all five package stages:
   `received → sorted → loaded → in_transit → delivered` (it skipped `loaded`

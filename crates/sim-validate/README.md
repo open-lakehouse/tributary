@@ -27,6 +27,6 @@ assert!(report.is_ok(), "{:?}", report.violations);
 From the CLI:
 
 ```bash
-caspers run --no-tui --duration 200 --seed 42 --events-out events.parquet
-caspers validate --events events.parquet --artifacts output/artifacts
+caspers run --no-tui --duration 200 --seed 42
+caspers validate --events output/events.parquet --artifacts output/artifacts
 ```

@@ -1,6 +1,7 @@
 # caspers-cli
 
-Command-line interface for running Chef Casper's ghost kitchen simulations.
+Command-line interface for running Chef Casper's ghost kitchen simulation
+(and, headless, the logistics simulation).
 
 ## Installation
 
@@ -28,16 +29,21 @@ caspers run [OPTIONS]
 
 | Flag | Short | Default | Description |
 | ---- | ----- | ------- | ----------- |
+| `--domain` | — | `kitchen` | `kitchen`, or `logistics` (needs `--no-tui` and range mode) |
 | `--duration` | `-d` | `100` | Steps to run (30 s each) in range mode |
 | `--num-kitchens` | — | `3` | Number of ghost kitchens |
 | `--kitchen-capacity` | — | `5` | Orders each kitchen prepares at once |
 | `--num-customers` | — | `20` | Number of customer agents |
 | `--mode` | — | `range` | `range`, `live` (wall-clock paced) or `catchup` |
 | `--start-time` / `--end-time` | — | now / none | `now`, `now+3h`, `2026-01-01`, RFC 3339 |
-| `--seed` | — | none | Global seed; same seed → same event stream |
-| `--events-out` | — | none | Write events to this Parquet file at the end |
-| `--artifacts-out` | — | `output/artifacts` | Directory for generated artifacts (JSON Lines) |
+| `--seed` | — | none | Global seed; same seed → same events, times and artifacts |
+| `--events-out` | — | `output/events.parquet` | Parquet file the events are written to at the end |
+| `--artifacts-out` | — | `output/artifacts` | Directory for generated artifacts (JSON Lines, kitchen only) |
 | `--no-tui` | — | off | Headless: print a JSON summary; exit non-zero on failure |
+
+A seeded range-mode run without `--start-time` starts at
+`2026-01-05T11:00:00Z` rather than now, so its event times reproduce. Only
+the CloudEvents `id`s (random UUID v7s) differ between two such runs.
 
 **Keyboard shortcuts (during simulation):**
 
@@ -57,6 +63,9 @@ cargo run --bin caspers -- run --duration 50 --num-customers 10
 
 # Run with custom kitchen config
 cargo run --bin caspers -- run --duration 200 --num-kitchens 5 --kitchen-capacity 8
+
+# Four hours of package deliveries (headless only)
+cargo run --bin caspers -- run --no-tui --domain logistics --duration 480 --seed 5
 ```
 
 ## Telemetry
@@ -80,6 +89,9 @@ Check a run's events (and optionally artifacts) against the domain
 invariants:
 
 ```bash
-caspers run --no-tui --duration 200 --seed 42 --events-out events.parquet
-caspers validate --events events.parquet --artifacts output/artifacts --kitchen-capacity 15
+caspers run --no-tui --duration 200 --seed 42
+caspers validate --events output/events.parquet --artifacts output/artifacts --kitchen-capacity 15
+
+caspers run --no-tui --domain logistics --duration 480 --seed 42
+caspers validate --domain logistics --events output/events.parquet
 ```

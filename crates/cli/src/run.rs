@@ -7,12 +7,20 @@ use sim_core::{
     control_channel,
 };
 use sim_kitchen::KitchenSimulation;
+use sim_logistics::LogisticsSimulation;
 use uuid::Uuid;
 
 use crate::app::{App, Dialog, Screen, SimListEntry, short_event_type};
 use crate::error::Result;
 use crate::time_parse::parse_sim_time;
 use crate::tui::Tui;
+use crate::validate::Domain;
+
+/// Start time of a seeded range-mode run without `--start-time`
+///
+/// The wall clock would make every run's timestamps differ, so seeded runs
+/// start at a fixed instant (a Monday, 11:00 UTC) instead.
+pub(crate) const SEEDED_START_TIME: &str = "2026-01-05T11:00:00Z";
 
 /// Time mode for the simulation run
 #[derive(Debug, Clone, Default, clap::ValueEnum)]
@@ -28,6 +36,11 @@ pub enum RunMode {
 
 #[derive(Debug, Clone, clap::Parser)]
 pub(crate) struct RunArgs {
+    /// Which simulation to run. `logistics` runs headless only (`--no-tui`)
+    #[arg(long, default_value = "kitchen")]
+    domain: Domain,
+
+    /// Number of steps (30 s each) in range mode
     #[arg(short, long, default_value_t = 100)]
     duration: usize,
 
@@ -46,6 +59,7 @@ pub(crate) struct RunArgs {
 
     /// Simulation start time.
     /// Accepted: now  now+3h  now-30m  2026-01-01  2026-01-01T08:00:00Z
+    /// Default: now, or 2026-01-05T11:00:00Z for a seeded range-mode run.
     #[arg(long)]
     start_time: Option<String>,
 
@@ -58,17 +72,19 @@ pub(crate) struct RunArgs {
     #[arg(long)]
     no_tui: bool,
 
-    /// Global RNG seed for reproducible runs. When set, RNG-driven decisions
-    /// (demand, customer ordering) are identical run-to-run for the same params.
+    /// Global RNG seed for reproducible runs. With the same parameters, a
+    /// seeded range-mode run emits the same events at the same times and
+    /// (for the kitchen) the same artifacts. Only CloudEvents IDs differ.
     #[arg(long)]
     seed: Option<u64>,
 
-    /// Write the run's events to this Parquet file when the simulation ends.
-    /// Required input for `caspers validate`.
-    #[arg(long, value_name = "FILE")]
-    events_out: Option<std::path::PathBuf>,
+    /// Parquet file the run's events are written to when the simulation ends.
+    /// Input for `caspers validate`.
+    #[arg(long, value_name = "FILE", default_value = "output/events.parquet")]
+    events_out: std::path::PathBuf,
 
-    /// Directory for generated artifacts (JSON Lines), written when the run ends.
+    /// Directory for generated artifacts (JSON Lines), written when the run
+    /// ends. Kitchen only; logistics produces no artifacts.
     #[arg(long, value_name = "DIR", default_value = "output/artifacts")]
     artifacts_out: std::path::PathBuf,
 }
@@ -84,19 +100,26 @@ impl RunArgs {
 type TimeRange = (Option<DateTime<Utc>>, Option<DateTime<Utc>>);
 
 /// Parse `--start-time` / `--end-time`
+///
+/// A seeded range-mode run without `--start-time` starts at
+/// [`SEEDED_START_TIME`].
 fn parse_times(args: &RunArgs) -> Result<TimeRange> {
-    let parse = |flag: &str, value: &Option<String>| {
+    let parse = |flag: &str, value: Option<&str>| {
         value
-            .as_deref()
             .map(|s| {
                 parse_sim_time(s)
                     .map_err(|e| crate::error::Error::Other(format!("invalid --{flag}: {e}")))
             })
             .transpose()
     };
+    let start = match (&args.start_time, args.seed, &args.mode) {
+        (Some(start), _, _) => Some(start.as_str()),
+        (None, Some(_), RunMode::Range) => Some(SEEDED_START_TIME),
+        (None, _, _) => None,
+    };
     Ok((
-        parse("start-time", &args.start_time)?,
-        parse("end-time", &args.end_time)?,
+        parse("start-time", start)?,
+        parse("end-time", args.end_time.as_deref())?,
     ))
 }
 
@@ -144,22 +167,77 @@ fn max_steps(args: &RunArgs) -> usize {
     }
 }
 
-/// Write events to `--events-out`, if given
-fn save_events(sim: &mut KitchenSimulation, path: Option<&std::path::Path>) -> Result<()> {
-    if let Some(path) = path {
-        let n = sim.save_events(path).map_err(|e| {
-            crate::error::Error::Other(format!("writing events to {}: {e}", path.display()))
-        })?;
-        eprintln!("Wrote {n} events to {}", path.display());
-    }
+/// Report the outcome of writing events to `--events-out`
+fn report_saved(
+    path: &std::path::Path,
+    saved: std::result::Result<usize, Box<dyn std::error::Error>>,
+) -> Result<()> {
+    let n = saved.map_err(|e| {
+        crate::error::Error::Other(format!("writing events to {}: {e}", path.display()))
+    })?;
+    eprintln!("Wrote {n} events to {}", path.display());
     Ok(())
 }
 
 pub(super) async fn handle(args: RunArgs) -> Result<()> {
-    if args.no_tui {
-        return handle_headless(args).await;
+    match (&args.domain, args.no_tui) {
+        (Domain::Kitchen, true) => handle_headless(args).await,
+        (Domain::Kitchen, false) => handle_tui(args).await,
+        (Domain::Logistics, true) => handle_logistics(args),
+        (Domain::Logistics, false) => Err(crate::error::Error::Other(
+            "the TUI runs the kitchen only; pass --no-tui for --domain logistics".into(),
+        )),
     }
-    handle_tui(args).await
+}
+
+/// Run the logistics simulation headless and print a JSON summary
+fn handle_logistics(args: RunArgs) -> Result<()> {
+    if !matches!(args.mode, RunMode::Range) {
+        return Err(crate::error::Error::Other(
+            "--domain logistics supports --mode range only".into(),
+        ));
+    }
+    let (start_time, end_time) = parse_times(&args)?;
+    let mut sim = LogisticsSimulation::new_seeded(args.seed);
+    if let Some(st) = start_time {
+        sim.runner_mut().context_mut().set_current_time(st);
+    }
+    sim.runner_mut().set_time_mode(TimeMode::Range { end_time });
+
+    let mut steps = 0usize;
+    while steps < args.duration {
+        let tick = sim
+            .step()
+            .map_err(|e| crate::error::Error::Other(format!("simulation failed: {e}")))?;
+        steps += 1;
+        if steps.is_multiple_of(10) {
+            eprint!(".");
+        }
+        if tick == sim_core::TickResult::ReachedEnd {
+            break;
+        }
+    }
+    eprintln!();
+
+    let mut events_by_type: HashMap<String, u64> = HashMap::new();
+    for e in sim.event_records() {
+        *events_by_type.entry(e.event_type).or_default() += 1;
+    }
+    let metrics = sim.get_metrics();
+    let output = serde_json::json!({
+        "steps": steps,
+        "sim_time": sim.runner().context().current_time().to_rfc3339(),
+        "events_by_type": events_by_type,
+        "packages_created": metrics.packages_created,
+        "packages_delivered": metrics.packages_delivered,
+        "average_delivery_time_secs": metrics.average_delivery_time_secs,
+        "driver_utilization_percent": metrics.driver_utilization_percent,
+    });
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&output).expect("summary serializes")
+    );
+    report_saved(&args.events_out, sim.save_events(&args.events_out))
 }
 
 async fn handle_headless(args: RunArgs) -> Result<()> {
@@ -182,7 +260,7 @@ async fn handle_headless(args: RunArgs) -> Result<()> {
         sim.runner_mut().attach_control(receiver);
         sim.run_controlled_for(max)
             .map_err(|e| crate::error::Error::Other(format!("simulation failed: {e}")))?;
-        save_events(&mut sim, events_out.as_deref())
+        report_saved(&events_out, sim.save_events(&events_out))
     });
 
     let mut cumulative: HashMap<String, u64> = HashMap::new();
@@ -427,7 +505,7 @@ async fn handle_tui(args: RunArgs) -> Result<()> {
                 sim.runner_mut().attach_control(receiver);
                 sim.run_controlled_for(max)
                     .map_err(|e| crate::error::Error::Other(e.to_string()))?;
-                save_events(&mut sim, events_out.as_deref())
+                report_saved(&events_out, sim.save_events(&events_out))
             })();
         if let Err(e) = &result {
             sim.runner_mut().emit_event(SimEvent::Error(e.to_string()));
