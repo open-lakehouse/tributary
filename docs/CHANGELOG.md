@@ -11,6 +11,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed: sim-logistics delivers packages
+- Shipments never left their first step: only sorting stations were
+  registered, but the workflow's five steps need receivers, sorting stations,
+  docks, drivers and confirmers. All five are now `Station` resources (20
+  drivers, one package each), and packages are delivered.
+- One `PackageShipmentWorkflow` definition with an instance per package,
+  instead of a new workflow definition registered for every package.
+- Every stage emits its own event (`received`, `sorted`, `loaded`,
+  `in_transit`, `delivered`) with the real station and driver names. Before,
+  every step emitted `sorted` with a placeholder station, and `delivered` had
+  `driver_id: "unknown"`.
+- Driver utilization measures drivers carrying a package (it was pinned at
+  100%) and `drivers_used` is filled in. Delivery time is measured from
+  package creation for manual packages too (it used the wrong clock and
+  `.abs()`), and manual and generated packages share one tracking-number
+  sequence.
+- Packages are agents whose stage follows the workflow. Package priority
+  orders allocation.
+- `run_for_hours` derives steps from the 30 s step instead of assuming it.
+- Removed the parallel models that duplicated allocator and workflow timing
+  and had no production caller: the `Driver` agent, `SortingStation` and
+  `LoadingDock` (with hardcoded 30 s ticks), and the old `Package` state
+  machine. `build_logistics_runner*` are gone; `LogisticsSimulation` is the
+  entry point.
+
 ### Changed (breaking): sim-kitchen runs orders through workflows
 - Orders are `FoodPrepWorkflow` instances (prep 2 min → cook 5 min → package
   1 min) driven by the `WorkflowRegistry`, with `PrepTask` steps allocated to

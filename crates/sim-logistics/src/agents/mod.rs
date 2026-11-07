@@ -1,11 +1,7 @@
-//! Logistics agent types
+//! Agents in the logistics simulation
 //!
-//! This module contains agent implementations for the logistics domain:
-//! - Package: Passive agent tracking package lifecycle
-//! - Driver: Active agent handling package pickup and delivery
+//! - [`Package`]: a passive agent whose stage follows its shipment workflow
 
-pub mod driver;
 pub mod package;
 
-pub use driver::{Driver, DriverState};
-pub use package::{Package, PackagePriority, PackageState};
+pub use package::{Package, PackagePriority, PackageStage};

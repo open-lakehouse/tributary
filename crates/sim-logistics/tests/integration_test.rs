@@ -1,96 +1,60 @@
 //! Integration tests for sim-logistics
-//!
-//! Validates complete 24-hour simulation scenarios
 
 use sim_logistics::{LogisticsSimulation, PackagePriority};
 
 #[test]
-fn test_basic_package_delivery() {
-    let mut sim = LogisticsSimulation::new();
-
-    // Create a few packages
+fn manual_packages_are_delivered_within_an_hour() {
+    let mut sim = LogisticsSimulation::new_seeded(Some(1));
     sim.create_package(0, 0, 1.0, PackagePriority::Standard)
         .unwrap();
     sim.create_package(0, 1, 2.0, PackagePriority::Express)
         .unwrap();
     sim.create_package(1, 2, 1.5, PackagePriority::Standard)
         .unwrap();
-
     assert_eq!(sim.package_count(), 3);
     assert_eq!(sim.get_metrics().packages_created, 3);
 
-    // Run for 1 hour
     sim.run_for_hours(1).unwrap();
 
-    // Verify simulation ran without errors
-    assert!(sim.get_metrics().packages_created >= 3);
+    // The pipeline takes 42 minutes, so the three manual packages (and any
+    // early demand-generated ones) are through.
+    let metrics = sim.get_metrics();
+    assert!(metrics.packages_delivered >= 3, "{metrics:?}");
 }
 
 #[test]
-fn test_24_hour_simulation() {
-    let mut sim = LogisticsSimulation::new();
-
-    // Create initial batch of packages
+fn day_long_run_delivers_the_backlog() {
+    let mut sim = LogisticsSimulation::new_seeded(Some(2));
     for i in 0..100 {
-        let warehouse_idx = i % 2;
-        let destination_idx = i * 10;
-        let weight = 1.0 + (i % 5) as f64 * 0.5;
         let priority = if i % 3 == 0 {
             PackagePriority::Express
         } else {
             PackagePriority::Standard
         };
-
-        sim.create_package(warehouse_idx, destination_idx, weight, priority)
+        sim.create_package(i % 2, i * 10, 1.0 + (i % 5) as f64 * 0.5, priority)
             .unwrap();
     }
-
     assert_eq!(sim.package_count(), 100);
 
-    // Run for 24 hours
     sim.run_for_hours(24).unwrap();
 
-    // Verify metrics
     let metrics = sim.get_metrics();
+    // ~10 demand packages per hour on top of the backlog; everything created
+    // more than an hour before the end is delivered.
+    assert!(metrics.packages_created >= 300, "{metrics:?}");
     assert!(
-        metrics.packages_created >= 100,
-        "Should have created at least 100 packages"
+        metrics.packages_delivered + 15 >= metrics.packages_created,
+        "{metrics:?}"
     );
-
-    // Note: In a full implementation, we would verify:
-    // - packages_delivered >= some threshold
-    // - driver_utilization > 0.0
-    // - average_delivery_time_secs is reasonable
+    assert_eq!(metrics.drivers_used, 20);
+    assert!(metrics.driver_utilization_percent > 0.0);
+    assert!(metrics.average_delivery_time_secs >= 42.0 * 60.0);
 }
 
 #[test]
-fn test_framework_generality_zero_modifications() {
-    // This test ensures sim-core has ZERO knowledge of logistics domain
-    use sim_core::*;
-
-    // Framework should work with generic types only
-    let config = SimulationConfig::default();
-    let ctx = SimulationContext::from_now(config);
-
-    // Compilation proves framework is truly generic - no logistics-specific types
-    // needed. Exercise the generic context to confirm it is usable standalone.
-    assert!(
-        ctx.time_step().num_seconds() > 0,
-        "Framework context should expose a positive default time step"
-    );
-}
-
-#[test]
-fn test_multiple_warehouses() {
+fn default_layout() {
     let sim = LogisticsSimulation::new();
-
     assert_eq!(sim.warehouse_count(), 2);
     assert_eq!(sim.delivery_address_count(), 1000);
-}
-
-#[test]
-fn test_driver_fleet() {
-    let sim = LogisticsSimulation::new();
-
     assert_eq!(sim.driver_count(), 20);
 }

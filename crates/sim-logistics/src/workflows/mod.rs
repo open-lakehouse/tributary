@@ -1,6 +1,4 @@
-//! Logistics workflow types
-//!
-//! Workflows define multi-stage processing pipelines for the logistics domain.
+//! Workflow definitions for the logistics simulation
 
 pub mod shipment;
 

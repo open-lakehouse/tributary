@@ -1,181 +1,57 @@
 # sim-logistics
 
-Package delivery simulation demonstrating framework generality.
+Package delivery simulation: the second domain on the `sim-*` framework. It
+exercises agents, resources, workflows and demand generation from a domain
+that shares nothing with the kitchen.
 
-## Overview
-
-`sim-logistics` validates that the simulation framework (sim-core, sim-geo, sim-events) is truly domain-agnostic by implementing a complete logistics domain with **ZERO** framework modifications.
-
-This crate proves that:
-- Generic abstractions work across domains
-- Allocation strategies are reusable
-- Event patterns transfer seamlessly
-- Geospatial components are domain-agnostic
-
-## Domain Model
-
-### Agents
-- **Package**: Passive agent tracking package lifecycle
-- **Driver**: Active agent handling pickup and delivery
-
-### Resources
-- **SortingStation**: Package sorting with capacity constraints
-- **LoadingDock**: Vehicle loading operations
-
-### Workflows
-- **PackageShipmentWorkflow**: 5-step delivery pipeline
-  1. Received (at warehouse)
-  2. Sorted (by sorting station)
-  3. Loaded (onto vehicle)
-  4. InTransit (with driver)
-  5. Delivered (at destination)
-
-### Locations
-- **Warehouse**: Package processing centers with H3 indexing
-- **DeliveryAddress**: Final destinations with spatial optimization
-
-## Quick Start
-
-### Basic Example
+## Quick start
 
 ```rust
-use sim_logistics::LogisticsSimulation;
+use sim_logistics::{LogisticsSimulation, PackagePriority};
 
-let mut sim = LogisticsSimulation::new();
+let mut sim = LogisticsSimulation::new_seeded(Some(42));
+sim.create_package(0, 17, 2.5, PackagePriority::Express)?; // optional extra packages
 sim.run_for_hours(24)?;
 
-let metrics = sim.get_metrics();
-println!("Packages delivered: {}", metrics.packages_delivered);
-println!("Driver utilization: {:.1}%", metrics.driver_utilization);
+let m = sim.get_metrics();
+println!("{} of {} packages delivered, drivers {:.0}% busy",
+    m.packages_delivered, m.packages_created, m.driver_utilization_percent);
+sim.save_events("output/logistics-events.parquet")?;
 ```
 
-### Priority Packages
+From Python: `caspers.run_logistics_simulation(steps=2880)`.
 
-```rust
-use sim_logistics::{Package, PackagePriority};
+## Domain model
 
-let express = Package::new(
-    origin,
-    destination,
-    PackagePriority::Express,
-);
+| Framework concept | Logistics type |
+|---|---|
+| Agent | `Package`, passive: `created → received → sorted → in_transit → delivered` |
+| Resource | `Station`: receivers, sorting stations, loading docks, drivers (capacity 1), confirmers |
+| Workflow | `PackageShipmentWorkflow`: receive → sort (5 min) → load (6 min) → transit (30 min) → confirm (1 min) |
+| Task | `ShipmentTask` from `ShipmentTaskFactory` (carries the package priority) |
+| Demand | Poisson, 10 packages per hour |
 
-let overnight = Package::new(
-    origin,
-    destination,
-    PackagePriority::Overnight,
-);
-```
+The default layout has two warehouses, 1000 delivery addresses in the Bay
+Area, two sorting stations, two docks and 20 drivers. Time advances 30 s per
+step. Overnight and express packages are allocated before standard ones at
+every station. With a seed the address layout, demand and package routing are
+reproducible, and so is the event stream.
 
-### Multi-Warehouse Network
+## Events
 
-```rust
-use sim_logistics::Warehouse;
+| Type | When | Data |
+|---|---|---|
+| `io.logistics.package.received` | receive step done | `package_id`, `warehouse_id`, destination |
+| `io.logistics.package.sorted` | sort step done | `package_id`, `sorting_station_id`, `warehouse_id` |
+| `io.logistics.package.loaded` | driver allocated | `package_id`, `driver_id`, `loading_dock_id` |
+| `io.logistics.package.in_transit` | driver allocated | `package_id`, `driver_id`, `estimated_arrival` |
+| `io.logistics.package.delivered` | confirm step done | `package_id`, `driver_id`, `delivery_time`, destination |
 
-let mut sim = LogisticsSimulation::new();
+All events use the tracking number (`PKG-000001`, …) as `package_id` and
+CloudEvents subject.
 
-for location in warehouse_locations {
-    sim.add_warehouse(Warehouse {
-        id: LocationId::new(),
-        position: location,
-        capacity: 1000,
-    })?;
-}
+## Metrics
 
-sim.run_for_steps(1000)?;
-```
-
-## Events (CloudEvents 1.0)
-
-All state transitions emit CloudEvents:
-
-- `io.logistics.package.received` - Package arrives at warehouse
-- `io.logistics.package.sorted` - Package sorted for loading
-- `io.logistics.package.loaded` - Package loaded onto vehicle
-- `io.logistics.package.in_transit` - Package en route to destination
-- `io.logistics.package.delivered` - Package delivered successfully
-
-## Framework Validation
-
-This implementation demonstrates:
-
-### No Framework Modifications
-- sim-core: **Unchanged**
-- sim-geo: **Unchanged**
-- sim-events: **Unchanged**
-
-### All Abstractions Work
-- `Agent` trait: Package and Driver
-- `Resource` trait: SortingStation and LoadingDock
-- `Task` trait: ShipmentTask
-- `Workflow` trait: PackageShipmentWorkflow
-
-### Reusable Strategies
-- LeastLoaded allocation strategy
-- RoundRobin distribution
-- Standard event patterns
-
-### Geospatial Integration
-- LocationHandler for warehouses
-- MovementHandler for driver routes
-- H3 indexing for delivery zones
-
-## Comparison with sim-kitchen
-
-| Aspect | sim-kitchen | sim-logistics | Framework Changes |
-|--------|-------------|---------------|-------------------|
-| Agents | Customer, Courier | Package, Driver | **None** |
-| Resources | Kitchen | SortingStation, LoadingDock | **None** |
-| Tasks | Order | ShipmentTask | **None** |
-| Workflows | Supply chain | Package shipment | **None** |
-| Events | 5 types | 5 types | **None** |
-| Locations | Distribution sites | Warehouses, Addresses | **None** |
-
-**Result**: Same framework, different domain, no modifications needed.
-
-## Testing
-
-```bash
-cargo test -p sim-logistics
-```
-
-All tests validate:
-- Package state transitions
-- Resource capacity management
-- Workflow progression
-- Event emission
-- Geospatial operations
-
-## Dependencies
-
-- `sim-core 0.0.1` - Unchanged simulation framework
-- `sim-geo 0.0.1` - Unchanged geospatial components
-- `sim-events 0.0.1` - Unchanged event infrastructure
-- `chrono 0.4` - Time handling
-- `geo 0.31` - Geospatial types
-- `h3o 0.9` - H3 indexing
-- `rand 0.9` - Random generation
-- `serde_json 1.0` - JSON serialization
-
-## Version Information
-
-Current version: `0.0.1`
-
-See [CHANGELOG.md](CHANGELOG.md) for detailed version history.
-
-## Documentation
-
-- [Architecture](docs/architecture.md) - Framework generality validation, design principles
-- [Patterns](docs/patterns.md) - Common usage patterns and best practices
-- [Troubleshooting](docs/troubleshooting.md) - Common issues, debugging tips, and FAQ
-
-## Related Crates
-
-- `sim-core` - Core simulation framework (unchanged)
-- `sim-geo` - Geospatial components (unchanged)
-- `sim-events` - CloudEvents infrastructure (unchanged)
-- `sim-kitchen` - Reference implementation (ghost kitchen)
-
-## License
-
-MIT OR Apache-2.0
+`get_metrics()` reports packages created and delivered, distinct drivers
+used, mean creation-to-delivery time, and mean driver utilization (share of
+drivers carrying a package, averaged over steps).

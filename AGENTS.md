@@ -196,12 +196,11 @@ pub trait SimulationHooks: Send + Sync + 'static {
 
 ### sim-logistics (Package Delivery)
 
-- **Package agents**: Passive — represent packages being processed
-- **Driver agents**: Active — transport packages between locations
-- **Resources**: `SortingStation` (capacity), `LoadingDock` (vehicle loading)
-- **Workflows**: `PackageShipmentWorkflow` — 5-step pipeline via `WorkflowRegistry`
+- **Package agents**: passive; stage follows the workflow (`created → received → sorted → in_transit → delivered`)
+- **Station resources**: receivers, sorting stations, loading docks, drivers (capacity 1), delivery confirmers
+- **Workflows**: `PackageShipmentWorkflow` — 5-step pipeline via `WorkflowRegistry`, one instance per package
 - **Locations**: `Warehouse`, `DeliveryAddress` (H3-indexed)
-- **Entry point**: `LogisticsSimulation::new(config)`
+- **Entry point**: `LogisticsSimulation::new()` / `new_seeded(seed)`; drive with `step()` or `run_for_hours(h)`
 
 ---
 
