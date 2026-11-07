@@ -1,4 +1,5 @@
 use super::*;
+use crate::pricing::OrderCharges;
 use sim_events::EventRecord;
 
 const CREATED: &str = "io.kitchen.order.created";
@@ -227,6 +228,44 @@ fn artifact_dir_receives_artifacts_that_reference_events() {
     for line in tickets.lines() {
         let v: serde_json::Value = serde_json::from_str(line).unwrap();
         assert!(event_ids.contains(v["source_event_id"].as_str().unwrap()));
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn payments_receipts_and_events_agree_on_amounts() {
+    let dir = std::env::temp_dir().join(format!("kitchen-amounts-{}", uuid::Uuid::new_v4()));
+    let mut sim = KitchenSimulation::new_seeded(3, 5, false, Some(11)).with_artifact_dir(&dir);
+    sim.add_customers(20);
+    sim.run_for_steps(240).unwrap();
+
+    let read = |rel: &str| -> HashMap<String, serde_json::Value> {
+        std::fs::read_to_string(dir.join(rel))
+            .unwrap()
+            .lines()
+            .map(|l| {
+                let v: serde_json::Value = serde_json::from_str(l).unwrap();
+                (v["data"]["order_id"].as_str().unwrap().to_string(), v)
+            })
+            .collect()
+    };
+    let payments = read("structured/payment_authorization.jsonl");
+    let loyalty = read("structured/loyalty_transaction.jsonl");
+
+    let events = sim.event_records();
+    let created = of_type(&events, CREATED);
+    assert_eq!(payments.len(), created.len());
+    for e in created {
+        let d = data(e);
+        let charged = OrderCharges::for_subtotal(d["total_price"].as_f64().unwrap()).total;
+        assert_eq!(
+            payments[d["order_id"].as_str().unwrap()]["data"]["amount"],
+            charged
+        );
+    }
+    assert!(!loyalty.is_empty(), "some customers should finish eating");
+    for (order_id, l) in &loyalty {
+        assert_eq!(l["data"]["amount"], payments[order_id]["data"]["amount"]);
     }
     std::fs::remove_dir_all(dir).unwrap();
 }

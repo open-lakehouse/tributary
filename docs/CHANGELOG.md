@@ -11,6 +11,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed: sim-kitchen artifacts
+- One price model: `OrderCharges::for_subtotal` (new `pricing` module, with
+  `menu_price`) turns the events' `total_price` into subtotal, tax, tip and
+  total. The payment authorization now authorizes the total the receipt
+  shows; it used to authorize the pre-tax subtotal. The authorization record
+  carries `subtotal`, `tax`, `tip` and `currency`, and the loyalty record
+  carries `amount`.
+- Session, message and document IDs are derived from the order ID (UUID v5)
+  instead of random UUIDs, so a seeded run reproduces its artifacts.
+- Generators return an error for an event without a field they need. They
+  used to substitute `15.0`, `"unknown"` or an empty string.
+- `add_to_cart` lists every ordered item, not only the first.
+- `menu_price` lives in `sim_kitchen::pricing`; the old paths still work.
+
 ### Documentation: drop legacy docs
 - Removed the concept pages, guides, `docs/api-reference/`, `docs/examples/`,
   `docs/decisions/`, `GETTING_STARTED.md`, `API_REFERENCE_INDEX.md`, the docs

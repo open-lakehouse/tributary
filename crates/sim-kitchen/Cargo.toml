@@ -16,7 +16,7 @@ geo = { workspace = true, features = ["serde"] }
 rand = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-uuid = { workspace = true }
+uuid = { workspace = true, features = ["v5"] }
 
 [dev-dependencies]
 approx = { workspace = true }

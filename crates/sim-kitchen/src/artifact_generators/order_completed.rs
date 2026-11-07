@@ -2,12 +2,13 @@
 //!
 //! Produces the following artifacts:
 //! 1. `DataArtifact`: kitchen_ticket
-//! 2. `DataArtifact`: ingredient_usage (per ingredient)
+//! 2. `DataArtifact`: ingredient_usage
 //! 3. `DataArtifact`: quality_control
 
 use sim_artifacts::core::DataArtifact;
 use sim_artifacts::{Artifact, ArtifactContext, ArtifactError, ArtifactGenerator};
 
+use super::{event_id, str_field};
 use crate::profiles::ProfileRegistry;
 
 pub struct OrderCompletedArtifactGenerator;
@@ -33,46 +34,49 @@ impl ArtifactGenerator<ProfileRegistry> for OrderCompletedArtifactGenerator {
         &mut self,
         ctx: &mut ArtifactContext<'_, ProfileRegistry>,
     ) -> Result<Vec<Artifact>, ArtifactError> {
-        let data = &ctx.event["data"];
-        let order_id = data["order_id"].as_str().unwrap_or("unknown").to_string();
-        let kitchen_id = data["kitchen_id"].as_str().unwrap_or("unknown").to_string();
+        let source_event_id = event_id(ctx.event)?.to_string();
+        let order_id = str_field(ctx.event, "order_id")?;
+        let kitchen_id = str_field(ctx.event, "kitchen_id")?;
         let now = ctx.sim_time;
 
-        let ticket = Artifact::StructuredData(DataArtifact {
-            record_type: "kitchen_ticket".to_string(),
-            source_event_id: ctx.event["id"].as_str().unwrap_or("").to_string(),
-            data: serde_json::json!({
+        let record = |record_type: &str, data: serde_json::Value| {
+            Artifact::StructuredData(DataArtifact {
+                record_type: record_type.to_string(),
+                source_event_id: source_event_id.clone(),
+                data,
+                timestamp: now,
+            })
+        };
+
+        let ticket = record(
+            "kitchen_ticket",
+            serde_json::json!({
                 "order_id": order_id,
                 "kitchen_id": kitchen_id,
                 "completed_at": now.to_rfc3339(),
             }),
-            timestamp: now,
-        });
+        );
 
-        let ingredient_usage = Artifact::StructuredData(DataArtifact {
-            record_type: "ingredient_usage".to_string(),
-            source_event_id: ctx.event["id"].as_str().unwrap_or("").to_string(),
-            data: serde_json::json!({
+        let ingredient_usage = record(
+            "ingredient_usage",
+            serde_json::json!({
                 "order_id": order_id,
                 "kitchen_id": kitchen_id,
                 "recorded_at": now.to_rfc3339(),
             }),
-            timestamp: now,
-        });
+        );
 
         let temp_check = 165.0 + (now.timestamp() % 10) as f64;
-        let qc = Artifact::StructuredData(DataArtifact {
-            record_type: "quality_control".to_string(),
-            source_event_id: ctx.event["id"].as_str().unwrap_or("").to_string(),
-            data: serde_json::json!({
+        let qc = record(
+            "quality_control",
+            serde_json::json!({
                 "order_id": order_id,
                 "kitchen_id": kitchen_id,
                 "temp_check_fahrenheit": temp_check,
                 "passed": temp_check >= 165.0,
                 "checked_at": now.to_rfc3339(),
             }),
-            timestamp: now,
-        });
+        );
 
         Ok(vec![ticket, ingredient_usage, qc])
     }
@@ -81,6 +85,19 @@ impl ArtifactGenerator<ProfileRegistry> for OrderCompletedArtifactGenerator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::artifact_generators::test_support::{event, generate};
+
+    fn order_completed() -> serde_json::Value {
+        event(
+            "io.kitchen.order.completed",
+            serde_json::json!({
+                "order_id": "order-abc-1",
+                "customer_id": "cust-1",
+                "kitchen_id": "kitchen-1",
+                "prep_time_seconds": 480,
+            }),
+        )
+    }
 
     #[test]
     fn test_handles_correct_event_type() {
@@ -90,9 +107,36 @@ mod tests {
     }
 
     #[test]
-    fn test_generate_returns_expected_artifact_count() {
-        // TODO: implement once we have the impl
-        // Just verify the generator compiles and can be constructed
-        let _gen = OrderCompletedArtifactGenerator::new();
+    fn generates_records_for_the_order_and_kitchen() {
+        let artifacts = generate(
+            &mut OrderCompletedArtifactGenerator::new(),
+            &order_completed(),
+        )
+        .expect("valid event");
+        let records: Vec<&DataArtifact> = artifacts
+            .iter()
+            .map(|a| match a {
+                Artifact::StructuredData(d) => d,
+                other => panic!("unexpected artifact {other:?}"),
+            })
+            .collect();
+        let types: Vec<&str> = records.iter().map(|d| d.record_type.as_str()).collect();
+        assert_eq!(
+            types,
+            ["kitchen_ticket", "ingredient_usage", "quality_control"]
+        );
+        for d in records {
+            assert_eq!(d.source_event_id, "evt-1");
+            assert_eq!(d.data["order_id"], "order-abc-1");
+            assert_eq!(d.data["kitchen_id"], "kitchen-1");
+        }
+    }
+
+    #[test]
+    fn missing_kitchen_is_an_error() {
+        let mut e = order_completed();
+        e["data"].as_object_mut().unwrap().remove("kitchen_id");
+        let err = generate(&mut OrderCompletedArtifactGenerator::new(), &e).unwrap_err();
+        assert!(err.to_string().contains("kitchen_id"), "{err}");
     }
 }

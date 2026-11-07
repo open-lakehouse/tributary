@@ -6,12 +6,18 @@
 //! 3. `SmsArtifact`: "Your order #XXXX has been received!"
 //! 4. `ApiCallArtifact`: payment_processor POST
 //! 5. `DataArtifact`: payment_authorization
+//!
+//! The payment authorizes the order's full [`OrderCharges::total`]
+//! (subtotal, tax and tip), the amount the receipt shows when the customer
+//! finishes.
 
 use sim_artifacts::core::{
     ApiCallArtifact, DataArtifact, EmailArtifact, SmsArtifact, WebEventArtifact,
 };
 use sim_artifacts::{Artifact, ArtifactContext, ArtifactError, ArtifactGenerator};
 
+use super::{artifact_id, artifact_uuid, event_id, f64_field, short, str_field};
+use crate::pricing::OrderCharges;
 use crate::profiles::ProfileRegistry;
 
 pub struct OrderCreatedArtifactGenerator;
@@ -37,100 +43,74 @@ impl ArtifactGenerator<ProfileRegistry> for OrderCreatedArtifactGenerator {
         &mut self,
         ctx: &mut ArtifactContext<'_, ProfileRegistry>,
     ) -> Result<Vec<Artifact>, ArtifactError> {
-        let data = &ctx.event["data"];
-        let order_id = data["order_id"].as_str().unwrap_or("unknown").to_string();
-        let customer_id_str = data["customer_id"].as_str().unwrap_or("").to_string();
-        let amount = data["total_price"].as_f64().unwrap_or(15.0);
+        let source_event_id = event_id(ctx.event)?.to_string();
+        let order_id = str_field(ctx.event, "order_id")?.to_string();
+        let customer_id = str_field(ctx.event, "customer_id")?.to_string();
+        let charges = OrderCharges::for_subtotal(f64_field(ctx.event, "total_price")?);
+        let items = ctx.event["data"]["items"].clone();
 
-        let session_id = uuid::Uuid::new_v4().to_string();
+        let session_id = artifact_id(&order_id, "web-session");
         let now = ctx.sim_time;
 
+        let web_event = |name: &str, seconds_before: i64, properties: serde_json::Value| {
+            Artifact::WebEvent(WebEventArtifact {
+                session_id: session_id.clone(),
+                event_name: name.to_string(),
+                user_id: customer_id.clone(),
+                timestamp: now - chrono::Duration::seconds(seconds_before),
+                device_type: "mobile".to_string(),
+                browser: "safari".to_string(),
+                ip_address: "10.0.1.1".to_string(),
+                utm_source: (name == "page_view").then(|| "organic".to_string()),
+                utm_medium: None,
+                utm_campaign: None,
+                properties,
+            })
+        };
         let web_events = vec![
-            Artifact::WebEvent(WebEventArtifact {
-                session_id: session_id.clone(),
-                event_name: "page_view".to_string(),
-                user_id: customer_id_str.clone(),
-                timestamp: now - chrono::Duration::seconds(120),
-                device_type: "mobile".to_string(),
-                browser: "safari".to_string(),
-                ip_address: "10.0.1.1".to_string(),
-                utm_source: Some("organic".to_string()),
-                utm_medium: None,
-                utm_campaign: None,
-                properties: serde_json::json!({"page": "/menu"}),
-            }),
-            Artifact::WebEvent(WebEventArtifact {
-                session_id: session_id.clone(),
-                event_name: "add_to_cart".to_string(),
-                user_id: customer_id_str.clone(),
-                timestamp: now - chrono::Duration::seconds(90),
-                device_type: "mobile".to_string(),
-                browser: "safari".to_string(),
-                ip_address: "10.0.1.1".to_string(),
-                utm_source: None,
-                utm_medium: None,
-                utm_campaign: None,
-                properties: serde_json::json!({
-                    "item": data["items"].get(0).and_then(|i| i.as_str()).unwrap_or("item")
-                }),
-            }),
-            Artifact::WebEvent(WebEventArtifact {
-                session_id: session_id.clone(),
-                event_name: "checkout_initiated".to_string(),
-                user_id: customer_id_str.clone(),
-                timestamp: now - chrono::Duration::seconds(60),
-                device_type: "mobile".to_string(),
-                browser: "safari".to_string(),
-                ip_address: "10.0.1.1".to_string(),
-                utm_source: None,
-                utm_medium: None,
-                utm_campaign: None,
-                properties: serde_json::json!({"cart_total": amount}),
-            }),
-            Artifact::WebEvent(WebEventArtifact {
-                session_id: session_id.clone(),
-                event_name: "order_placed".to_string(),
-                user_id: customer_id_str.clone(),
-                timestamp: now,
-                device_type: "mobile".to_string(),
-                browser: "safari".to_string(),
-                ip_address: "10.0.1.1".to_string(),
-                utm_source: None,
-                utm_medium: None,
-                utm_campaign: None,
-                properties: serde_json::json!({"order_id": order_id, "total": amount}),
-            }),
+            web_event("page_view", 120, serde_json::json!({"page": "/menu"})),
+            web_event("add_to_cart", 90, serde_json::json!({"items": items})),
+            web_event(
+                "checkout_initiated",
+                60,
+                serde_json::json!({"cart_total": charges.subtotal}),
+            ),
+            web_event(
+                "order_placed",
+                0,
+                serde_json::json!({"order_id": order_id, "total": charges.total}),
+            ),
         ];
 
-        let order_id_prefix = &order_id[..8.min(order_id.len())];
-        let customer_id_prefix = &customer_id_str[..8.min(customer_id_str.len())];
-
         let email = Artifact::EmailMessage(EmailArtifact {
-            message_id: uuid::Uuid::new_v4().to_string(),
+            message_id: artifact_id(&order_id, "order-confirmation-email"),
             from_address: "orders@tributarykitchen.com".to_string(),
-            to_address: format!("customer-{}@example.com", customer_id_prefix),
-            subject: format!("Order #{} Confirmed!", order_id_prefix),
+            to_address: format!("customer-{}@example.com", short(&customer_id)),
+            subject: format!("Order #{} Confirmed!", short(&order_id)),
             body_html: format!(
                 "<html><body><h1>Order Confirmed</h1><p>Order ID: {}</p><p>Total: ${:.2}</p></body></html>",
-                order_id, amount
+                order_id, charges.total
             ),
             email_type: "order_confirmation".to_string(),
             related_entity_id: order_id.clone(),
         });
 
         let sms = Artifact::SmsMessage(SmsArtifact {
-            message_id: uuid::Uuid::new_v4().to_string(),
+            message_id: artifact_id(&order_id, "order-received-sms"),
             from_number: "+18005551234".to_string(),
             to_number: "+14155550000".to_string(),
             body: format!(
                 "Your order #{} has been received! We'll notify you when it's ready.",
-                order_id_prefix
+                short(&order_id)
             ),
             related_entity_id: order_id.clone(),
             timestamp: now,
         });
 
-        let auth_code = format!("{:06}", (amount * 100.0) as u64 % 1_000_000);
+        let auth_code = format!(
+            "{:06}",
+            artifact_uuid(&order_id, "payment-auth").as_u128() % 1_000_000
+        );
 
         let api_call = Artifact::ApiCall(ApiCallArtifact {
             service: "payment_processor".to_string(),
@@ -138,7 +118,7 @@ impl ArtifactGenerator<ProfileRegistry> for OrderCreatedArtifactGenerator {
             url: "https://payment-api.example.com/v1/authorize".to_string(),
             request_body: serde_json::json!({
                 "order_id": order_id,
-                "amount": amount,
+                "amount": charges.total,
                 "currency": "USD",
                 "card_last_four": "4242",
             }),
@@ -153,11 +133,15 @@ impl ArtifactGenerator<ProfileRegistry> for OrderCreatedArtifactGenerator {
 
         let payment_data = Artifact::StructuredData(DataArtifact {
             record_type: "payment_authorization".to_string(),
-            source_event_id: ctx.event["id"].as_str().unwrap_or("").to_string(),
+            source_event_id,
             data: serde_json::json!({
                 "order_id": order_id,
-                "customer_id": customer_id_str,
-                "amount": amount,
+                "customer_id": customer_id,
+                "subtotal": charges.subtotal,
+                "tax": charges.tax,
+                "tip": charges.tip,
+                "amount": charges.total,
+                "currency": "USD",
                 "card_last_four": "4242",
                 "auth_code": auth_code,
                 "status": "approved",
@@ -178,6 +162,19 @@ impl ArtifactGenerator<ProfileRegistry> for OrderCreatedArtifactGenerator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::artifact_generators::test_support::{event, generate};
+
+    fn order_created() -> serde_json::Value {
+        event(
+            "io.kitchen.order.created",
+            serde_json::json!({
+                "order_id": "order-abc-1",
+                "customer_id": "cust-1234567890",
+                "items": ["burger"],
+                "total_price": 12.5,
+            }),
+        )
+    }
 
     #[test]
     fn test_handles_correct_event_type() {
@@ -188,9 +185,70 @@ mod tests {
     }
 
     #[test]
-    fn test_generate_returns_expected_artifact_count() {
-        // TODO: implement once we have the impl
-        // Just verify the generator compiles and can be constructed
-        let _gen = OrderCreatedArtifactGenerator::new();
+    fn generates_one_session_and_a_payment_for_the_full_charge() {
+        let artifacts = generate(&mut OrderCreatedArtifactGenerator::new(), &order_created())
+            .expect("valid event");
+        assert_eq!(artifacts.len(), 8);
+
+        let sessions: Vec<&str> = artifacts
+            .iter()
+            .filter_map(|a| match a {
+                Artifact::WebEvent(w) => Some(w.session_id.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(sessions.len(), 4);
+        assert!(sessions.iter().all(|s| *s == sessions[0]));
+
+        let total = OrderCharges::for_subtotal(12.5).total;
+        let payment = artifacts
+            .iter()
+            .find_map(|a| match a {
+                Artifact::StructuredData(d) if d.record_type == "payment_authorization" => Some(d),
+                _ => None,
+            })
+            .expect("payment_authorization");
+        assert_eq!(payment.source_event_id, "evt-1");
+        assert_eq!(payment.data["amount"], total);
+        assert_eq!(payment.data["subtotal"], 12.5);
+
+        let api = artifacts
+            .iter()
+            .find_map(|a| match a {
+                Artifact::ApiCall(c) => Some(c),
+                _ => None,
+            })
+            .expect("payment API call");
+        assert_eq!(api.request_body["amount"], total);
+        assert_eq!(api.response_body["auth_code"], payment.data["auth_code"]);
+    }
+
+    #[test]
+    fn ids_derive_from_the_order() {
+        let ids = |e: &serde_json::Value| -> Vec<String> {
+            generate(&mut OrderCreatedArtifactGenerator::new(), e)
+                .unwrap()
+                .iter()
+                .filter_map(|a| match a {
+                    Artifact::WebEvent(w) => Some(w.session_id.clone()),
+                    Artifact::EmailMessage(m) => Some(m.message_id.clone()),
+                    Artifact::SmsMessage(m) => Some(m.message_id.clone()),
+                    _ => None,
+                })
+                .collect()
+        };
+        let a = order_created();
+        let mut b = order_created();
+        b["data"]["order_id"] = "order-abc-2".into();
+        assert_eq!(ids(&a), ids(&a));
+        assert_ne!(ids(&a), ids(&b));
+    }
+
+    #[test]
+    fn missing_price_is_an_error() {
+        let mut e = order_created();
+        e["data"].as_object_mut().unwrap().remove("total_price");
+        let err = generate(&mut OrderCreatedArtifactGenerator::new(), &e).unwrap_err();
+        assert!(err.to_string().contains("total_price"), "{err}");
     }
 }
