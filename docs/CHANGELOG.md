@@ -11,6 +11,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Documentation: remove pre-migration descriptions
+- `DEPLOYMENT.md` describes what exists: the CLI, its outputs, Python,
+  observability and `RUST_LOG`. It used to document a TOML config file,
+  `SIM_*` environment variables, a `sim-runner` binary, a metrics port and a
+  REST API, none of which exist.
+- The sim-geo API reference documents the real `MovementHandler` and
+  `VelocityModel` (it described `start_journey`/`tick`/`JourneyRequest` and a
+  different trait), and the spatial concepts page uses real names
+  (`movement::ConstantVelocity`, `TimeOfDayVelocity::new(..).with_utc_offset`,
+  `save_to_file`/`load_from_file`).
+- The sim-events reference shows the real `Event` API and marks its payloads
+  as examples (sim-events ships none). sim-core's architecture page shows the
+  registry-based runner and the actual tick order.
+- Removed the uncompiled `docs/examples/custom/*-template.rs` files, which no
+  longer matched the APIs; the domain crates are the templates.
+- AGENTS.md: correct `move_towards` signature and test count.
+
 ### Changed: workspace hygiene
 - sim-core's `runner::telemetry` (and its `sim-telemetry` dependency) is
   behind a new `telemetry` feature. Nothing in the products used it, but every

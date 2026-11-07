@@ -131,7 +131,7 @@ let journey = JourneyState {
 Manage all agent journeys:
 
 ```rust
-use sim_geo::{MovementHandler, ConstantVelocity};
+use sim_geo::{MovementHandler, movement::ConstantVelocity};
 
 // Create handler with constant velocity (5 m/s = 18 km/h)
 let mut movement = MovementHandler::new()
@@ -163,7 +163,7 @@ if let Some(journey) = movement.get_journey(agent_id) {
 Fixed speed:
 
 ```rust
-use sim_geo::ConstantVelocity;
+use sim_geo::movement::ConstantVelocity;
 
 // 5 m/s (18 km/h, walking speed)
 let model = ConstantVelocity::new(5.0);
@@ -177,38 +177,10 @@ let model = ConstantVelocity::new(13.9);
 Variable speed based on time:
 
 ```rust
-use sim_geo::{TimeOfDayVelocity, VelocityPeriod};
+use sim_geo::TimeOfDayVelocity;
 
-let model = TimeOfDayVelocity::new(vec![
-    VelocityPeriod {
-        start_hour: 0,
-        end_hour: 7,
-        velocity_mps: 16.7,  // 60 km/h (night, light traffic)
-    },
-    VelocityPeriod {
-        start_hour: 7,
-        end_hour: 9,
-        velocity_mps: 8.3,   // 30 km/h (morning rush)
-    },
-    VelocityPeriod {
-        start_hour: 9,
-        end_hour: 17,
-        velocity_mps: 13.9,  // 50 km/h (daytime)
-    },
-    VelocityPeriod {
-        start_hour: 17,
-        end_hour: 19,
-        velocity_mps: 8.3,   // 30 km/h (evening rush)
-    },
-    VelocityPeriod {
-        start_hour: 19,
-        end_hour: 24,
-        velocity_mps: 16.7,  // 60 km/h (night)
-    },
-]);
-
-let mut movement = MovementHandler::new()
-    .with_velocity_model(Box::new(model));
+// Rush hours (7–9, 17–19) at 50% speed, nights (22–5) at 120%, local to UTC-8.
+let model = TimeOfDayVelocity::new(0.5, 1.0, 1.2).with_utc_offset(-8);
 ```
 
 ### Custom Velocity Models
@@ -306,10 +278,10 @@ let path = fast_graph.route(origin, destination)?;
 
 ```rust
 // Export network
-network.save_to_json("road_network.json")?;
+network.save_to_file("road_network.json")?;
 
 // Import network
-let network = RoadNetwork::load_from_json("road_network.json")?;
+let network = RoadNetwork::load_from_file("road_network.json")?;
 ```
 
 ## Integration with Agents
