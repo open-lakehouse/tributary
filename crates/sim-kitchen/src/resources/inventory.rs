@@ -11,7 +11,7 @@
 //! - **Consumption tracking**: Decrease inventory during cooking operations
 //! - **Replenishment**: Add inventory from supply chain deliveries
 //! - **Low inventory detection**: Trigger reorder workflows automatically
-//! - **Thread-safe operations**: Safe concurrent access via Arc<Mutex<T>>
+//! - **Thread-safe operations**: Safe concurrent access via `Arc<Mutex<T>>`
 //!
 //! # Architecture
 //!
@@ -182,7 +182,7 @@ impl std::error::Error for InventoryError {}
 /// # Thread Safety
 ///
 /// Inventory instances are NOT thread-safe by themselves. For concurrent access,
-/// wrap in Arc<Mutex<Inventory>> or use InventoryManager which handles locking.
+/// wrap in `Arc<Mutex<Inventory>>` or use `InventoryManager` which handles locking.
 ///
 /// # Example
 ///

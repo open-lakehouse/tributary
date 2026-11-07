@@ -8,7 +8,7 @@ This guide will walk you through building your first simulation with Tributary. 
 
 ### Required
 
-- **Rust 1.90 or later** - [Install Rust](https://rustup.rs/)
+- **Rust 1.95 or later** - [Install Rust](https://rustup.rs/)
 - **Basic Rust knowledge** - Familiarity with structs, traits, and ownership
 - **Git** - For cloning the repository
 

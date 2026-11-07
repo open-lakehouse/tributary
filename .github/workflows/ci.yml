@@ -21,11 +21,33 @@ env:
   CARGO_INCREMENTAL: "0"
 
 jobs:
-  # fmt, clippy, test and coverage are independent jobs that run in parallel.
-  # Splitting them (rather than one sequential job) means a clippy or fmt failure
-  # no longer prevents the test job from running — you still get full test
-  # results on every push even when the lints are red. Wall-clock drops to the
-  # slowest single job instead of the sum of all checks.
+  # Detect whether a PR touches anything that affects the build. Docs-only
+  # changes skip the expensive jobs (msrv, test, coverage, doc). On push to main
+  # and merge_group there is no PR diff, so `code` is 'true' and everything runs.
+  changes:
+    name: detect changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: filter
+        with:
+          filters: |
+            code:
+              - '!**/*.md'
+              - '!docs/**'
+              - '!LICENSE_*'
+              - '!.gitignore'
+              - '!.editorconfig'
 
   fmt:
     name: fmt
@@ -34,19 +56,53 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      # fmt only parses source, so it needs no build cache — keep this job
-      # seconds-fast for the quickest possible style feedback.
-      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
-          toolchain: stable
+          toolchain: "1.99"
           components: rustfmt
 
       - name: Format
         run: cargo fmt --all --check
+
+  # Dangling dependencies (declared in Cargo.toml but never used). No build needed.
+  machete:
+    name: machete
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: bnjbvr/cargo-machete@ac30a525c0a8d163a92d727b3ff079ee3f6ecb08 # v0.9.2
+
+  # Python lint/format for the bindings and notebooks.
+  ruff:
+    name: ruff
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        with:
+          enable-cache: false
+
+      - name: Ruff check
+        run: uvx ruff check .
+
+      - name: Ruff format
+        run: uvx ruff format --check .
 
   clippy:
     name: clippy
@@ -55,7 +111,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -66,150 +122,225 @@ jobs:
           tool-cache: false
           large-packages: false
 
-      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master
+      # clippy runs on the pinned toolchain (rust-toolchain.toml) for the best
+      # lints; the declared MSRV floor is verified by the `msrv` job.
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
-          toolchain: stable
+          toolchain: "1.99"
           components: clippy
 
-      # Caches ~/.cargo and ./target keyed on the lockfile. clippy and test share
-      # the "ci" shared-key so they reuse one warmed target/; only main writes the
-      # cache (save-if) so parallel PR jobs don't thrash each other's entry. GHA
-      # cache is branch-scoped either way — a PR restores from main, never from a
-      # sibling PR — so gating writes to main keeps one clean, authoritative entry.
-      - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.0
+      # clippy and test share the "ci" key so they reuse one warmed target/; only
+      # main writes the cache so parallel PR jobs don't thrash each other's entry.
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           shared-key: ci
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
-      # The same gate enforced locally: deny all warnings across every target
-      # and feature.
       - name: Clippy
-        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 
-      - name: Machete (unused dependencies)
-        uses: bnjbvr/cargo-machete@ac30a525c0a8d163a92d727b3ff079ee3f6ecb08 # v0.9.2
-
-  test:
-    name: test (${{ matrix.rust }})
+  # Build on the declared MSRV floor (workspace rust-version). Bump the
+  # toolchain here in lock-step with Cargo.toml's `rust-version`.
+  msrv:
+    name: msrv
+    needs: changes
+    if: ${{ needs.changes.outputs.code == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        rust:
-          - "1.90" # MSRV — keep in sync with workspace Cargo.toml rust-version
-          - stable
     permissions:
       contents: read
-      # dorny/test-reporter publishes a check run with the parsed JUnit results.
-      checks: write
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      # Reclaim runner disk before the DataFusion-heavy build (see clippy job).
       - uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
         with:
           tool-cache: false
           large-packages: false
 
-      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
-          toolchain: ${{ matrix.rust }}
+          toolchain: "1.95"
 
-      # Per-toolchain shared-key so the MSRV and stable target/ caches don't
-      # clobber each other; only main writes (see the clippy job's note).
-      - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.0
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          shared-key: test-${{ matrix.rust }}
+          shared-key: msrv
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
-      # Prebuilt binary (no compile); the ci profile emits JUnit XML.
-      - uses: taiki-e/install-action@8b3c737da4b541bf0fb5a3e0488ff20535badac9 # v2.82.1
+      # `+1.95` overrides rust-toolchain.toml, which pins the newer dev toolchain.
+      - name: Check on MSRV
+        run: cargo +1.95 check --workspace --all-targets --all-features --locked
+
+  test:
+    name: test
+    needs: changes
+    if: ${{ needs.changes.outputs.code == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      # dorny/test-reporter publishes a check run with the parsed JUnit results.
+      checks: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
+        with:
+          tool-cache: false
+          large-packages: false
+
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: "1.99"
+
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: ci
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
         with:
           tool: cargo-nextest
 
       # --profile ci writes target/nextest/ci/junit.xml and runs every test
       # (fail-fast = false) so the report is complete even on failure.
       - name: Test
-        run: cargo nextest run --workspace --all-features --profile ci
+        run: cargo nextest run --workspace --all-features --locked --profile ci
 
-      # nextest does not run doctests; run them separately so the ~50 doctests
-      # stay covered. Runs even if nextest failed above.
+      # nextest does not run doctests; run them separately. Runs even if
+      # nextest failed above.
       - name: Doctests
         if: ${{ !cancelled() }}
-        run: cargo test --workspace --all-features --doc
+        run: cargo test --workspace --all-features --locked --doc
 
-      # Surface per-test pass/fail in the PR Checks tab regardless of exit code —
-      # this is what gives you results even when clippy/fmt are failing.
       - name: Publish test report
         uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
-        if: ${{ !cancelled() && matrix.rust == 'stable' }}
+        if: ${{ !cancelled() }}
         with:
           name: nextest results
           path: target/nextest/ci/junit.xml
           reporter: jest-junit
 
-  coverage:
-    name: coverage
+  # Keep the rustdoc build warning-free (broken intra-doc links etc.).
+  doc:
+    name: doc
+    needs: changes
+    if: ${{ needs.changes.outputs.code == 'true' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
     permissions:
       contents: read
+    env:
+      RUSTDOCFLAGS: -D warnings
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      # Coverage builds a second, instrumented copy of the whole tree — the most
-      # disk-hungry job — so reclaim runner space first (see clippy job).
       - uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
         with:
           tool-cache: false
           large-packages: false
 
-      # Doctest coverage (`--doc` / `report --doctests`) relies on
-      # `-Z unstable-options --persist-doctests`, which only nightly accepts.
-      # Install nightly for the doctest-coverage step; stable is installed last
-      # so it stays the default toolchain for the nextest run.
-      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
-          toolchain: nightly
+          toolchain: "1.99"
+
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: doc
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Docs
+        run: cargo doc --workspace --all-features --no-deps --locked
+
+  coverage:
+    name: coverage
+    needs: changes
+    if: ${{ needs.changes.outputs.code == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      # Pinned rather than floating `nightly` so an upstream regression can't
+      # turn main red overnight. Bump deliberately.
+      NIGHTLY: nightly-2026-10-31
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Coverage builds a second, instrumented copy of the whole tree.
+      - uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
+        with:
+          tool-cache: false
+          large-packages: false
+
+      # Doctest coverage needs the unstable `--persist-doctests`, so every
+      # coverage step runs on the pinned nightly (`.profraw` is LLVM-versioned,
+      # so mixing stable and nightly breaks once their LLVMs diverge).
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: ${{ env.NIGHTLY }}
           components: llvm-tools-preview
 
-      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master
-        with:
-          toolchain: stable
-          components: llvm-tools-preview
-
-      # Coverage recompiles with -C instrument-coverage, so it cannot reuse the
-      # test/clippy "ci" cache — give it its own shared-key.
-      - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.0
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           shared-key: coverage
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
-      - uses: taiki-e/install-action@8b3c737da4b541bf0fb5a3e0488ff20535badac9 # v2.82.1
+      - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
         with:
           tool: cargo-llvm-cov,cargo-nextest
 
-      # Collect coverage from both nextest tests and doctests into one report.
-      # Doctest coverage needs nightly (unstable `--persist-doctests`); the
-      # nextest run stays on stable.
       - name: Collect coverage
         run: |
-          cargo llvm-cov --no-report nextest --workspace --all-features
-          cargo +nightly llvm-cov --no-report --doc --workspace --all-features
-          cargo +nightly llvm-cov report --doctests --lcov --output-path lcov.info
+          cargo "+$NIGHTLY" llvm-cov --no-report nextest --workspace --all-features --locked
+          cargo "+$NIGHTLY" llvm-cov --no-report --doc --workspace --all-features --locked
+          cargo "+$NIGHTLY" llvm-cov report --doctests --codecov --output-path codecov.json
 
-      # Codecov keeps the status informational (see codecov.yml) and never fails
-      # CI on a flaky upload.
+      # Never fails CI on a flaky upload; codecov.yml keeps the status
+      # informational so it can't block a PR.
       - name: Upload to Codecov
-        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
-          files: lcov.info
+          files: codecov.json
           fail_ci_if_error: false
           token: ${{ secrets.CODECOV_TOKEN }}
-          flags: unittests
-          name: codecov-umbrella
+
+  # Single roll-up status to require in branch protection. Skipped jobs (from
+  # docs-only path filtering) count as a pass; anything else that isn't success
+  # fails the gate.
+  ci:
+    name: ci
+    if: ${{ always() }}
+    needs: [fmt, machete, ruff, clippy, msrv, test, doc, coverage]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Verify required jobs succeeded or were skipped
+        env:
+          RESULTS: >-
+            fmt:${{ needs.fmt.result }}
+            machete:${{ needs.machete.result }}
+            ruff:${{ needs.ruff.result }}
+            clippy:${{ needs.clippy.result }}
+            msrv:${{ needs.msrv.result }}
+            test:${{ needs.test.result }}
+            doc:${{ needs.doc.result }}
+            coverage:${{ needs.coverage.result }}
+        run: |
+          for r in $RESULTS; do
+            name="${r%%:*}"; result="${r##*:}"
+            echo "$name -> $result"
+            if [ "$result" != "success" ] && [ "$result" != "skipped" ]; then
+              echo "::error::required job '$name' did not succeed ($result)"
+              exit 1
+            fi
+          done
+          echo "All required jobs passed (or were skipped)."

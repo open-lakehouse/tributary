@@ -1,4 +1,4 @@
-set dotenv-load := true
+set dotenv-load
 
 # Show available commands
 _default:
@@ -8,11 +8,6 @@ _default:
 [group('build')]
 build-py:
     uvx --from 'maturin[zig]' maturin develop -m python/Cargo.toml
-
-# build python server bindings
-[group('build')]
-build-py-cli:
-    uv run maturin develop --uv --manifest-path crates/cli/Cargo.toml
 
 # run simulation for a given duration
 [group('caspers')]
@@ -61,3 +56,39 @@ kitchen:
 fmt:
     uvx pre-commit run --all-files
     just --fmt --unstable
+
+# apply clippy auto-fixes, then format (clippy may rewrite code fmt must tidy)
+[group('dev')]
+fix:
+    cargo clippy --workspace --all-targets --all-features --fix --allow-dirty
+    cargo fmt --all
+
+# lint gate, as in CI: fmt check, clippy -D warnings, machete, ruff, typos
+[group('check')]
+lint:
+    cargo fmt --all --check
+    cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+    cargo machete
+    uvx ruff check .
+    uvx ruff format --check .
+    typos
+
+# run the test suite, as in CI: nextest plus doctests
+[group('check')]
+test *args:
+    cargo nextest run --workspace --all-features --locked {{ args }}
+    cargo test --workspace --all-features --locked --doc
+
+# build rustdoc with warnings denied, as in CI
+[group('check')]
+doc:
+    RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps --locked
+
+# check the workspace builds on the declared MSRV (rust-version in Cargo.toml)
+[group('check')]
+msrv:
+    cargo +1.95 check --workspace --all-targets --all-features --locked
+
+# everything CI gates on, in one go (run before pushing)
+[group('check')]
+check: lint test doc

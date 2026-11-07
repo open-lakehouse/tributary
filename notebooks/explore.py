@@ -12,6 +12,7 @@ def _():
     import marimo as mo
     import plotly.express as px
     import polars as pl
+
     return folium, mo, os, pl, px
 
 
@@ -36,7 +37,7 @@ def _(os):
 @app.cell
 def _(mo):
     _orders_counts = mo.sql(
-        f"""
+        """
         SELECT status, count(*) as count
         FROM './data/orders/*.parquet'
         GROUP BY status
@@ -48,7 +49,7 @@ def _(mo):
 @app.cell
 def _(mo):
     _order_lines_counts = mo.sql(
-        f"""
+        """
         SELECT status, count(*) as count
         FROM './data/order_lines/*.parquet'
         GROUP BY status
@@ -60,7 +61,7 @@ def _(mo):
 @app.cell
 def _(mo):
     _object_counts = mo.sql(
-        f"""
+        """
         SELECT label, count(*) as count
         FROM './data//objects/*.parquet'
         GROUP BY label
@@ -72,7 +73,7 @@ def _(mo):
 @app.cell
 def _(mo):
     _people_counts = mo.sql(
-        f"""
+        """
         SELECT role, count(*) as count
         FROM './data/population/people/*.parquet'
         GROUP BY role
@@ -84,7 +85,7 @@ def _(mo):
 @app.cell
 def _(mo):
     _df = mo.sql(
-        f"""
+        """
         SELECT type, count(*)
         FROM './data/events/*.json'
         GROUP BY type
@@ -96,7 +97,7 @@ def _(mo):
 @app.cell
 def _(mo):
     trips = mo.sql(
-        f"""
+        """
         SELECT
             -- workaround to not panic during output
             people.id::VARCHAR as id,
@@ -141,7 +142,8 @@ def _(mo):
 @app.cell
 def _():
     import datetime
-    from typing import Any, Iterable, TypedDict
+    from collections.abc import Iterable
+    from typing import Any, TypedDict
 
     class TripPoint(TypedDict):
         x: float
@@ -175,6 +177,7 @@ def _():
             }
             for trip in trips
         ]
+
     return (trip_geo_features,)
 
 
@@ -260,7 +263,7 @@ def _(px):
 @app.cell
 def _(mo):
     _df = mo.sql(
-        f"""
+        """
         SELECT *
         FROM '../.caspers/snapshots/objects/*.parquet'
         LIMIT 3
@@ -275,8 +278,7 @@ def _():
     import delta.pip_utils
     import delta.tables
     import pyspark
-    from pyspark.sql.types import StructType, StructField, StringType, IntegerType
-
+    from pyspark.sql.types import IntegerType, StringType, StructField, StructType
 
     def get_spark():
         builder = (
@@ -290,19 +292,21 @@ def _():
         )
         return delta.pip_utils.configure_spark_with_delta_pip(builder).getOrCreate()
 
-    schema = StructType([
-        StructField("id", IntegerType(), False),
-        StructField("name", StringType(), True),
-        StructField("age", IntegerType(), True),
-        StructField("email", StringType(), True)
-    ])
+    schema = StructType(
+        [
+            StructField("id", IntegerType(), False),
+            StructField("name", StringType(), True),
+            StructField("age", IntegerType(), True),
+            StructField("email", StringType(), True),
+        ]
+    )
 
     # Create sample data
     data = [
         (1, "Alice", 30, "alice@example.com"),
         (2, "Bob", 25, "bob@example.com"),
         (3, "Charlie", 35, "charlie@example.com"),
-        (4, "Diana", 28, "diana@example.com")
+        (4, "Diana", 28, "diana@example.com"),
     ]
 
     spark = get_spark()
@@ -314,12 +318,9 @@ def _():
     table_path = "./tmp/column_mapping"
 
     # Write DataFrame as Delta table with column mapping enabled
-    df.write \
-        .format("delta") \
-        .mode("overwrite") \
-        .option("delta.columnMapping.mode", "name") \
-        .option("overwriteSchema", "true") \
-        .save(table_path)
+    df.write.format("delta").mode("overwrite").option("delta.columnMapping.mode", "name").option(
+        "overwriteSchema", "true"
+    ).save(table_path)
     return
 
 

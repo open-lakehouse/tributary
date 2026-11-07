@@ -11,10 +11,10 @@ name = "caspers"
 path = "src/main.rs"
 
 [dependencies]
-sim-core = { path = "../sim-core" }
-sim-kitchen = { path = "../sim-kitchen" }
-sim-events = { path = "../sim-events" }
-sim-validate = { path = "../sim-validate" }
+sim-core = { workspace = true }
+sim-kitchen = { workspace = true }
+sim-events = { workspace = true }
+sim-validate = { workspace = true }
 
 chrono = { workspace = true }
 serde_json = { workspace = true }
@@ -22,14 +22,14 @@ humantime = { workspace = true }
 uuid = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
-tracing = { workspace = true, features = ["log"] }
+tracing = { workspace = true }
 
-clap = { version = "4.5.37", features = ["derive", "env"] }
-crossterm = { version = "0.28", features = ["event-stream"] }
-futures = "0.3"
-ratatui = "0.29"
-opentelemetry = "0.31.0"
-opentelemetry_sdk = "0.31.0"
-opentelemetry-otlp = { version = "0.31.0", features = ["grpc-tonic"] }
-tracing-opentelemetry = "0.32.0"
-tracing-subscriber = { version = "0.3.20", features = ["env-filter"] }
+clap = { workspace = true }
+crossterm = { workspace = true }
+futures = { workspace = true }
+ratatui = { workspace = true }
+opentelemetry = { workspace = true }
+opentelemetry_sdk = { workspace = true }
+opentelemetry-otlp = { workspace = true }
+tracing-opentelemetry = { workspace = true }
+tracing-subscriber = { workspace = true }

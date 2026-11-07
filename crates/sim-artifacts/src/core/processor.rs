@@ -1,6 +1,6 @@
 //! EventProcessor adapter wrapping ArtifactCollector.
 //!
-//! Bridges the sim-events EventProcessor interface to ArtifactCollector<P>.
+//! Bridges the sim-events EventProcessor interface to `ArtifactCollector<P>`.
 //! Since sim-artifacts cannot depend on sim-events (to avoid cycles),
 //! this processor uses the same local EventProcessor pattern as sim-telemetry.
 
@@ -18,7 +18,7 @@ pub trait LocalEventProcessor: Send + Sync {
     fn process(&self, event: &Value);
 }
 
-/// Wraps an ArtifactCollector<P> as a LocalEventProcessor.
+/// Wraps an `ArtifactCollector<P>` as a `LocalEventProcessor`.
 ///
 /// On each event, extracts the event type, routes to matching generators,
 /// and accumulates artifacts. Call flush_to_storage() at run end.

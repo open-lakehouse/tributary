@@ -7,6 +7,6 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-sim-events = { path = "../sim-events" }
+sim-events = { workspace = true }
 
 serde_json = { workspace = true }

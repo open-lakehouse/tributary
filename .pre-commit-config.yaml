@@ -1,18 +1,19 @@
+# Keep hook revs in sync with the CI pins (.github/workflows/ci.yml, typos.yml).
 repos:
   - repo: https://github.com/crate-ci/typos
-    rev: v1.32.0
+    rev: v1.51.1
     hooks:
       - id: typos
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.14.2
+    rev: v0.17.3
     hooks:
       - id: ruff-check
         args: [--fix]
       - id: ruff-format
 
   - repo: https://github.com/bnjbvr/cargo-machete
-    rev: v0.9.1
+    rev: v0.9.2
     hooks:
       - id: cargo-machete
         name: cargo machete
@@ -30,8 +31,3 @@ repos:
         language: system
         types: [rust]
         pass_filenames: false
-
-  - repo: https://github.com/bufbuild/buf
-    rev: v1.59.0
-    hooks:
-      - id: buf-format
