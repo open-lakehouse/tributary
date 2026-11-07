@@ -9,10 +9,11 @@
 //! Run with: cargo bench -p sim-geo --bench routing_performance
 
 use chrono::Utc;
-use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use geo::Point;
 use sim_geo::graph::{RoadNetwork, RoadType};
 use sim_geo::movement::velocity::TimeOfDayVelocity;
+use std::hint::black_box;
 
 /// Load a medium-sized test network (1024 nodes)
 fn load_network() -> RoadNetwork {

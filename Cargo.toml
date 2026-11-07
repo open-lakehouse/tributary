@@ -21,7 +21,7 @@ sim-telemetry = { path = "crates/sim-telemetry" }
 sim-validate = { path = "crates/sim-validate" }
 
 # general
-chrono = { version = "0.4.44", features = ["serde"] }
+chrono = { version = "0.4.45", features = ["serde"] }
 dashmap = { version = "6" }
 futures = { version = "0.3" }
 humantime = { version = "2" }
@@ -32,40 +32,41 @@ tokio = { version = "1", features = ["full"] }
 uuid = { version = "1", features = ["serde"] }
 
 # randomness
-rand = { version = "0.9" }
+rand = { version = "0.10" }
+rand_distr = { version = "0.6" }
 
 # arrow
-arrow = { version = "58" }
-parquet = { version = "58", features = ["async", "object_store"] }
+arrow = { version = "59" }
+parquet = { version = "59", features = ["async", "object_store"] }
 
 # datafusion
-datafusion = "53.1"
+datafusion = { version = "55" }
 
 # geospatial
 fast_paths = { version = "1.0.0" }
-geo = { version = "0.31" }
-geo-types = { version = "0.7.16" }
-h3o = { version = "0.9.3" }
+geo = { version = "0.33" }
+geo-types = { version = "0.7.20" }
+h3o = { version = "0.11" }
 
 # cli / tui
-clap = { version = "4.5.37", features = ["derive", "env"] }
-crossterm = { version = "0.28", features = ["event-stream"] }
-ratatui = { version = "0.29" }
+clap = { version = "4.6", features = ["derive", "env"] }
+crossterm = { version = "0.29", features = ["event-stream"] }
+ratatui = { version = "0.30" }
 
 # observability
-opentelemetry = { version = "0.31.0" }
-opentelemetry-otlp = { version = "0.31.0", features = ["grpc-tonic"] }
-opentelemetry_sdk = { version = "0.31.0" }
+opentelemetry = { version = "0.33" }
+opentelemetry-otlp = { version = "0.33", features = ["grpc-tonic"] }
+opentelemetry_sdk = { version = "0.33" }
 tracing = { version = "0.1", features = ["log"] }
-tracing-opentelemetry = { version = "0.32.0" }
-tracing-subscriber = { version = "0.3.20", features = ["env-filter"] }
+tracing-opentelemetry = { version = "0.34" }
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 
 # python
-pyo3 = { version = "0.26.0" }
+pyo3 = { version = "0.30" }
 
 # dev / test
 approx = { version = "0.5.1" }
-criterion = { version = "0.5" }
+criterion = { version = "0.8" }
 tempfile = { version = "3.14" }
 
 [profile.dev]
@@ -88,9 +89,11 @@ files.extend-exclude = ["crates/cli/assets/"]
 
 # These are not misspellings:
 #   - "Noe": Noe Valley, a San Francisco neighborhood used in test fixtures.
+#   - "ratatui": the TUI crate.
 #   - hex span IDs: OpenTelemetry example trace/span IDs in docs.
 [workspace.metadata.typos.default.extend-words]
 Noe = "Noe"
+ratatui = "ratatui"
 
 [workspace.metadata.typos.default.extend-identifiers]
 "00f067aa0ba902b7" = "00f067aa0ba902b7"

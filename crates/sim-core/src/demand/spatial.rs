@@ -5,9 +5,9 @@ use crate::context::SimulationContext;
 use crate::population::Demand;
 use geo::Point;
 use h3o::{CellIndex, LatLng};
-use rand::Rng;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
+use rand::{Rng, RngExt};
 use std::collections::HashMap;
 use std::sync::Mutex;
 
@@ -128,8 +128,7 @@ impl SpatialDemandGenerator {
         }
 
         // Weighted random selection
-        #[allow(deprecated)]
-        let mut target = rng.r#gen::<f64>() * total;
+        let mut target = rng.random::<f64>() * total;
 
         for (cell, prob) in &self.h3_probabilities {
             target -= prob;

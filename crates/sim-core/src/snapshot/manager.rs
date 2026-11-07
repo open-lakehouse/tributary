@@ -812,7 +812,7 @@ mod tests {
 
     fn create_test_agents_batch() -> RecordBatch {
         let schema = agent_schema();
-        let id_array = FixedSizeBinaryArray::from(vec![vec![0u8; 16].as_slice()]);
+        let id_array = FixedSizeBinaryArray::try_from_iter(std::iter::once([0u8; 16])).unwrap();
         let type_array = StringArray::from(vec!["test_agent"]);
         let status_array = StringArray::from(vec!["active"]);
         let pos_x_array = Float64Array::from(vec![Some(1.0)]);

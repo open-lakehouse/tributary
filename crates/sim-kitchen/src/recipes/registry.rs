@@ -134,7 +134,7 @@ impl RecipeRegistry {
             return None;
         }
         let keys: Vec<&String> = self.recipes.keys().collect();
-        let idx = rng.random_range(0..keys.len());
+        let idx = rand::RngExt::random_range(rng, 0..keys.len());
         self.recipes.get(keys[idx])
     }
 }

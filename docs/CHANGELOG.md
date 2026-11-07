@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed: dependency refresh
+- `arrow`/`parquet` 58 → 59 and `datafusion` 53.1 → 55, matching Hydrofoil and
+  mangrove (arrow 60 is out, but datafusion 55 builds on 59).
+- `rand` unified on 0.10 (sim-core was on 0.8, the domain crates on 0.9) with
+  `rand_distr` 0.6. Call sites use the new `RngExt` extension trait. Seeded runs
+  are still reproducible, but a given seed now produces a different stream than
+  before.
+- `geo` 0.31 → 0.33 and `h3o` 0.9 → 0.11, which also drops the duplicate `geo`
+  that h3o used to pull in.
+- `pyo3` 0.26 → 0.30, `ratatui` 0.29 → 0.30, `crossterm` 0.28 → 0.29,
+  OpenTelemetry 0.31 → 0.33 (`tracing-opentelemetry` 0.34), `criterion` 0.5 → 0.8
+  (benches use `std::hint::black_box`), plus a lockfile-wide `cargo update`.
+
 ### Changed: workspace tooling and CI brought in line with sibling repos
 - Every external dependency is now declared once in `[workspace.dependencies]`;
   crates inherit with `{ workspace = true }`. Workspace `rust-version` 1.91 → 1.95.

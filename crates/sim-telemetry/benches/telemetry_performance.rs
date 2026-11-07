@@ -9,13 +9,14 @@
 //!
 //! Run with: cargo bench -p sim-telemetry --bench telemetry_performance
 
-use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use serde_json::json;
 use sim_telemetry::core::{TelemetryCollector, TelemetryGenerator};
 use sim_telemetry::formats::otlp::OtlpExporter;
 use sim_telemetry::generators::{
     EventToLogGenerator, EventToMetricGenerator, EventToTraceGenerator,
 };
+use std::hint::black_box;
 
 /// Create a sample CloudEvents-compliant event for benchmarking
 fn create_sample_event() -> serde_json::Value {
