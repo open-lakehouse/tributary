@@ -244,7 +244,9 @@ let task_factory = Box::new(FoodOrderTaskFactory {
 });
 
 // Register with runner
-runner.set_workflow_engine(workflow_engine);
+let mut registry = WorkflowRegistry::new();
+registry.register("orders".to_string(), workflow_engine)?;
+runner.set_workflow_registry(registry);
 runner.set_task_factory(task_factory);
 
 // The runner will automatically:
@@ -274,7 +276,9 @@ workflow_engine.register_workflow(cooking_workflow);
 // Register with runner
 runner.set_population_handler(population);
 runner.set_resource_allocator(resources);
-runner.set_workflow_engine(workflow_engine);
+let mut registry = WorkflowRegistry::new();
+registry.register("orders".to_string(), workflow_engine)?;
+runner.set_workflow_registry(registry);
 
 // Tick coordination (handled automatically by runner):
 // 1. Agents tick → generate demands
@@ -422,7 +426,9 @@ fn main() -> Result<()> {
 
     runner.set_population_handler(population);
     runner.set_resource_allocator(resources);
-    runner.set_workflow_engine(workflow_engine);
+    let mut registry = WorkflowRegistry::new();
+    registry.register("orders".to_string(), workflow_engine)?;
+    runner.set_workflow_registry(registry);
 
     // Setup hooks
     let hooks = MySimulationHooks::new("./output")?;
@@ -477,7 +483,9 @@ Multi-stage processing.
 
 ```rust
 // Add workflow support
-runner.set_workflow_engine(workflow_engine);
+let mut registry = WorkflowRegistry::new();
+registry.register("orders".to_string(), workflow_engine)?;
+runner.set_workflow_registry(registry);
 runner.set_task_factory(task_factory);
 
 // Hooks bridge agents → workflows → tasks → resources

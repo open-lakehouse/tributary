@@ -128,17 +128,16 @@ Output is written to `output/artifacts/` by default.
 
 ### SimulationRunner
 
-The runner is the central orchestrator. Build it with the builder pattern:
+The runner is the central orchestrator. Create it, then wire components with its setters:
 
 ```rust
-SimulationRunner::new(config)
-    .with_population(PopulationHandler::new())
-    .with_resources(ResourceAllocator::new())
-    .set_workflow_registry(registry)      // WorkflowRegistry is the ONLY workflow path
-    .set_task_factory(factory)
-    .set_demand_generator(generator)
-    .set_hooks(MyHooks::new())
-    .set_snapshot_manager(manager)
+let mut runner = SimulationRunner::new(config);
+runner.set_population_handler(PopulationHandler::new());
+runner.set_resource_allocator(ResourceAllocator::new());
+runner.set_workflow_registry(registry);   // WorkflowRegistry is the ONLY workflow path
+runner.set_task_factory(Box::new(factory));
+runner.set_demand_generator(Box::new(generator));
+runner.set_hooks(Box::new(MyHooks::new()));
 ```
 
 Each simulation step (via `runner.tick()` or `runner.run_for_steps(n)`):

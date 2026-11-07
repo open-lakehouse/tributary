@@ -21,7 +21,7 @@ Demonstrates Phase 9 multi-workflow orchestration with FoodOrderWorkflow, Supply
 
 ## Complete Example
 
-Location: `/Users/robert.pack/code/management/crates/sim-kitchen/tests/multi_workflow_e2e_test.rs`
+Location: `crates/sim-kitchen/tests/multi_workflow_e2e_test.rs`
 
 ### 1. Define Workflows
 
@@ -307,4 +307,4 @@ Total workflow steps completed: 9 (3 per workflow)
 
 - [inventory-management.md](./inventory-management.md) - Detailed inventory system
 - [basic.md](./basic.md) - Simple single-workflow example
-- `/Users/robert.pack/code/management/crates/sim-kitchen/tests/multi_workflow_e2e_test.rs` - Full runnable test
+- `crates/sim-kitchen/tests/multi_workflow_e2e_test.rs` - Full runnable test

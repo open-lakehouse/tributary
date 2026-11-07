@@ -28,7 +28,7 @@ All notable changes to `sim-kitchen` will be documented in this file.
 - **`SupplyDriverProfile`**: Name, company, CDL class, route IDs, experience
 
 #### Recipe System
-- **`RecipeRegistry::load_defaults()`**: Parses bundled universe brand templates (fast_food, asian, mexican) into `Recipe` / `RecipeStep`
+- **`RecipeRegistry::load_defaults()`**: Parses the bundled brand recipe templates (fast_food, asian, mexican) into `Recipe` / `RecipeStep`
 - **`StationKind`** enum: `Workstation`, `Stove`, `Fryer`, `Oven`, `Grill`, `Prep`, `Unknown`
 - **`KitchenStation`** resource: Typed prep station with capacity
 

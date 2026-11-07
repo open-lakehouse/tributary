@@ -12,7 +12,7 @@ This example demonstrates:
 
 ## Code
 
-See `/Users/robert.pack/code/management/crates/sim-kitchen/examples/basic.rs` for the complete runnable example.
+See `crates/sim-kitchen/examples/basic.rs` for the complete runnable example.
 
 ## Domain Model
 

@@ -322,7 +322,9 @@ fn example_workflow_usage() -> sim_core::Result<()> {
     // Register with simulation runner
     let config = SimulationConfig::default();
     let mut runner = SimulationRunner::new(config);
-    runner.set_workflow_engine(engine);
+    let mut registry = WorkflowRegistry::new();
+    registry.register("orders".to_string(), engine)?;
+    runner.set_workflow_registry(registry);
     runner.set_task_factory(Box::new(task_factory));
 
     // The runner will automatically:

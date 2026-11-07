@@ -121,4 +121,4 @@ impl Agent for Driver {
 
 ## See Also
 
-- `/Users/robert.pack/code/management/crates/sim-logistics/src/agents/mod.rs`
+- `crates/sim-logistics/src/agents/mod.rs`

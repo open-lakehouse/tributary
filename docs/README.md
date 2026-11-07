@@ -71,12 +71,9 @@ Learn about the framework's key abstractions:
 - **[sim-telemetry](../crates/sim-telemetry/README.md)** - Observability
 - **[sim-kitchen](../crates/sim-kitchen/README.md)** - Ghost kitchen domain (reference)
 - **[sim-logistics](../crates/sim-logistics/README.md)** - Package delivery domain
-
-### Migration & Status
-
-- **[Migration Status](../migration/README.md)** - Project progress and roadmap
-- **[Handover](../migration/HANDOVER.md)** - Latest completion status
-- **[Completed Phases](../migration/completed/)** - Historical implementation details
+- **[sim-artifacts](../crates/sim-artifacts/README.md)** - Artifacts generated from events
+- **[sim-validate](../crates/sim-validate/README.md)** - Output validation
+- **[caspers-cli](../crates/cli/README.md)** - The `caspers` binary
 
 ## Crate Overview
 
@@ -248,26 +245,6 @@ Benefits:
 | Snapshot save (10k agents) | <100ms | ✅ Met |
 | Snapshot restore (10k agents) | <100ms | ✅ Met |
 
-## Development Status
-
-**Overall Progress:** 78% complete (12/14 phases)
-
-**Completed Phases:**
-- Phase 1: Critical bug fixes
-- Phase 3: Code simplification
-- Phase 5: Workflow integration
-- Phase 6: Arrow migration
-- Phase 7: Road network routing
-- Phase 8: Telemetry generation
-- Phase 9: Multi-workflow coordination
-- Phase 10: Demand generation
-- Phase 11: Logistics domain validation
-
-**Remaining Work:**
-- Phase 12-14: Python bindings, CLI, benchmarks (3 weeks)
-
-See [Migration Status](../migration/README.md) for detailed progress.
-
 ## Getting Help
 
 ### Documentation
@@ -298,8 +275,8 @@ This is a research/demonstration project. For production use:
 
 Licensed under either of:
 
-- Apache License, Version 2.0 ([LICENSE-APACHE](../LICENSE-APACHE))
-- MIT license ([LICENSE-MIT](../LICENSE-MIT))
+- Apache License, Version 2.0 ([LICENSE-APACHE](../LICENSE_APACHE))
+- MIT license ([LICENSE-MIT](../LICENSE_MIT))
 
 at your option.
 
@@ -307,4 +284,4 @@ at your option.
 
 - **New Users**: Start with [Getting Started](GETTING_STARTED.md)
 - **Developers**: Read [Architecture](ARCHITECTURE.md) and explore [sim-kitchen](../crates/sim-kitchen/)
-- **Researchers**: Check [completed phases](../migration/completed/) for implementation details
+- **History**: See the [changelog](CHANGELOG.md) for what changed and why

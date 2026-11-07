@@ -828,12 +828,6 @@ match self.status {
 - [sim-kitchen](../crates/sim-kitchen/) - Ghost kitchen reference implementation
 - [sim-logistics](../crates/sim-logistics/) - Package delivery implementation
 
-### Migration Guides
-
-- [Phase 6 Complete](../migration/completed/PHASE_6_COMPLETE.md) - Arrow storage
-- [Phase 10 Complete](../migration/completed/PHASE_10_COMPLETE.md) - Demand generation
-- [Phase 11 Complete](../migration/completed/PHASE_11_COMPLETE.md) - Logistics domain
-
 ## Testing Your Simulation
 
 ### Unit Tests

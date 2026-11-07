@@ -67,9 +67,9 @@ Comprehensive API documentation for each crate:
   - Supply chain integration
 
 **Code Locations:**
-- Full implementation: `/Users/robert.pack/code/management/crates/sim-kitchen/`
-- Basic example: `/Users/robert.pack/code/management/crates/sim-kitchen/examples/basic.rs`
-- Multi-workflow test: `/Users/robert.pack/code/management/crates/sim-kitchen/tests/multi_workflow_e2e_test.rs`
+- Full implementation: `crates/sim-kitchen/`
+- Basic example: `crates/sim-kitchen/examples/basic.rs`
+- Multi-workflow test: `crates/sim-kitchen/tests/multi_workflow_e2e_test.rs`
 
 ### Logistics Domain (Package Delivery)
 
@@ -91,8 +91,8 @@ Comprehensive API documentation for each crate:
   - Geographic coverage analysis
 
 **Code Locations:**
-- Full implementation: `/Users/robert.pack/code/management/crates/sim-logistics/`
-- Integration test: `/Users/robert.pack/code/management/crates/sim-logistics/tests/integration_test.rs`
+- Full implementation: `crates/sim-logistics/`
+- Integration test: `crates/sim-logistics/tests/integration_test.rs`
 
 ### Custom Implementation Templates
 
@@ -179,8 +179,8 @@ docs/
 
 ### Code Examples
 All examples reference actual working code in the crates:
-- `/Users/robert.pack/code/management/crates/sim-kitchen/` - Full kitchen implementation
-- `/Users/robert.pack/code/management/crates/sim-logistics/` - Full logistics implementation
+- `crates/sim-kitchen/` - Full kitchen implementation
+- `crates/sim-logistics/` - Full logistics implementation
 
 ### Tests
 Integration tests provide additional working examples:

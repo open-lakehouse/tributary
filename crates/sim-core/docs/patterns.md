@@ -638,7 +638,9 @@ let config = SimulationConfig {
 let mut runner = SimulationRunner::new(config);
 runner.set_population_handler(population);  // 1. Agents
 runner.set_resource_allocator(allocator);   // 2. Resources
-runner.set_workflow_engine(engine);         // 3. Workflows
+let mut registry = WorkflowRegistry::new();
+registry.register("orders".to_string(), engine)?;
+runner.set_workflow_registry(registry);         // 3. Workflows
 runner.set_hooks(Box::new(hooks));          // 4. Hooks last
 ```
 

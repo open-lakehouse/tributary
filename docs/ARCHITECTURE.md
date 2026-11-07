@@ -31,9 +31,9 @@ pub struct WorkflowEngine {
 ```
 
 **Reference Files:**
-- `/Users/robert.pack/code/management/crates/sim-core/src/workflows/engine.rs`
-- `/Users/robert.pack/code/management/crates/sim-geo/src/locations/handler.rs`
-- `/Users/robert.pack/code/management/crates/sim-core/src/resources/allocator.rs`
+- `crates/sim-core/src/workflows/engine.rs`
+- `crates/sim-geo/src/locations/handler.rs`
+- `crates/sim-core/src/resources/allocator.rs`
 
 ---
 
@@ -60,8 +60,8 @@ pub trait TaskFactory: Send + Sync {
 ```
 
 **Reference Files:**
-- `/Users/robert.pack/code/management/crates/sim-core/src/workflows/task_factory.rs`
-- `/Users/robert.pack/code/management/crates/sim-kitchen/src/workflows.rs` (example)
+- `crates/sim-core/src/workflows/task_factory.rs`
+- `crates/sim-kitchen/src/workflows.rs` (example)
 
 ---
 
@@ -81,8 +81,8 @@ WorkflowEngine → TaskFactory → Task → ResourceAllocator → Resource
 ```
 
 **Reference Files:**
-- `/Users/robert.pack/code/management/crates/sim-core/src/workflows/engine.rs`
-- `/Users/robert.pack/code/management/crates/sim-core/src/resources/allocator.rs`
+- `crates/sim-core/src/workflows/engine.rs`
+- `crates/sim-core/src/resources/allocator.rs`
 
 ---
 
@@ -110,8 +110,8 @@ pub struct SnapshotManager {
 ```
 
 **Reference Files:**
-- `/Users/robert.pack/code/management/crates/sim-core/src/snapshots/mod.rs`
-- `/Users/robert.pack/code/management/crates/sim-core/src/snapshots/backend.rs`
+- `crates/sim-core/src/snapshots/mod.rs`
+- `crates/sim-core/src/snapshots/backend.rs`
 
 ---
 
@@ -131,21 +131,31 @@ crates/
 │   ├── locations/     Point location tracking
 │   ├── movement/      Journey and velocity models
 │   ├── spatial/       H3 spatial indexing
-│   └── graph/         Road network routing (Phase 7)
+│   └── graph/         Road network routing
 │
 ├── sim-events/        Event infrastructure
 │   ├── events/        CloudEvents 1.0 types
 │   ├── dispatcher/    Event buffering and emission
 │   └── storage/       Parquet event storage
 │
-├── sim-telemetry/     Observability (Phase 8)
+├── sim-telemetry/     Observability
 │   ├── generators/    Log/trace/metric generation
 │   └── formats/       OTLP, JSON, Prometheus export
 │
-└── sim-kitchen/       Reference implementation
-    ├── agents/        Customer and kitchen agents
-    ├── workflows/     Food preparation workflow
-    └── simulation.rs  Domain-specific hooks
+├── sim-artifacts/     Artifacts derived from events
+│   ├── core/          ArtifactGenerator trait, collector, processor
+│   └── storage/       Parquet artifact storage
+│
+├── sim-validate/      Output validation (invariants over events/artifacts)
+│
+├── sim-kitchen/       Reference implementation
+│   ├── agents/        Customer and kitchen agents
+│   ├── workflows/     Food preparation workflow
+│   └── simulation.rs  Domain-specific hooks
+│
+├── sim-logistics/     Package delivery domain (validates framework generality)
+│
+└── cli/               `caspers` binary: TUI runner, headless runs, `validate`
 ```
 
 ---
@@ -166,8 +176,8 @@ pub trait SimulationHooks {
 ```
 
 **Reference Files:**
-- `/Users/robert.pack/code/management/crates/sim-core/src/runner/mod.rs`
-- `/Users/robert.pack/code/management/crates/sim-kitchen/src/simulation.rs`
+- `crates/sim-core/src/runner/mod.rs`
+- `crates/sim-kitchen/src/simulation.rs`
 
 ---
 
@@ -182,8 +192,8 @@ pub trait SimulationHooks {
 - Natural fit for telemetry generation
 
 **Reference Files:**
-- `/Users/robert.pack/code/management/crates/sim-events/src/events/mod.rs`
-- `/Users/robert.pack/code/management/crates/sim-events/src/dispatcher/mod.rs`
+- `crates/sim-events/src/events/mod.rs`
+- `crates/sim-events/src/dispatcher/mod.rs`
 
 ---
 
@@ -206,8 +216,8 @@ pub trait VelocityModel: Send + Sync {
 - `TimeOfDayVelocity` - Rush hour patterns (Phase 7)
 
 **Reference Files:**
-- `/Users/robert.pack/code/management/crates/sim-geo/src/movement/velocity.rs`
-- `/Users/robert.pack/code/management/crates/sim-geo/src/movement/time_of_day.rs`
+- `crates/sim-geo/src/movement/velocity.rs`
+- `crates/sim-geo/src/movement/time_of_day.rs`
 
 ---
 
@@ -220,7 +230,7 @@ pub trait VelocityModel: Send + Sync {
 **Impact:** Batch operations significantly reduce per-update overhead for workflow updates
 
 **Reference:**
-- `/Users/robert.pack/code/management/crates/sim-core/benches/batch_operations.rs`
+- `crates/sim-core/benches/batch_operations.rs`
 - See benchmark results in Phase 3 completion doc
 
 ---
@@ -232,7 +242,7 @@ pub trait VelocityModel: Send + Sync {
 **Impact:** Sub-millisecond cached routing queries
 
 **Reference:**
-- `/Users/robert.pack/code/management/crates/sim-geo/src/graph/routing.rs:136`
+- `crates/sim-geo/src/graph/routing.rs:136`
 - See P0 fixes documentation
 
 ---
@@ -244,7 +254,7 @@ pub trait VelocityModel: Send + Sync {
 **Impact:** Sub-millisecond proximity queries for large agent populations
 
 **Reference:**
-- `/Users/robert.pack/code/management/crates/sim-geo/src/spatial/mod.rs`
+- `crates/sim-geo/src/spatial/mod.rs`
 
 ---
 
@@ -286,7 +296,7 @@ pub trait VelocityModel: Send + Sync {
 4. Create instances via `engine.start_workflow()`
 
 **Example:**
-- `/Users/robert.pack/code/management/crates/sim-kitchen/src/workflows.rs`
+- `crates/sim-kitchen/src/workflows.rs`
 - FoodPrepWorkflow implementation
 
 ---
@@ -299,7 +309,7 @@ pub trait VelocityModel: Send + Sync {
 4. Handle capacity constraints
 
 **Example:**
-- `/Users/robert.pack/code/management/crates/sim-kitchen/src/resources.rs`
+- `crates/sim-kitchen/src/resources.rs`
 - Kitchen resource implementation
 
 ---
@@ -326,7 +336,7 @@ pub trait VelocityModel: Send + Sync {
 - Catch regressions in CI
 
 **Reference:**
-- `/Users/robert.pack/code/management/crates/sim-core/benches/`
+- `crates/sim-core/benches/`
 - Phase 3 completion doc for benchmark results
 
 ---
@@ -358,7 +368,7 @@ pub struct Demand {
 ```
 
 **Reference Files:**
-- `/Users/robert.pack/code/management/crates/sim-core/src/demand/mod.rs`
+- `crates/sim-core/src/demand/mod.rs`
 
 ---
 
@@ -387,7 +397,7 @@ pub struct PoissonDemandGenerator {
 - Statistically validated output (chi-squared test)
 - Performance: 0.15ms per generation (85% better than 1ms target)
 
-**Reference:** `/Users/robert.pack/code/management/crates/sim-core/src/demand/poisson.rs`
+**Reference:** `crates/sim-core/src/demand/poisson.rs`
 
 ---
 
@@ -426,7 +436,7 @@ vec![
 
 **Performance:** 0.03ms per check (70% better than 0.1ms target)
 
-**Reference:** `/Users/robert.pack/code/management/crates/sim-core/src/demand/time_of_day.rs`
+**Reference:** `crates/sim-core/src/demand/time_of_day.rs`
 
 ---
 
@@ -457,7 +467,7 @@ pub struct ZoneDemand {
 
 **Performance:** 0.12ms per lookup (76% better than 0.5ms target)
 
-**Reference:** `/Users/robert.pack/code/management/crates/sim-core/src/demand/spatial.rs`
+**Reference:** `crates/sim-core/src/demand/spatial.rs`
 
 ---
 
@@ -497,7 +507,7 @@ let generator = CompositeDemandGenerator::new(
 
 **Performance:** 0.45ms per evaluation (78% better than 2ms target)
 
-**Reference:** `/Users/robert.pack/code/management/crates/sim-core/src/demand/composite.rs`
+**Reference:** `crates/sim-core/src/demand/composite.rs`
 
 ---
 
@@ -707,7 +717,7 @@ impl WorkflowRegistry {
 
 **Performance:** O(1) HashMap lookups, <0.02ms overhead for 3 workflow types
 
-**Reference:** `/Users/robert.pack/code/management/crates/sim-core/src/workflows/registry.rs`
+**Reference:** `crates/sim-core/src/workflows/registry.rs`
 
 ---
 
@@ -888,19 +898,19 @@ per-tick overhead:
 
 ### Key Implementation Files
 
-- **Core Engine:** `/Users/robert.pack/code/management/crates/sim-core/src/runner/mod.rs`
-- **Workflows:** `/Users/robert.pack/code/management/crates/sim-core/src/workflows/engine.rs`
-- **Resources:** `/Users/robert.pack/code/management/crates/sim-core/src/resources/allocator.rs`
-- **Snapshots:** `/Users/robert.pack/code/management/crates/sim-core/src/snapshots/mod.rs`
-- **Movement:** `/Users/robert.pack/code/management/crates/sim-geo/src/movement/handler.rs`
-- **Routing:** `/Users/robert.pack/code/management/crates/sim-geo/src/graph/routing.rs`
-- **Events:** `/Users/robert.pack/code/management/crates/sim-events/src/dispatcher/mod.rs`
+- **Core Engine:** `crates/sim-core/src/runner/mod.rs`
+- **Workflows:** `crates/sim-core/src/workflows/engine.rs`
+- **Resources:** `crates/sim-core/src/resources/allocator.rs`
+- **Snapshots:** `crates/sim-core/src/snapshots/mod.rs`
+- **Movement:** `crates/sim-geo/src/movement/handler.rs`
+- **Routing:** `crates/sim-geo/src/graph/routing.rs`
+- **Events:** `crates/sim-events/src/dispatcher/mod.rs`
 
 ### Documentation
 
-- **Phase Plans:** `/Users/robert.pack/code/management/migration/phases/`
-- **Completed Work:** `/Users/robert.pack/code/management/migration/completed/`
-- **Main README:** `/Users/robert.pack/code/management/migration/README.md`
+- **Agent guide:** `AGENTS.md`
+- **Contributing:** `CONTRIBUTING.md`
+- **Changelog:** `docs/CHANGELOG.md`
 
 ---
 
@@ -916,4 +926,4 @@ When extending the framework:
 
 ---
 
-**Questions?** See `/Users/robert.pack/code/management/migration/README.md` for navigation guidance.
+**Questions?** Start with `docs/README.md` for navigation.
