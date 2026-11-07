@@ -102,7 +102,7 @@ SnapshotBackend, SnapshotData, SnapshotManager, SnapshotMetadata
 
 // Utilities
 AgentId, LocationId, ResourceId, TaskId, WorkflowId
-move_towards(location, target, speed, step_secs) -> Point
+move_towards(&mut location, target, speed_m_s, step_secs) -> bool  // true once arrived
 ```
 
 ### sim-artifacts Public API
@@ -302,7 +302,7 @@ cargo test kitchen                  # Pattern match
 just sim-kitchen 500
 ```
 
-The workspace has 840+ tests. Run `just check` before pushing.
+The workspace has about 650 tests. Run `just check` before pushing.
 
 ---
 

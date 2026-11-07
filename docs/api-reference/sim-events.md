@@ -37,18 +37,20 @@ All events follow the [CloudEvents 1.0 specification](https://cloudevents.io/):
 Wrapper containing CloudEvents metadata and payload.
 
 ```rust
-pub struct Event {
-    pub id: String,
-    pub source: String,
-    pub specversion: String,
-    pub type_: String,
-    pub time: Option<DateTime<Utc>>,
-    pub datacontenttype: Option<String>,
-    pub data: Box<dyn EventPayload>,
-}
+pub struct Event { /* private fields */ }
 
 impl Event {
-    pub fn new(payload: Box<dyn EventPayload>, time: DateTime<Utc>) -> Self; // pass simulation time
+    /// `time` is the simulation time of the occurrence (`ctx.current_time()`)
+    pub fn new(payload: Box<dyn EventPayload>, time: DateTime<Utc>) -> Self;
+
+    pub fn id(&self) -> EventId;               // UUID v7
+    pub fn event_type(&self) -> &str;          // from the payload
+    pub fn source(&self) -> &str;              // from the payload
+    pub fn subject(&self) -> Option<&str>;     // from the payload
+    pub fn time(&self) -> DateTime<Utc>;
+    pub fn payload(&self) -> &dyn EventPayload;
+    pub fn to_cloudevents_json(&self) -> serde_json::Value;
+    pub fn to_record(&self) -> EventRecord;
 }
 ```
 
@@ -291,6 +293,10 @@ for row_group in reader.row_groups() {
 ---
 
 ## Common Event Patterns
+
+sim-events ships no event payloads. The payloads below illustrate patterns
+you would define in a domain crate (see `crates/sim-kitchen/src/events.rs`
+and `crates/sim-logistics/src/events.rs` for real ones).
 
 ### Agent Lifecycle Events
 

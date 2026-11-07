@@ -172,64 +172,58 @@ let current_pos = journey.current_position(current_time);
 
 ### MovementHandler
 
-Manages journey lifecycle.
+Plans journeys (along a road network when one is loaded, otherwise in a
+straight line) and advances them with a velocity model.
 
 ```rust
-pub struct MovementHandler {
-    pub fn new(velocity_model: Box<dyn VelocityModel>) -> Self;
-    pub fn start_journey(&mut self, request: JourneyRequest) -> Result<JourneyId>;
-    pub fn get_journey(&self, id: JourneyId) -> Option<&Journey>;
-    pub fn get_journey_mut(&mut self, id: JourneyId) -> Option<&mut Journey>;
-    pub fn tick(&mut self, current_time: DateTime<Utc>) -> Result<Vec<JourneyId>>;
-    pub fn get_agent_journey(&self, agent_id: AgentId) -> Option<&Journey>;
-    pub fn cancel_journey(&mut self, id: JourneyId) -> Result<()>;
-    pub fn active_journey_count(&self) -> usize;
+pub struct MovementHandler { /* ... */ }
+
+impl MovementHandler {
+    pub fn new() -> Self;                                   // ConstantVelocity::default(), no network
+    pub fn with_velocity_model(self, model: Box<dyn VelocityModel>) -> Self;
+    pub fn with_network(self, network: RoadNetwork) -> Self;
+    pub fn load_network(&mut self, network: RoadNetwork);
+    pub fn plan_journey(&self, agent_id: AgentId, origin: Point<f64>, destination: Point<f64>,
+                        start_time: DateTime<Utc>) -> Result<JourneyState>;
+    pub fn add_journey(&mut self, journey: JourneyState);
+    pub fn advance_journeys(&mut self, now: DateTime<Utc>, time_step: Duration) -> Result<()>;
+    pub fn get_completed_journeys(&self) -> Vec<JourneyState>;
+    pub fn remove_completed(&mut self) -> Vec<JourneyState>;
+    pub fn active_count(&self) -> usize;
 }
 ```
 
 **Example:**
 
 ```rust
-use sim_geo::{MovementHandler, JourneyRequest, ConstantVelocity};
+use sim_geo::{MovementHandler, movement::ConstantVelocity};
 
-// Create handler with velocity model
-let velocity_model = Box::new(ConstantVelocity::new(30.0)); // 30 m/s
-let mut movement = MovementHandler::new(velocity_model);
+let mut movement = MovementHandler::new()
+    .with_velocity_model(Box::new(ConstantVelocity::new(8.0))); // 8 m/s
 
-// Start journey
-let request = JourneyRequest {
-    id: None,
-    agent_id: courier_id,
-    origin: restaurant_location,
-    destination: customer_location,
-    metadata: HashMap::new(),
-};
-let journey_id = movement.start_journey(request)?;
+let journey = movement.plan_journey(courier_id, restaurant, customer, ctx.current_time())?;
+movement.add_journey(journey);
 
-// Tick to update journeys
-let completed_journeys = movement.tick(current_time)?;
-
-// Check agent's journey
-if let Some(journey) = movement.get_agent_journey(courier_id) {
-    println!("Progress: {:.1}%", journey.progress(current_time) * 100.0);
+// Each tick:
+movement.advance_journeys(ctx.current_time(), ctx.time_step())?;
+for arrived in movement.remove_completed() {
+    println!("{} arrived after {:.0} m", arrived.agent_id, arrived.distance_m);
 }
 ```
 
 ### VelocityModel
 
-Trait for calculating travel time and current position.
+Speed of a journey, used by `MovementHandler::advance_journeys`.
 
 ```rust
 pub trait VelocityModel: Send + Sync {
-    fn estimate_duration(&self, distance_meters: f64, time: DateTime<Utc>) -> Duration;
-    fn current_position(
-        &self,
-        origin: Point<f64>,
-        destination: Point<f64>,
-        start_time: DateTime<Utc>,
-        current_time: DateTime<Utc>,
-        route: Option<&[Point<f64>]>
-    ) -> Point<f64>;
+    /// Speed in m/s at the given progress (0.0..=1.0)
+    fn velocity_m_s(&self, journey: &JourneyState, progress: f64) -> f64;
+
+    /// Speed at a given simulation time; defaults to `velocity_m_s`.
+    /// Time-aware models (TimeOfDayVelocity) override this.
+    fn velocity_m_s_at_time(&self, journey: &JourneyState, progress: f64,
+                            now: DateTime<Utc>) -> f64;
 }
 ```
 
@@ -442,80 +436,20 @@ if let Some(nearby_warehouses) = warehouse_by_h3.get(&customer_h3.to_string()) {
 
 ### Using Journeys with Agents
 
-```rust
-use sim_core::{Agent, AgentTickResult, SimulationContext};
-use sim_geo::JourneyRequest;
-
-impl Agent for Courier {
-    fn tick(&mut self, ctx: &SimulationContext) -> Result<AgentTickResult> {
-        let mut result = AgentTickResult::default();
-
-        match &self.state {
-            CourierState::Idle => {
-                // Check for pickup assignments
-                if let Some(pickup_location) = self.assigned_pickup {
-                    // Start journey to pickup
-                    result.new_journeys.push(JourneyRequest {
-                        id: None,
-                        agent_id: self.id(),
-                        origin: self.position,
-                        destination: pickup_location,
-                        metadata: HashMap::from([
-                            ("journey_type".to_string(), "pickup".to_string())
-                        ]),
-                    });
-                    self.state = CourierState::EnRouteToPickup;
-                }
-            }
-            CourierState::EnRouteToPickup => {
-                // Movement is handled by MovementHandler
-                // Check if journey complete via position update
-            }
-            _ => {}
-        }
-
-        Ok(result)
-    }
-}
-```
-
-### Coordinating with SimulationHooks
+The runner does not move agents. `AgentTickResult::new_journeys` exists but
+is not consumed, so domain code owns a `MovementHandler`: plan journeys where
+the domain decides an agent should travel (e.g. in a hook or the domain
+wrapper's `step`), advance them each tick with the simulation time, and
+apply arrivals to the agents.
 
 ```rust
-struct GeoSimulationHooks {
-    movement_handler: MovementHandler,
-}
-
-impl SimulationHooks for GeoSimulationHooks {
-    fn on_agents_ticked(
-        &mut self,
-        ctx: &SimulationContext,
-        results: &[AgentTickResult]
-    ) -> Result<()> {
-        // Start new journeys requested by agents
-        for result in results {
-            for journey_req in &result.new_journeys {
-                self.movement_handler.start_journey(journey_req.clone())?;
-            }
-        }
-
-        // Update ongoing journeys
-        let completed = self.movement_handler.tick(ctx.current_time())?;
-
-        // Handle completed journeys
-        for journey_id in completed {
-            if let Some(journey) = self.movement_handler.get_journey(journey_id) {
-                // Update agent position
-                // Emit journey complete event
-            }
-        }
-
-        Ok(())
-    }
+// In the domain wrapper's step(), after runner.tick():
+let now = runner.context().current_time();
+movement.advance_journeys(now, runner.context().time_step())?;
+for arrived in movement.remove_completed() {
+    // look up the agent by arrived.agent_id and update its state
 }
 ```
-
----
 
 ## Complete Example: Delivery Simulation
 

@@ -56,7 +56,7 @@ let nearby = handler.within_radius(my_position, 5000.0)?;
 Track agent movement with journey states:
 
 ```rust
-use sim_geo::{JourneyState, MovementHandler, ConstantVelocity};
+use sim_geo::{JourneyState, MovementHandler, movement::ConstantVelocity};
 use chrono::Duration;
 
 let mut movement = MovementHandler::new()

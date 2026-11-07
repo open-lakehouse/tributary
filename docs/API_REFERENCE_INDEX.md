@@ -92,30 +92,13 @@ Comprehensive API documentation for each crate:
 - Full implementation: `crates/sim-logistics/`
 - Integration test: `crates/sim-logistics/tests/integration_test.rs`
 
-### Custom Implementation Templates
+### Starting a New Domain
 
-Well-commented boilerplate for new implementations:
-
-- **[agent-template.rs](./examples/custom/agent-template.rs)** - Agent implementation
-  - Status enum
-  - Agent struct
-  - Complete trait implementation
-  - Arrow serialization
-  - Unit tests
-
-- **[resource-template.rs](./examples/custom/resource-template.rs)** - Resource implementation
-  - Resource struct
-  - Task definition
-  - Custom allocation strategy
-  - Integration example
-  - Unit tests
-
-- **[workflow-template.rs](./examples/custom/workflow-template.rs)** - Workflow implementation
-  - Workflow struct
-  - Builder pattern
-  - TaskFactory implementation
-  - Event handling
-  - Unit tests
+There are no copy-paste templates; the two domain crates are the templates.
+`crates/sim-logistics` is the smaller one (passive agents, one workflow,
+station resources); `crates/sim-kitchen` adds active agents, per-kitchen
+workflows and artifact generation. Both are a single `simulation.rs` plus
+small agent/resource/workflow modules.
 
 ## Quick Start Guide
 
@@ -133,10 +116,8 @@ Choose a domain example:
 
 ### 3. Build Your Own Simulation
 
-Use the templates:
-1. Copy [agent-template.rs](./examples/custom/agent-template.rs)
-2. Copy [resource-template.rs](./examples/custom/resource-template.rs)
-3. Follow [integration.md](./api-reference/integration.md) for setup
+Start from `crates/sim-logistics/src/simulation.rs` and follow the "Adding
+a New Domain Simulation" steps in `AGENTS.md`.
 
 ## Documentation Structure
 
@@ -153,15 +134,10 @@ docs/
 │   ├── kitchen/            # Ghost kitchen domain
 │   │   └── basic.md
 │   │
-│   ├── logistics/          # Package delivery domain
-│   │   ├── basic.md
-│   │   ├── package-routing.md
-│   │   └── warehouse-clustering.md
-│   │
-│   └── custom/             # Templates for new implementations
-│       ├── agent-template.rs
-│       ├── resource-template.rs
-│       └── workflow-template.rs
+│   └── logistics/          # Package delivery domain
+│       ├── basic.md
+│       ├── package-routing.md
+│       └── warehouse-clustering.md
 │
 └── API_REFERENCE_INDEX.md  # This file
 ```

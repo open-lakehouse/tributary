@@ -53,7 +53,8 @@ sim-core/
 ├── workflows/        Multi-stage pipelines
 │   ├── workflow.rs   Workflow trait
 │   ├── step.rs       WorkflowStep definition
-│   └── engine.rs     WorkflowEngine orchestrator
+│   ├── engine.rs     WorkflowEngine (one per workflow family)
+│   └── registry.rs   WorkflowRegistry (the runner's only workflow path)
 │
 ├── runner/           Simulation orchestration
 │   ├── runner.rs     SimulationRunner
@@ -117,7 +118,7 @@ A **multi-stage processing pipeline** with defined steps.
 - Specify resource requirements per step
 - Provide duration estimates per step
 
-**Design Decision**: Workflows are declarative. The `WorkflowEngine` handles execution.
+**Design Decision**: Workflows are declarative. Engines in a `WorkflowRegistry` hold instances; the runner advances them as tasks complete.
 
 **Trade-off**: Declarative workflows are easier to reason about but less flexible than imperative code.
 
@@ -126,23 +127,17 @@ A **multi-stage processing pipeline** with defined steps.
 ### Typical Simulation Step
 
 ```
-1. SimulationContext.advance_time()
-   ↓
-2. PopulationHandler.tick_agents(ctx)
-   ↓ (returns Vec<AgentTickResult>)
-3. hooks.on_agents_ticked(ctx, results)
-   ↓ (processes demands, journeys)
-4. ResourceAllocator.assign_tasks(strategy, current_time)
-   ↓ (returns Vec<Assignment>)
-5. hooks.on_resources_allocated(ctx, assignments)
-   ↓ (tracks assignments, emits events)
-6. WorkflowEngine.advance_workflows(time_step)
-   ↓ (progresses multi-step tasks)
-7. hooks.on_workflows_advanced(ctx, completions)
-   ↓ (handles completed workflows)
-8. hooks.on_after_tick(ctx)
-   ↓ (custom post-processing)
+1. hooks.on_before_tick(ctx)
+2. DemandGenerator.generate(ctx)           → hooks.on_demands_generated
+3. PopulationHandler.tick_agents(ctx)      → hooks.on_agents_ticked
+4. ResourceAllocator.get_completed_tasks   → hooks.on_tasks_completed
+   (workflow tasks advance their instance  → hooks.on_workflow_step_completed)
+5. TaskFactory creates tasks for workflow instances ready for their next step
+6. ResourceAllocator.assign_tasks(strategy) → hooks.on_resources_allocated
+7. SimulationContext.advance()             → hooks.on_after_tick
 ```
+
+See `SimulationRunner::tick` for the authoritative description.
 
 ### AgentTickResult Flow
 
@@ -201,13 +196,17 @@ pub trait AllocationStrategy<R: Resource, T: Task> {
 The `SimulationRunner` uses **optional composition**:
 
 ```rust
-pub struct SimulationRunner<A: Agent, R: Resource, T: Task> {
+pub struct SimulationRunner<A: Agent, R: Resource, T: Task, W: Workflow> {
     context: SimulationContext,
     population: Option<PopulationHandler<A>>,
     resources: Option<ResourceAllocator<R, T>>,
-    workflows: Option<WorkflowEngine>,
-    hooks: Option<Box<dyn SimulationHooks>>,
-    stats: SimulationStats,
+    workflow_registry: Option<WorkflowRegistry<W>>,
+    task_factory: Option<Box<dyn TaskFactory<T>>>,
+    allocation_strategy: Box<dyn AllocationStrategy>,   // LeastLoaded by default
+    demand_generator: Option<Box<dyn DemandGenerator>>,
+    hooks: Box<dyn SimulationHooks>,                    // NoOpHooks by default
+    snapshot_manager: Option<SnapshotManager>,
+    // stats, control channel, pause state
 }
 ```
 
@@ -215,47 +214,6 @@ pub struct SimulationRunner<A: Agent, R: Resource, T: Task> {
 - Not all simulations need all components
 - Example: Pure agent simulation doesn't need resources
 - Example: Simple scenarios don't need workflows
-
-### Execution Loop
-
-```rust
-pub fn tick(&mut self) -> Result<()> {
-    self.context.advance_time();
-
-    // 1. Tick agents
-    let results = if let Some(pop) = &mut self.population {
-        pop.tick_agents(&self.context)?
-    } else {
-        Vec::new()
-    };
-
-    // 2. Process demands → tasks
-    if let Some(hooks) = &mut self.hooks {
-        hooks.on_agents_ticked(&self.context, &results)?;
-    }
-
-    // 3. Allocate tasks to resources
-    if let Some(allocator) = &mut self.resources {
-        let assignments = allocator.assign_pending_tasks(...)?;
-        if let Some(hooks) = &mut self.hooks {
-            hooks.on_resources_allocated(&self.context, &assignments)?;
-        }
-    }
-
-    // 4. Advance workflows
-    if let Some(engine) = &mut self.workflows {
-        engine.advance_workflows(self.context.time_step())?;
-    }
-
-    // 5. Post-tick hook
-    if let Some(hooks) = &mut self.hooks {
-        hooks.on_after_tick(&self.context)?;
-    }
-
-    self.stats.total_steps += 1;
-    Ok(())
-}
-```
 
 **Design Decision**: Linear execution order with hook injection points.
 
