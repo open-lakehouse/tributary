@@ -263,15 +263,10 @@ let mut runner = SimulationRunner::new(config)?;
 
 ### Metrics Exposition
 
-**Built-in Metrics Endpoint:**
-
-```bash
-# Start simulation with metrics server
-sim-runner --config config.toml --metrics-port 9090
-
-# Query metrics
-curl http://localhost:9090/metrics
-```
+**Metrics endpoint (not built in):** the `caspers` CLI does not serve metrics.
+Traces go to an OTLP collector (see `just run-tracing`). To expose metrics like the
+ones below, record them in a `SimulationHooks` implementation and serve them from
+your host process.
 
 **Key Metrics:**
 

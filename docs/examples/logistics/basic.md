@@ -10,7 +10,7 @@ Basic package shipment simulation with sorting and loading.
 
 ## Code Location
 
-`/Users/robert.pack/code/management/crates/sim-logistics/tests/integration_test.rs`
+`crates/sim-logistics/tests/integration_test.rs`
 
 ## Domain Model
 

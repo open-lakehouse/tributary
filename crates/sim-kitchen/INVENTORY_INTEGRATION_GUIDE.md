@@ -610,10 +610,9 @@ Agent J will build on this foundation to:
 
 ## References
 
-- **Phase 9 Plan**: `/Users/robert.pack/code/management/migration/phases/PHASE_09_MULTI_WORKFLOW.md`
-- **Agent D Code**: `/Users/robert.pack/code/management/crates/sim-kitchen/src/resources/inventory.rs`
-- **Agent I Code**: `/Users/robert.pack/code/management/crates/sim-kitchen/src/simulation.rs`
-- **Events**: `/Users/robert.pack/code/management/crates/sim-kitchen/src/events.rs`
+- **Agent D Code**: `crates/sim-kitchen/src/resources/inventory.rs`
+- **Agent I Code**: `crates/sim-kitchen/src/simulation.rs`
+- **Events**: `crates/sim-kitchen/src/events.rs`
 
 ---
 

@@ -271,7 +271,9 @@ for step in 0..100 {
 // Optional components
 runner.set_population_handler(population);
 runner.set_resource_allocator(allocator);
-runner.set_workflow_engine(engine);
+let mut registry = WorkflowRegistry::new();
+registry.register("orders".to_string(), engine)?;
+runner.set_workflow_registry(registry);
 runner.set_hooks(Box::new(hooks));
 
 // Access during simulation

@@ -12,7 +12,7 @@ Demonstrates:
 
 ## Code Location
 
-`/Users/robert.pack/code/management/crates/sim-kitchen/src/resources/inventory.rs`
+`crates/sim-kitchen/src/resources/inventory.rs`
 
 ## InventoryManager API
 
@@ -90,4 +90,4 @@ impl SimulationHooks for InventoryAwareHooks {
 
 ## Complete Test
 
-See `/Users/robert.pack/code/management/test_supply_chain.rs` for full example.
+See `test_supply_chain.rs` for full example.

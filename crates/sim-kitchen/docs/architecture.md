@@ -27,7 +27,7 @@ sim-kitchen/
 │
 ├── recipes/                 Recipe system
 │   ├── types.rs             Recipe, RecipeStep, StationKind
-│   └── registry.rs          RecipeRegistry (loads universe templates)
+│   └── registry.rs          RecipeRegistry (loads bundled brand templates)
 │
 ├── profiles/                Deterministic agent profiles
 │   ├── customer.rs          CustomerProfile (payment, address, loyalty)
@@ -139,7 +139,7 @@ let profile = hooks.profiles.customer_profile(agent_id);
 
 ## Recipe Registry
 
-Recipes are loaded from the bundled universe brand templates at startup:
+Recipes are loaded at startup from the brand templates bundled in `src/recipes/data/`:
 
 ```rust
 let registry = RecipeRegistry::load_defaults();

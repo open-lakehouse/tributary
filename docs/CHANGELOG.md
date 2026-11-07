@@ -1,6 +1,8 @@
 # Changelog
 
-All notable changes to the Generic Agent Simulation Framework will be documented in this file.
+All notable changes to Tributary will be documented in this file. Nothing has
+been released since 0.0.1, so everything below `[Unreleased]` is grouped by the
+date the work landed.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
@@ -8,6 +10,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ---
 
 ## [Unreleased]
+
+### Documentation
+- Docs no longer reference the removed `set_workflow_engine` (examples use
+  `WorkflowRegistry`), the old `migration/` tree, a nonexistent `sim-runner`
+  metrics endpoint, or absolute paths from a previous checkout. Crate lists
+  include `sim-artifacts`, `sim-validate` and `caspers-cli`; both new crates
+  gained READMEs.
 
 ### Fixed
 - The `caspers` Python package builds again: maturin's `module-name` is
@@ -76,7 +85,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [Earlier Unreleased] - 2026-05-17 (Python bindings migration)
+## Unreleased work, 2026-05-17 (Python bindings migration)
 
 ### Changed — Python bindings migrated from legacy `universe` crate to `sim-*` framework
 
@@ -99,7 +108,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [Unreleased] - 2026-05-17
+## Unreleased work, 2026-05-17
 
 ### Added — Migration completion & CLI validation
 
@@ -114,7 +123,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `--no-tui` flag: runs simulation headlessly and prints a JSON summary to stdout (`{"steps": N, "events_by_type": {...}}`)
 - End-of-run summary printed to stderr after TUI closes: steps, sim time, per-type event counts, throughput, completion ratio
 
-## [Unreleased] - 2026-03-21
+## Unreleased work, 2026-03-21
 
 ### Added — TUI Simulation & Snapshot Management
 
@@ -570,7 +579,7 @@ estimated_duration_secs     // NEW
 - SQL queries get two new columns
 
 **Migration:**
-See `/Users/robert.pack/code/management/migration/guides/PHASE_6_MIGRATION_GUIDE.md`
+See `migration/guides/PHASE_6_MIGRATION_GUIDE.md`
 
 **Workaround:**
 Re-run simulations to generate new snapshots, or manually migrate Parquet files (add zero-filled columns).
@@ -580,77 +589,77 @@ Re-run simulations to generate new snapshots, or manually migrate Parquet files 
 ### Documentation
 
 #### Guides
-- **Getting Started**: `/Users/robert.pack/code/management/docs/GETTING_STARTED.md`
+- **Getting Started**: `docs/GETTING_STARTED.md`
   - Installation and setup
   - First simulation (kitchen domain)
   - Core concepts walkthrough
-- **Building a Custom Domain**: `/Users/robert.pack/code/management/docs/guides/building-domain.md`
+- **Building a Custom Domain**: `docs/guides/building-domain.md`
   - Domain structure and patterns
   - Agent, Resource, Workflow trait implementations
   - TaskFactory pattern
   - Integration with SimulationRunner
-- **Custom Agents**: `/Users/robert.pack/code/management/docs/guides/custom-agents.md`
+- **Custom Agents**: `docs/guides/custom-agents.md`
   - Agent trait implementation
   - State machine design
   - Arrow serialization
-- **Custom Workflows**: `/Users/robert.pack/code/management/docs/guides/custom-workflows.md`
+- **Custom Workflows**: `docs/guides/custom-workflows.md`
   - WorkflowDefinition creation
   - Step configuration
   - TaskFactory implementation
-- **Custom Resources**: `/Users/robert.pack/code/management/docs/guides/custom-resources.md`
+- **Custom Resources**: `docs/guides/custom-resources.md`
   - Resource trait implementation
   - Capacity constraints
   - Allocation logic
-- **Performance Tuning**: `/Users/robert.pack/code/management/docs/guides/performance-tuning.md`
+- **Performance Tuning**: `docs/guides/performance-tuning.md`
   - Profiling strategies
   - Optimization patterns
   - Common pitfalls
-- **Testing Strategies**: `/Users/robert.pack/code/management/docs/guides/testing-strategies.md`
+- **Testing Strategies**: `docs/guides/testing-strategies.md`
   - Unit testing patterns
   - Integration test setup
   - Benchmarking with Criterion
 
 #### Architecture Documentation
-- **Architecture Overview**: `/Users/robert.pack/code/management/docs/ARCHITECTURE.md`
+- **Architecture Overview**: `docs/ARCHITECTURE.md`
   - Core design decisions
   - Framework architecture
   - Integration patterns
   - Extension points
-- **Performance Profiling Guide**: `/Users/robert.pack/code/management/docs/performance/profiling.md`
+- **Performance Profiling Guide**: `docs/performance/profiling.md`
   - Profiling tools (Criterion, perf, Valgrind, flamegraph)
   - Optimization workflow
   - Case studies from migration phases
-- **Optimization History**: `/Users/robert.pack/code/management/docs/performance/optimization-history.md`
+- **Optimization History**: `docs/performance/optimization-history.md`
   - Phase-by-phase performance timeline
   - Key optimization breakthroughs
   - Lessons learned
   - Future opportunities
 
 #### API Reference
-- **sim-core**: `/Users/robert.pack/code/management/docs/api-reference/sim-core.md`
+- **sim-core**: `docs/api-reference/sim-core.md`
   - SimulationRunner, PopulationHandler, WorkflowEngine, ResourceAllocator
-- **sim-geo**: `/Users/robert.pack/code/management/docs/api-reference/sim-geo.md`
+- **sim-geo**: `docs/api-reference/sim-geo.md`
   - LocationHandler, MovementHandler, RoadNetwork, SpatialIndex
-- **sim-events**: `/Users/robert.pack/code/management/docs/api-reference/sim-events.md`
+- **sim-events**: `docs/api-reference/sim-events.md`
   - Event, EventDispatcher, EventStorage
-- **sim-telemetry**: `/Users/robert.pack/code/management/docs/api-reference/sim-telemetry.md`
+- **sim-telemetry**: `docs/api-reference/sim-telemetry.md`
   - TelemetryGenerator, TelemetryCollector, Export formats
 
 #### Migration Documentation
-- **Phase 6 Migration Guide**: `/Users/robert.pack/code/management/migration/guides/PHASE_6_MIGRATION_GUIDE.md`
+- **Phase 6 Migration Guide**: `migration/guides/PHASE_6_MIGRATION_GUIDE.md`
   - Arrow migration step-by-step
   - Breaking changes and workarounds
   - Testing strategy
-- **Phase 6 SQL Cookbook**: `/Users/robert.pack/code/management/migration/guides/PHASE_6_SQL_COOKBOOK.md`
+- **Phase 6 SQL Cookbook**: `migration/guides/PHASE_6_SQL_COOKBOOK.md`
   - 33 SQL query recipes
   - Performance tips
   - Common patterns
 
 #### Examples
 - **Kitchen Domain**:
-  - Basic simulation: `/Users/robert.pack/code/management/docs/examples/kitchen/basic.md`
-  - Multi-workflow: `/Users/robert.pack/code/management/docs/examples/kitchen/multi-workflow.md`
-  - Inventory management: `/Users/robert.pack/code/management/docs/examples/kitchen/inventory-management.md`
+  - Basic simulation: `docs/examples/kitchen/basic.md`
+  - Multi-workflow: `docs/examples/kitchen/multi-workflow.md`
+  - Inventory management: `docs/examples/kitchen/inventory-management.md`
 
 ---
 
@@ -802,7 +811,7 @@ None in 0.0.1 (initial release).
 For users migrating from previous versions or the original universe crate:
 
 #### From universe crate (pre-framework)
-1. **Read** `/Users/robert.pack/code/management/migration/guides/PHASE_6_MIGRATION_GUIDE.md`
+1. **Read** `migration/guides/PHASE_6_MIGRATION_GUIDE.md`
 2. **Update** to RecordBatch-based handlers (dual-index pattern)
 3. **Add** batch operation APIs to your code
 4. **Regenerate** snapshots (old snapshots incompatible)
@@ -815,7 +824,7 @@ For users migrating from previous versions or the original universe crate:
 3. **Update** SQL queries if accessing `allocated_at_millis` or `estimated_duration_secs`
 4. **Test** snapshot save/restore roundtrip
 
-See migration guides in `/Users/robert.pack/code/management/migration/guides/` for detailed step-by-step instructions.
+See migration guides in `migration/guides/` for detailed step-by-step instructions.
 
 ---
 
@@ -839,10 +848,10 @@ See migration guides in `/Users/robert.pack/code/management/migration/guides/` f
 ### Links
 
 - **Repository**: [Internal link to repository]
-- **Documentation**: `/Users/robert.pack/code/management/docs/`
-- **Migration Guides**: `/Users/robert.pack/code/management/migration/`
-- **API Reference**: `/Users/robert.pack/code/management/docs/api-reference/`
-- **Examples**: `/Users/robert.pack/code/management/docs/examples/`
+- **Documentation**: `docs/`
+- **Migration Guides**: `migration/`
+- **API Reference**: `docs/api-reference/`
+- **Examples**: `docs/examples/`
 
 ---
 

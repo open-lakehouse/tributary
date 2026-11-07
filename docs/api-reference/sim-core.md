@@ -425,7 +425,9 @@ let mut runner = SimulationRunner::new(config);
 // Register components
 runner.set_population_handler(population);
 runner.set_resource_allocator(allocator);
-runner.set_workflow_engine(workflow_engine);
+let mut registry = WorkflowRegistry::new();
+registry.register("orders".to_string(), workflow_engine)?;
+runner.set_workflow_registry(registry);
 
 // Run simulation
 runner.run_for_steps(100)?;
