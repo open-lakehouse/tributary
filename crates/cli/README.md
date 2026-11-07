@@ -28,10 +28,16 @@ caspers run [OPTIONS]
 
 | Flag | Short | Default | Description |
 | ---- | ----- | ------- | ----------- |
-| `--duration` | `-d` | `100` | Number of simulation steps to run |
+| `--duration` | `-d` | `100` | Steps to run (30 s each) in range mode |
 | `--num-kitchens` | — | `3` | Number of ghost kitchens |
-| `--kitchen-capacity` | — | `5` | Max concurrent orders per kitchen |
+| `--kitchen-capacity` | — | `5` | Orders each kitchen prepares at once |
 | `--num-customers` | — | `20` | Number of customer agents |
+| `--mode` | — | `range` | `range`, `live` (wall-clock paced) or `catchup` |
+| `--start-time` / `--end-time` | — | now / none | `now`, `now+3h`, `2026-01-01`, RFC 3339 |
+| `--seed` | — | none | Global seed; same seed → same event stream |
+| `--events-out` | — | none | Write events to this Parquet file at the end |
+| `--artifacts-out` | — | `output/artifacts` | Directory for generated artifacts (JSON Lines) |
+| `--no-tui` | — | off | Headless: print a JSON summary; exit non-zero on failure |
 
 **Keyboard shortcuts (during simulation):**
 
@@ -65,4 +71,15 @@ just run-tracing
 
 When running with `caspers run`, terminal log output is suppressed to keep the
 TUI clean. Traces and metrics are still exported to the configured OTLP
-collector.
+collector. `RUST_LOG` overrides the default log filter
+(`caspers`/`sim_*` at debug, everything else at warn).
+
+### `caspers validate`
+
+Check a run's events (and optionally artifacts) against the domain
+invariants:
+
+```bash
+caspers run --no-tui --duration 200 --seed 42 --events-out events.parquet
+caspers validate --events events.parquet --artifacts output/artifacts --kitchen-capacity 15
+```

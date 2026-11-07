@@ -315,7 +315,7 @@ just run 500       # or: cargo run --bin caspers -- run --duration 500
 # Custom parameters
 cargo run --bin caspers -- run --duration 200 --num-kitchens 5 --num-customers 30
 
-# Sim-kitchen library example — writes artifacts to output/artifacts/ (no TUI)
+# Sim-kitchen library example — writes events and artifacts under .caspers/sim-kitchen (no TUI)
 just sim-kitchen 100
 
 # With tracing (requires Docker — starts Jaeger)
@@ -365,4 +365,4 @@ uv pip install maturin[zig] && just build-py
 | Pattern | Usage |
 |---------|-------|
 | `*_tests.rs` | Unit/integration tests |
-| `output/artifacts/` | Simulation artifact output (Parquet) |
+| `output/artifacts/` | Simulation artifact output (JSON Lines) |

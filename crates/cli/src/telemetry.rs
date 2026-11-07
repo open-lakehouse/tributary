@@ -10,6 +10,9 @@ use tracing::level_filters::LevelFilter;
 use tracing_opentelemetry::{MetricsLayer, OpenTelemetryLayer};
 use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt as _};
 
+/// Log filter used when `RUST_LOG` is not set
+const DEFAULT_DIRECTIVES: &str = "caspers=debug,sim_core=debug,sim_kitchen=debug,sim_events=debug";
+
 fn resource() -> Resource {
     Resource::builder().with_service_name("caspers").build()
 }
@@ -40,19 +43,6 @@ pub(crate) fn init_meter_provider() -> SdkMeterProvider {
     meter_provider
 }
 
-pub(crate) fn init_tracer_provider() {
-    let exporter = SpanExporter::builder()
-        .with_tonic()
-        .build()
-        .expect("Failed to create span exporter");
-    let provider = SdkTracerProvider::builder()
-        .with_resource(resource())
-        .with_batch_exporter(exporter)
-        .build();
-    global::set_text_map_propagator(TraceContextPropagator::new());
-    global::set_tracer_provider(provider);
-}
-
 /// Initialize tracing-subscriber and return OtelGuard for opentelemetry-related termination processing.
 ///
 /// When `tui_mode` is true the fmt layer writes to `io::sink()` so that log
@@ -65,15 +55,23 @@ pub(crate) fn init_tracing_subscriber(tui_mode: bool) -> OtelGuard {
         .build()
         .expect("Failed to create span exporter");
     let tracer_provider = SdkTracerProvider::builder()
-        .with_resource(Resource::builder().with_service_name("caspers").build())
+        .with_resource(resource())
         .with_batch_exporter(exporter)
         .build();
+    // One provider, installed globally and shut down by the guard.
+    global::set_text_map_propagator(TraceContextPropagator::new());
+    global::set_tracer_provider(tracer_provider.clone());
 
     let tracer = tracer_provider.tracer("caspers");
 
+    // RUST_LOG wins when set; otherwise debug for our crates, warn elsewhere.
+    let directives = std::env::var(tracing_subscriber::EnvFilter::DEFAULT_ENV)
+        .ok()
+        .filter(|v| !v.trim().is_empty())
+        .unwrap_or_else(|| DEFAULT_DIRECTIVES.to_string());
     let env_filter = tracing_subscriber::EnvFilter::builder()
         .with_default_directive(LevelFilter::WARN.into())
-        .parse_lossy("caspers=debug,sim_core=debug,sim_kitchen=debug,sim_events=debug");
+        .parse_lossy(directives);
 
     // The global level filter prevents the exporter network stack
     // from reentering the globally installed OpenTelemetryLayer with
