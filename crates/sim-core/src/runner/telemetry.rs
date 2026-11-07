@@ -373,10 +373,12 @@ mod tests {
             Assignment {
                 task_id: TaskId::new(),
                 resource_id: crate::utils::idents::ResourceId::new(),
+                workflow_instance_id: None,
             },
             Assignment {
                 task_id: TaskId::new(),
                 resource_id: crate::utils::idents::ResourceId::new(),
+                workflow_instance_id: None,
             },
         ];
 

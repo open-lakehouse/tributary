@@ -3,22 +3,17 @@
 //! This test demonstrates the complete workflow lifecycle:
 //! 1. Setup runner with workflows, resources, and task factory
 //! 2. Start a workflow instance
-//! 3. Tick simulation
-//! 4. Verify task created for first step
-//! 5. Allocate task to resource
-//! 6. Advance time until task completes
-//! 7. Tick simulation
-//! 8. Verify workflow advanced to step 2
-//! 9. Verify task created for second step
-//! 10. Repeat until workflow completes
-//! 11. Verify workflow marked complete
-//! 12. Verify events emitted
+//! 3. Tick: the runner creates the step's task and allocates it
+//! 4. Keep ticking until the step's duration elapses; the same tick advances
+//!    the instance and allocates the next step's task
+//! 5. Repeat until the workflow completes
+//! 6. Verify workflow marked complete and events emitted
 
 use chrono::{DateTime, Duration, Utc};
 use sim_core::{
     SimulationConfig, SimulationContext, SimulationHooks, SimulationRunner,
     population::{Agent, AgentStatus, AgentTickResult},
-    resources::{LeastLoaded, Resource, ResourceAllocator, Task, TaskFactory},
+    resources::{Resource, ResourceAllocator, Task, TaskFactory},
     utils::idents::{AgentId, ResourceId, TaskId, WorkflowId, WorkflowInstanceId},
     workflows::{Workflow, WorkflowEngine, WorkflowRegistry, WorkflowStep, WorkflowStepEvent},
 };
@@ -194,6 +189,8 @@ impl SimulationHooks for TestHooks {
     }
 }
 
+type TestRunner = SimulationRunner<TestAgent, TestResource, TestTask, TestWorkflow>;
+
 #[test]
 fn test_complete_workflow_lifecycle() {
     // 1. Setup runner with workflows, resources, and task factory
@@ -262,55 +259,44 @@ fn test_complete_workflow_lifecycle() {
     let events_ref = hooks.workflow_events.clone();
     runner.set_hooks(Box::new(hooks));
 
-    // 3. Tick simulation (should create task for first step)
+    let current_step = |runner: &TestRunner| {
+        runner
+            .workflow_registry()
+            .unwrap()
+            .get("test")
+            .unwrap()
+            .instance_table
+            .get_instance(instance_id)
+            .unwrap()
+            .current_step
+    };
+
+    // 3. First tick (T=0): the step-0 task is created and allocated in the same tick.
     runner.tick().unwrap();
-
-    // 4. Verify task created for first step
-    assert_eq!(runner.resources().unwrap().pending_task_count(), 1);
-
-    // 5. Allocate task to resource
-    runner.allocate_resources(&LeastLoaded).unwrap();
     assert_eq!(runner.resources().unwrap().pending_task_count(), 0);
     assert_eq!(runner.resources().unwrap().assignments().len(), 1);
 
-    // 6. Advance time until task completes
-    // Task was allocated at T=5s, needs 10s, completes when current_time >= T=15s
-    // But completion check happens BEFORE time advance, so we need to tick until AFTER T=15s
-    runner.tick().unwrap(); // T=10s
-    runner.tick().unwrap(); // T=15s
-    runner.tick().unwrap(); // T=20s - step 1 completes at start of this tick
+    // 4. Step 0 takes 10s: it completes in the tick that starts at T=10,
+    //    which also creates and allocates the step-1 task.
+    runner.tick().unwrap(); // T=5
+    assert_eq!(current_step(&runner), 0);
+    runner.tick().unwrap(); // T=10
+    assert_eq!(current_step(&runner), 1);
+    assert_eq!(runner.resources().unwrap().assignments().len(), 1);
 
-    // 7. Verify workflow advanced to step 2
-    let engine = runner.workflow_registry().unwrap().get("test").unwrap();
-    let instance = engine.instance_table.get_instance(instance_id).unwrap();
-    assert_eq!(instance.current_step, 1);
-    assert!(!instance.is_complete);
+    // 5. Step 1 takes 15s: completes at T=25.
+    runner.tick().unwrap(); // T=15
+    runner.tick().unwrap(); // T=20
+    assert_eq!(current_step(&runner), 1);
+    runner.tick().unwrap(); // T=25
+    assert_eq!(current_step(&runner), 2);
 
-    // 8. Verify task created for second step
-    assert_eq!(runner.resources().unwrap().pending_task_count(), 1);
-
-    // 9. Allocate and complete second step
-    // Allocated at T=20s, needs 15s, completes when current_time >= T=35s
-    runner.allocate_resources(&LeastLoaded).unwrap();
-    runner.tick().unwrap(); // T=25s
-    runner.tick().unwrap(); // T=30s
-    runner.tick().unwrap(); // T=35s
-    runner.tick().unwrap(); // T=40s - step 2 completes at start of this tick
-
-    // Verify workflow advanced to step 3
-    let engine = runner.workflow_registry().unwrap().get("test").unwrap();
-    let instance = engine.instance_table.get_instance(instance_id).unwrap();
-    assert_eq!(instance.current_step, 2);
-    assert!(!instance.is_complete);
-
-    // 10. Complete third and final step
-    // Allocated at T=40s, needs 20s, completes when current_time >= T=60s
-    runner.allocate_resources(&LeastLoaded).unwrap();
-    runner.tick().unwrap(); // T=45s
-    runner.tick().unwrap(); // T=50s
-    runner.tick().unwrap(); // T=55s
-    runner.tick().unwrap(); // T=60s
-    runner.tick().unwrap(); // T=65s - step 3 completes at start of this tick
+    // 6. Step 2 takes 20s: completes at T=45.
+    for _ in 0..3 {
+        runner.tick().unwrap(); // T=30, 35, 40
+    }
+    assert_eq!(current_step(&runner), 2);
+    runner.tick().unwrap(); // T=45
 
     // 11. Verify workflow marked complete
     let engine = runner.workflow_registry().unwrap().get("test").unwrap();
@@ -431,39 +417,28 @@ fn test_multiple_concurrent_workflows() {
     let events_ref = hooks.workflow_events.clone();
     runner.set_hooks(Box::new(hooks));
 
-    // Tick - should create 3 tasks (one for each workflow)
+    // Tick at T=0 creates and allocates one task per instance.
     runner.tick().unwrap();
-    assert_eq!(runner.resources().unwrap().pending_task_count(), 3);
-
-    // Allocate all tasks
-    runner.allocate_resources(&LeastLoaded).unwrap();
+    assert_eq!(runner.resources().unwrap().pending_task_count(), 0);
     assert_eq!(runner.resources().unwrap().assignments().len(), 3);
 
-    // Complete first step for all workflows
-    // Allocated at T=5s, need 10s, complete when current_time >= T=15s
-    runner.tick().unwrap(); // T=10s
-    runner.tick().unwrap(); // T=15s
-    runner.tick().unwrap(); // T=20s - step 1 completes at start of this tick
+    // Step 0 (10s) completes in the tick starting at T=10.
+    runner.tick().unwrap(); // T=5
+    runner.tick().unwrap(); // T=10
 
-    // All workflows should advance to step 1
     let engine = runner.workflow_registry().unwrap().get("test").unwrap();
     for instance_id in &instance_ids {
         let instance = engine.instance_table.get_instance(*instance_id).unwrap();
         assert_eq!(instance.current_step, 1);
         assert!(!instance.is_complete);
     }
+    // Step-1 tasks were created and allocated in the same tick.
+    assert_eq!(runner.resources().unwrap().assignments().len(), 3);
 
-    // Should have 3 new tasks (1 per workflow instance)
-    assert_eq!(runner.resources().unwrap().pending_task_count(), 3);
+    // Step 1 (10s) completes at T=20.
+    runner.tick().unwrap(); // T=15
+    runner.tick().unwrap(); // T=20
 
-    // Allocate and complete second step
-    // Allocated at T=20s, need 10s, complete when current_time >= T=30s
-    runner.allocate_resources(&LeastLoaded).unwrap();
-    runner.tick().unwrap(); // T=25s
-    runner.tick().unwrap(); // T=30s
-    runner.tick().unwrap(); // T=35s - step 2 completes at start of this tick
-
-    // All workflows should be complete
     let engine = runner.workflow_registry().unwrap().get("test").unwrap();
     for instance_id in &instance_ids {
         let instance = engine.instance_table.get_instance(*instance_id).unwrap();

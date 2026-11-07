@@ -340,7 +340,7 @@ async fn test_snapshot_manager_direct_usage() {
 
     let agents_batch = population.export_batch();
     let allocator: ResourceAllocator<TestResource, TestTask> = ResourceAllocator::new();
-    let (resources_batch, tasks_batch) = allocator.export_batch();
+    let (resources_batch, tasks_batch) = allocator.export_batch().unwrap();
     let engine: WorkflowEngine<TestWorkflow> = WorkflowEngine::new();
     let workflow_batch = engine.instance_table.export_batch();
 
@@ -350,6 +350,7 @@ async fn test_snapshot_manager_direct_usage() {
         tasks: tasks_batch,
         workflow_instances: workflow_batch,
         locations: None,
+        clock: None,
     };
 
     manager

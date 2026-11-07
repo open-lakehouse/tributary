@@ -214,7 +214,7 @@ fn create_snapshot_data(
     }
 
     // Export to snapshot
-    let (resources_batch, tasks_batch) = allocator.export_batch();
+    let (resources_batch, tasks_batch) = allocator.export_batch().unwrap();
 
     SnapshotData {
         agents: population.export_batch(),
@@ -222,6 +222,7 @@ fn create_snapshot_data(
         tasks: tasks_batch,
         workflow_instances: workflow_engine.instance_table.export_batch(),
         locations: None,
+        clock: None,
     }
 }
 

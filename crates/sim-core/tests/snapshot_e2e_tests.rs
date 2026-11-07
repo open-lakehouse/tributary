@@ -13,7 +13,7 @@ use sim_core::{
     SimulationContext,
     context::SimulationConfig,
     population::{Agent, AgentStatus, AgentTickResult, PopulationHandler},
-    resources::{LeastLoaded, Resource, ResourceAllocator, Task, TaskFactory},
+    resources::{Resource, ResourceAllocator, Task, TaskFactory},
     runner::SimulationRunner,
     snapshot::{SnapshotBackend, SnapshotMetadata},
     utils::idents::{AgentId, ResourceId, TaskId, WorkflowId, WorkflowInstanceId},
@@ -364,7 +364,7 @@ async fn test_e2e_multi_handler_coordination() {
     // Run with resource allocation
     for _ in 0..10 {
         runner.tick().unwrap();
-        runner.allocate_resources(&LeastLoaded).unwrap();
+        runner.allocate_resources().unwrap();
     }
 
     // Save snapshot
@@ -492,7 +492,7 @@ async fn test_e2e_state_consistency_validation() {
 
     for _ in 0..20 {
         runner.tick().unwrap();
-        runner.allocate_resources(&LeastLoaded).unwrap();
+        runner.allocate_resources().unwrap();
     }
 
     // Save snapshot
@@ -502,10 +502,15 @@ async fn test_e2e_state_consistency_validation() {
     let expected_tasks = save_metadata.task_count;
     let expected_workflows = save_metadata.workflow_instance_count;
 
-    // Clear ALL handlers
+    let expected_step = runner.context().step();
+    let expected_time = runner.context().current_time();
+
+    // Diverge: more ticks and a cleared population / allocator.
+    for _ in 0..5 {
+        runner.tick().unwrap();
+    }
     runner.set_population_handler(PopulationHandler::new());
     runner.set_resource_allocator(ResourceAllocator::new());
-    runner.set_workflow_registry(WorkflowRegistry::new());
 
     assert_eq!(runner.population().unwrap().count(), 0);
     assert_eq!(runner.resources().unwrap().resource_count(), 0);
@@ -517,18 +522,45 @@ async fn test_e2e_state_consistency_validation() {
     assert_eq!(restore_metadata.task_count, expected_tasks);
     assert_eq!(restore_metadata.workflow_instance_count, expected_workflows);
 
-    // Verify actual state (agents and resources are restored)
+    // Verify the live state, not just the stored counts.
     assert_eq!(runner.population().unwrap().count(), expected_agents);
     assert_eq!(
         runner.resources().unwrap().resource_count(),
         expected_resources
     );
+    assert_eq!(
+        runner.workflow_registry().unwrap().total_instance_count(),
+        expected_workflows
+    );
+    assert_eq!(runner.context().step(), expected_step);
+    assert_eq!(runner.context().current_time(), expected_time);
 
     // Verify handlers are functional
     runner.tick().unwrap();
-    runner.allocate_resources(&LeastLoaded).unwrap();
+    runner.allocate_resources().unwrap();
 
     println!("E2E Test 5 PASSED: State consistency validation (atomic restore verified)");
+}
+
+#[tokio::test]
+async fn test_e2e_failed_restore_leaves_state_untouched() {
+    let mut runner = create_runner();
+    runner.init_snapshot_manager().await.unwrap();
+    populate_runner(&mut runner, 10, 5, 3);
+    for _ in 0..3 {
+        runner.tick().unwrap();
+    }
+    runner.save_snapshot("before").await.unwrap();
+
+    // A registry without the snapshot's workflow definitions cannot take its
+    // instances, so restore must fail without touching anything.
+    runner.set_population_handler(PopulationHandler::new());
+    runner.set_workflow_registry(WorkflowRegistry::new());
+    let step = runner.context().step();
+
+    assert!(runner.restore_snapshot("before").await.is_err());
+    assert_eq!(runner.population().unwrap().count(), 0);
+    assert_eq!(runner.context().step(), step);
 }
 
 // ============================================================================
@@ -545,7 +577,7 @@ async fn test_e2e_large_scale_simulation() {
 
     for _ in 0..50 {
         runner.tick().unwrap();
-        runner.allocate_resources(&LeastLoaded).unwrap();
+        runner.allocate_resources().unwrap();
     }
 
     // Benchmark save
@@ -560,7 +592,6 @@ async fn test_e2e_large_scale_simulation() {
     // Clear state
     runner.set_population_handler(PopulationHandler::new());
     runner.set_resource_allocator(ResourceAllocator::new());
-    runner.set_workflow_registry(WorkflowRegistry::new());
 
     // Benchmark restore
     let restore_start = Instant::now();
@@ -570,6 +601,10 @@ async fn test_e2e_large_scale_simulation() {
     assert_eq!(restore_metadata.agent_count, 500);
     assert_eq!(runner.population().unwrap().count(), 500);
     assert_eq!(runner.resources().unwrap().resource_count(), 100);
+    assert_eq!(
+        runner.workflow_registry().unwrap().total_instance_count(),
+        40
+    );
 
     println!("E2E Test 6 PASSED: Large scale simulation");
     println!("  - Saved 500 agents in {:?}", save_duration);

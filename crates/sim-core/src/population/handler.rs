@@ -629,14 +629,17 @@ impl<A: Agent> PopulationHandler<A> {
         self.get_agent_at_row(row_idx)
     }
 
-    /// Get an agent at a specific row index
+    /// Get an agent at a specific row index (`None` if out of range or undecodable)
     fn get_agent_at_row(&self, row_idx: usize) -> Option<A> {
-        if row_idx >= self.agents.num_rows() {
-            return None;
-        }
+        self.decode_agent_at_row(row_idx).ok()
+    }
 
-        let row = self.extract_row(row_idx)?;
-        A::from_arrow_row(&row).ok()
+    /// Decode the agent at a row, reporting why it failed
+    fn decode_agent_at_row(&self, row_idx: usize) -> Result<A> {
+        let row = self.extract_row(row_idx).ok_or_else(|| {
+            crate::Error::Agent(format!("No readable agent row at index {row_idx}"))
+        })?;
+        A::from_arrow_row(&row)
     }
 
     /// Extract a row from the RecordBatch
@@ -702,22 +705,6 @@ impl<A: Agent> PopulationHandler<A> {
                 Some(metadata_array.value(row_idx).to_string())
             },
         })
-    }
-
-    /// Get a mutable reference to an agent
-    ///
-    /// Note: Due to RecordBatch immutability, this returns a cloned agent.
-    /// After modification, you must call `update_agent()` to persist changes.
-    ///
-    /// # Arguments
-    ///
-    /// * `id` - The agent's unique identifier
-    ///
-    /// # Returns
-    ///
-    /// Cloned agent, or None if not found
-    pub fn get_agent_mut(&mut self, id: AgentId) -> Option<A> {
-        self.get_agent(id)
     }
 
     /// Update an agent in the population
@@ -933,14 +920,12 @@ impl<A: Agent> PopulationHandler<A> {
 
         // Process all agents
         for row_idx in 0..self.agents.num_rows() {
-            if let Some(mut agent) = self.get_agent_at_row(row_idx) {
-                let result = agent.tick(ctx)?;
-                all_results.push(result);
-                updated_agents.push((row_idx, agent));
-            }
+            let mut agent = self.decode_agent_at_row(row_idx)?;
+            let result = agent.tick(ctx)?;
+            all_results.push(result);
+            updated_agents.push((row_idx, agent));
         }
 
-        // Update all agents in batch
         // Update all agents in batch
         if !updated_agents.is_empty() {
             let agents_to_update: Vec<A> =

@@ -63,10 +63,16 @@ pub struct SimulationConfig {
     pub verbose: bool,
     /// Optional global seed for reproducibility.
     ///
-    /// When set, RNG-driven decisions (demand generation, agent behavior,
-    /// allocation) are reproducible run-to-run. Per-component sub-seeds are
-    /// derived from this value via [`derive_seed`]. Note this gives *logical*
-    /// reproducibility — IDs and timestamps are not made deterministic.
+    /// sim-core does not read this itself: components draw randomness from
+    /// RNGs they own. Whoever builds the simulation threads the seed through
+    /// by deriving a per-component sub-seed with [`derive_seed`] and passing
+    /// it to the seeded constructors, e.g.
+    /// [`PoissonDemandGenerator::with_seed`](crate::PoissonDemandGenerator::with_seed),
+    /// [`SpatialDemandGenerator::with_seed`](crate::SpatialDemandGenerator::with_seed)
+    /// and [`Random::with_seed`](crate::resources::Random::with_seed).
+    ///
+    /// This gives *logical* reproducibility: the same decisions in the same
+    /// order. Entity IDs are random UUIDs and are not reproduced.
     #[serde(default)]
     pub seed: Option<u64>,
     /// Custom configuration values
@@ -290,6 +296,16 @@ impl SimulationContext {
     /// Set the current time (for snapshot restoration)
     pub fn set_current_time(&mut self, time: DateTime<Utc>) {
         self.current_time = time;
+    }
+
+    /// Rewind or fast-forward the clock to a captured time and step
+    ///
+    /// Used by snapshot restore. Clears the Live/Catchup wall-clock anchor so
+    /// pacing restarts from the restored step.
+    pub(crate) fn restore_clock(&mut self, time: DateTime<Utc>, step: usize) {
+        self.current_time = time;
+        self.step = step;
+        self.live_reference = None;
     }
 
     /// Override the simulation ID (used when loading a pre-registered simulation)

@@ -6,10 +6,9 @@
 //!
 //! # Architecture
 //!
-//! The registry maintains a HashMap of workflow engines indexed by name:
-//! - Fast O(1) lookup by workflow name
-//! - Support for heterogeneous workflow types
-//! - Parallel execution of all registered workflows
+//! The registry maps names to workflow engines. Engines are kept in name
+//! order, so iteration (and therefore task creation and event order) is
+//! deterministic across runs.
 //!
 //! # Example
 //!
@@ -31,16 +30,13 @@
 //! if let Some(engine) = registry.get("food_orders") {
 //!     // Work with food orders workflow
 //! }
-//!
-//! // Process all workflows in parallel
-//! let events = registry.tick_all(current_time)?;
 //! ```
 
-use super::engine::{WorkflowEngine, WorkflowStepEvent};
+use super::engine::WorkflowEngine;
 use super::traits::Workflow;
 use crate::Result;
-use chrono::{DateTime, Utc};
-use std::collections::HashMap;
+use crate::utils::idents::WorkflowInstanceId;
+use std::collections::BTreeMap;
 
 /// Registry for managing multiple workflow engines
 ///
@@ -57,7 +53,7 @@ use std::collections::HashMap;
 /// wrap it in `Arc<Mutex<WorkflowRegistry<W>>>`.
 pub struct WorkflowRegistry<W: Workflow> {
     /// Workflow engines indexed by name
-    engines: HashMap<String, WorkflowEngine<W>>,
+    engines: BTreeMap<String, WorkflowEngine<W>>,
 }
 
 impl<W: Workflow> WorkflowRegistry<W> {
@@ -74,7 +70,7 @@ impl<W: Workflow> WorkflowRegistry<W> {
     /// ```
     pub fn new() -> Self {
         Self {
-            engines: HashMap::new(),
+            engines: BTreeMap::new(),
         }
     }
 
@@ -235,49 +231,6 @@ impl<W: Workflow> WorkflowRegistry<W> {
         self.engines.contains_key(name)
     }
 
-    /// Process tick for all registered workflow engines
-    ///
-    /// This method iterates through all registered engines and calls their
-    /// tick() method, collecting all emitted workflow events.
-    ///
-    /// # Arguments
-    ///
-    /// * `current_time` - Current simulation time
-    ///
-    /// # Returns
-    ///
-    /// Vector of all workflow step events from all engines
-    ///
-    /// # Errors
-    ///
-    /// Returns error if any engine's tick() fails
-    ///
-    /// # Example
-    ///
-    /// ```rust,ignore
-    /// let events = registry.tick_all(current_time)?;
-    /// for event in events {
-    ///     match event {
-    ///         WorkflowStepEvent::StepCompleted { .. } => {
-    ///             // Handle step completion
-    ///         }
-    ///         WorkflowStepEvent::WorkflowCompleted { .. } => {
-    ///             // Handle workflow completion
-    ///         }
-    ///     }
-    /// }
-    /// ```
-    pub fn tick_all(&mut self, current_time: DateTime<Utc>) -> Result<Vec<WorkflowStepEvent>> {
-        let mut all_events = Vec::new();
-
-        for engine in self.engines.values_mut() {
-            let events = engine.tick(current_time)?;
-            all_events.extend(events);
-        }
-
-        Ok(all_events)
-    }
-
     /// Get total count of workflow instances across all engines
     ///
     /// # Returns
@@ -338,6 +291,16 @@ impl<W: Workflow> WorkflowRegistry<W> {
     /// Iterate over all workflow engines (immutable)
     pub fn engines(&self) -> impl Iterator<Item = &WorkflowEngine<W>> {
         self.engines.values()
+    }
+
+    /// Engine that holds the given workflow instance
+    pub fn engine_for_instance_mut(
+        &mut self,
+        instance_id: WorkflowInstanceId,
+    ) -> Option<&mut WorkflowEngine<W>> {
+        self.engines
+            .values_mut()
+            .find(|e| e.instance_table.get_row_index(instance_id).is_some())
     }
 
     /// Iterate over all workflow engines (mutable)
@@ -549,46 +512,39 @@ mod tests {
     }
 
     #[test]
-    fn test_tick_all_empty_registry() {
+    fn engines_iterate_in_name_order() {
         let mut registry = WorkflowRegistry::<TestWorkflow>::new();
-        let current_time = chrono::Utc::now();
-
-        let events = registry.tick_all(current_time).unwrap();
-        assert!(events.is_empty());
+        for name in ["supply_chain", "food_orders", "courier_delivery"] {
+            registry
+                .register(name.to_string(), WorkflowEngine::new())
+                .unwrap();
+        }
+        assert_eq!(
+            registry.list(),
+            vec!["courier_delivery", "food_orders", "supply_chain"]
+        );
     }
 
     #[test]
-    fn test_tick_all_multiple_engines() {
+    fn engine_for_instance_finds_owner() {
         let mut registry = WorkflowRegistry::new();
-
-        // Create three engines with workflows
-        let mut food_engine = WorkflowEngine::new();
-        let food_workflow = create_test_workflow("food");
-        food_engine.register_workflow(food_workflow);
-
-        let mut delivery_engine = WorkflowEngine::new();
-        let delivery_workflow = create_test_workflow("delivery");
-        delivery_engine.register_workflow(delivery_workflow);
-
-        let mut supply_engine = WorkflowEngine::new();
-        let supply_workflow = create_test_workflow("supply");
-        supply_engine.register_workflow(supply_workflow);
-
+        let mut food = WorkflowEngine::new();
+        let wf = create_test_workflow("food");
+        let wf_id = wf.id();
+        food.register_workflow(wf);
+        let instance = food.start_instance(wf_id).unwrap();
+        registry.register("food".to_string(), food).unwrap();
         registry
-            .register("food_orders".to_string(), food_engine)
-            .unwrap();
-        registry
-            .register("courier_delivery".to_string(), delivery_engine)
-            .unwrap();
-        registry
-            .register("supply_chain".to_string(), supply_engine)
+            .register("other".to_string(), WorkflowEngine::new())
             .unwrap();
 
-        let current_time = chrono::Utc::now();
-        let events = registry.tick_all(current_time).unwrap();
-
-        // tick() currently returns empty events, but we're testing the mechanism works
-        assert!(events.is_empty());
+        let owner = registry.engine_for_instance_mut(instance.id).unwrap();
+        assert!(owner.get_workflow(wf_id).is_some());
+        assert!(
+            registry
+                .engine_for_instance_mut(crate::utils::idents::WorkflowInstanceId::new())
+                .is_none()
+        );
     }
 
     #[test]

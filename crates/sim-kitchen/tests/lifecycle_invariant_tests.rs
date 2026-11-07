@@ -552,7 +552,6 @@ fn test_inventory_lifecycle_triggers_supply_events() {
 
     // Replicate the run_for_steps logic since KitchenSimulation::new creates
     // its own runner and we need to inject the inventory manager above.
-    use sim_core::resources::LeastLoaded;
 
     for _ in 0..5 {
         runner.tick().unwrap();
@@ -568,7 +567,7 @@ fn test_inventory_lifecycle_triggers_supply_events() {
             }
         }
 
-        let _ = runner.allocate_resources(&LeastLoaded);
+        let _ = runner.allocate_resources();
     }
 
     // Collect events from hooks dispatcher

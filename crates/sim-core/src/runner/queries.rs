@@ -146,7 +146,7 @@ where
 
     // Register resources and tasks tables (if ResourceAllocator exists)
     if let Some(ref res) = runner.resources {
-        let (resources_batch, tasks_batch) = res.export_batch();
+        let (resources_batch, tasks_batch) = res.export_batch()?;
 
         // Register resources table
         let resources_schema = resources_batch.schema();

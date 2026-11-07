@@ -1,1994 +1,129 @@
-//! Resource allocator implementation with Arrow RecordBatch storage
+//! Resource allocator
 //!
-//! This module provides a high-performance resource allocator using Apache Arrow's columnar
-//! storage format with DataFusion query integration for efficient resource matching at scale.
+//! Tracks capacity-constrained resources and the tasks queued for them. State
+//! lives in plain Rust collections so every mutation is O(1) or O(log n); it
+//! is converted to Arrow [`RecordBatch`]es only at the snapshot / query
+//! boundary ([`ResourceAllocator::export_batch`] /
+//! [`ResourceAllocator::import_batch`]).
+//!
+//! # Lifecycle of a task
+//!
+//! 1. [`add_task`](ResourceAllocator::add_task) queues it as *pending*.
+//! 2. [`assign_tasks`](ResourceAllocator::assign_tasks) allocates pending tasks
+//!    (highest priority first, ties in insertion order) to a resource chosen by
+//!    the [`AllocationStrategy`], taking one unit of that resource's capacity.
+//! 3. Once `allocated_at + estimated_duration` has passed,
+//!    [`get_completed_tasks`](ResourceAllocator::get_completed_tasks) releases
+//!    the capacity, removes the task and reports it. Domain code may also end a
+//!    task early with [`complete_task`](ResourceAllocator::complete_task) or
+//!    drop it with [`remove_task`](ResourceAllocator::remove_task); both release
+//!    capacity if the task was allocated.
+//!
+//! Every task takes exactly one unit of capacity.
 
 use super::schema::{resource_schema, task_schema, task_status};
-use super::traits::{AllocationStrategy, Resource, Task};
-use crate::Result;
+use super::traits::{AllocationStrategy, Resource, ResourceCandidate, Task, TaskCandidate};
 use crate::utils::idents::{ResourceId, TaskId, WorkflowInstanceId};
+use crate::{Error, Result};
 use arrow::array::{
-    Array, BinaryArray, BinaryBuilder, Int32Array, Int32Builder, Int64Array, Int64Builder,
-    RecordBatch, StringArray, StringBuilder,
+    Array, ArrayRef, BinaryArray, Int32Array, Int64Array, RecordBatch, StringArray,
 };
 use chrono::{DateTime, Duration, Utc};
-use datafusion::execution::context::SessionContext;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::marker::PhantomData;
 use std::sync::Arc;
 
 /// Assignment of a task to a resource
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Assignment {
     pub task_id: TaskId,
     pub resource_id: ResourceId,
+    /// Owning workflow instance, if the task was created for a workflow step
+    pub workflow_instance_id: Option<WorkflowInstanceId>,
 }
 
-/// Manages resource allocation for tasks using Apache Arrow RecordBatch storage
-///
-/// This allocator uses two separate RecordBatches for resources and tasks, with
-/// DataFusion SQL queries for efficient allocation matching. The design provides:
-///
-/// - O(1) lookups via HashMap indices
-/// - O(log n) allocation queries via DataFusion SQL
-/// - Columnar storage for efficient bulk operations
-/// - 50x+ speedup on bulk allocations (1000+ tasks)
-///
-/// # Architecture
-///
-/// Resources and tasks are stored in separate RecordBatches with index maps for fast lookup:
-///
-/// ```text
-/// ResourceAllocator
-/// ├── resources: RecordBatch (id, resource_type, capacity, available, ...)
-/// │   └── resource_id_to_row: HashMap<ResourceId, usize>
-/// └── tasks: RecordBatch (id, task_type, status, assigned_resource_id, ...)
-///     └── task_id_to_row: HashMap<TaskId, usize>
-/// ```
+/// A task that finished and was removed from the allocator
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CompletedTask {
+    pub task_id: TaskId,
+    pub resource_id: ResourceId,
+    /// Owning workflow instance, if the task was created for a workflow step
+    pub workflow_instance_id: Option<WorkflowInstanceId>,
+}
+
+#[derive(Debug, Clone)]
+struct ResourceSlot {
+    id: ResourceId,
+    resource_type: String,
+    capacity: usize,
+    available: usize,
+}
+
+#[derive(Debug, Clone)]
+struct TaskRecord {
+    id: TaskId,
+    resource_type: String,
+    priority: i32,
+    workflow_instance_id: Option<WorkflowInstanceId>,
+    estimated_duration: Duration,
+    /// `Some` once allocated
+    allocation: Option<(ResourceId, DateTime<Utc>)>,
+}
+
+/// Manages resource capacity and task allocation
 ///
 /// # Type Parameters
 ///
 /// * `R` - Resource type implementing the Resource trait
 /// * `T` - Task type implementing the Task trait
 ///
+/// The allocator copies what it needs from `R` and `T` when they are added;
+/// it does not keep the domain objects.
+///
 /// # Example
 ///
-/// ```rust,ignore
-/// use sim_core::resources::ResourceAllocator;
+/// ```
+/// use chrono::{Duration, Utc};
+/// use sim_core::resources::{LeastLoaded, Resource, ResourceAllocator, Task};
+/// use sim_core::{ResourceId, TaskId};
 ///
-/// let mut allocator = ResourceAllocator::<MyResource, MyTask>::new();
+/// #[derive(Debug)]
+/// struct Oven(ResourceId);
+/// impl Resource for Oven {
+///     fn id(&self) -> ResourceId { self.0 }
+///     fn resource_type(&self) -> &str { "oven" }
+///     fn capacity(&self) -> usize { 2 }
+///     fn current_load(&self) -> usize { 0 }
+/// }
 ///
-/// // Add resources
-/// allocator.add_resource(resource1)?;
-/// allocator.add_resource(resource2)?;
+/// #[derive(Debug)]
+/// struct Bake(TaskId);
+/// impl Task for Bake {
+///     fn id(&self) -> TaskId { self.0 }
+///     fn required_resource_type(&self) -> &str { "oven" }
+///     fn estimated_duration(&self) -> Duration { Duration::minutes(10) }
+/// }
 ///
-/// // Add tasks
-/// allocator.add_task(task1)?;
-/// allocator.add_task(task2)?;
+/// let mut allocator = ResourceAllocator::<Oven, Bake>::new();
+/// allocator.add_resource(Oven(ResourceId::new()))?;
+/// allocator.add_task(Bake(TaskId::new()))?;
 ///
-/// // Assign tasks using DataFusion queries
-/// let assignments = allocator.assign_tasks(&LeastLoaded, Utc::now())?;
+/// let t0 = Utc::now();
+/// assert_eq!(allocator.assign_tasks(&LeastLoaded, t0)?.len(), 1);
+/// assert_eq!(allocator.get_completed_tasks(t0 + Duration::minutes(10))?.len(), 1);
+/// # Ok::<(), sim_core::Error>(())
 /// ```
 pub struct ResourceAllocator<R: Resource, T: Task> {
-    // Resource storage
-    pub(crate) resources: RecordBatch,
-    pub(crate) resource_id_to_row: HashMap<ResourceId, usize>,
-
-    // Task storage
-    pub(crate) tasks: RecordBatch,
-    pub(crate) task_id_to_row: HashMap<TaskId, usize>,
-
-    // Task metadata (not in RecordBatch due to complexity)
-    task_metadata: HashMap<TaskId, TaskMetadata>,
-
-    // DataFusion context for SQL queries (reserved for future query features)
-    #[allow(dead_code)]
-    ctx: SessionContext,
-
-    _marker: PhantomData<(R, T)>,
-}
-
-/// Metadata for tasks that's too complex for Arrow schema.
-///
-/// These values are persisted in the task RecordBatch at columns 8 and 9
-/// (`allocated_at_millis` and `estimated_duration_secs`) and faithfully
-/// restored by `import_batch()`.
-#[derive(Debug, Clone)]
-struct TaskMetadata {
-    allocated_at: Option<DateTime<Utc>>,
-    estimated_duration: Duration,
-}
-
-impl<R: Resource, T: Task> ResourceAllocator<R, T> {
-    /// Validates that a RecordBatch conforms to the expected resource schema
-    fn validate_resource_schema(batch: &RecordBatch) -> Result<()> {
-        use arrow::datatypes::DataType;
-
-        let schema = batch.schema();
-
-        // Expected: 6 columns
-        if schema.fields().len() != 6 {
-            return Err(crate::Error::Resource(format!(
-                "Invalid resource schema: expected 6 columns, got {}",
-                schema.fields().len()
-            )));
-        }
-
-        // Validate each field
-        let expected = [
-            ("id", DataType::Binary, false),
-            ("resource_type", DataType::Utf8, false),
-            ("capacity", DataType::Int64, false),
-            ("available", DataType::Int64, false),
-            ("location_id", DataType::Binary, true),
-            ("metadata", DataType::Utf8, true),
-        ];
-
-        for (i, (exp_name, exp_type, exp_nullable)) in expected.iter().enumerate() {
-            let field = schema.field(i);
-
-            if field.name() != exp_name {
-                return Err(crate::Error::Resource(format!(
-                    "Field {} has wrong name: expected '{}', got '{}'",
-                    i,
-                    exp_name,
-                    field.name()
-                )));
-            }
-
-            // Accept Parquet type optimizations: Utf8↔Utf8View, Binary↔BinaryView
-            let type_matches = field.data_type() == exp_type
-                || (matches!(exp_type, DataType::Utf8)
-                    && matches!(field.data_type(), DataType::Utf8View))
-                || (matches!(exp_type, DataType::Binary)
-                    && matches!(field.data_type(), DataType::BinaryView));
-
-            if !type_matches {
-                return Err(crate::Error::Resource(format!(
-                    "Field '{}' has wrong type: expected {:?}, got {:?}",
-                    exp_name,
-                    exp_type,
-                    field.data_type()
-                )));
-            }
-
-            if field.is_nullable() != *exp_nullable {
-                return Err(crate::Error::Resource(format!(
-                    "Field '{}' has wrong nullability: expected {}, got {}",
-                    exp_name,
-                    exp_nullable,
-                    field.is_nullable()
-                )));
-            }
-        }
-
-        Ok(())
-    }
-
-    /// Validates that a RecordBatch conforms to the expected task schema
-    fn validate_task_schema(batch: &RecordBatch) -> Result<()> {
-        use arrow::datatypes::DataType;
-
-        let schema = batch.schema();
-
-        // Expected: 10 columns
-        if schema.fields().len() != 10 {
-            return Err(crate::Error::Resource(format!(
-                "Invalid task schema: expected 10 columns, got {}",
-                schema.fields().len()
-            )));
-        }
-
-        // Validate each field
-        let expected = [
-            ("id", DataType::Binary, false),
-            ("task_type", DataType::Utf8, false),
-            ("status", DataType::Utf8, false),
-            ("required_capacity", DataType::Int64, false),
-            ("assigned_resource_id", DataType::Binary, true),
-            ("workflow_instance_id", DataType::Binary, true),
-            ("priority", DataType::Int32, false),
-            ("metadata", DataType::Utf8, true),
-            ("allocated_at_millis", DataType::Int64, true),
-            ("estimated_duration_secs", DataType::Int64, false),
-        ];
-
-        for (i, (exp_name, exp_type, exp_nullable)) in expected.iter().enumerate() {
-            let field = schema.field(i);
-
-            if field.name() != exp_name {
-                return Err(crate::Error::Resource(format!(
-                    "Field {} has wrong name: expected '{}', got '{}'",
-                    i,
-                    exp_name,
-                    field.name()
-                )));
-            }
-
-            // Accept Parquet type optimizations: Utf8↔Utf8View, Binary↔BinaryView
-            let type_matches = field.data_type() == exp_type
-                || (matches!(exp_type, DataType::Utf8)
-                    && matches!(field.data_type(), DataType::Utf8View))
-                || (matches!(exp_type, DataType::Binary)
-                    && matches!(field.data_type(), DataType::BinaryView));
-
-            if !type_matches {
-                return Err(crate::Error::Resource(format!(
-                    "Field '{}' has wrong type: expected {:?}, got {:?}",
-                    exp_name,
-                    exp_type,
-                    field.data_type()
-                )));
-            }
-
-            if field.is_nullable() != *exp_nullable {
-                return Err(crate::Error::Resource(format!(
-                    "Field '{}' has wrong nullability: expected {}, got {}",
-                    exp_name,
-                    exp_nullable,
-                    field.is_nullable()
-                )));
-            }
-        }
-
-        Ok(())
-    }
-
-    /// Create a new resource allocator with empty RecordBatches
-    pub fn new() -> Self {
-        // Create empty resource batch
-        let resource_batch = RecordBatch::try_new(
-            resource_schema(),
-            vec![
-                Arc::new(BinaryArray::from(Vec::<&[u8]>::new())),
-                Arc::new(StringArray::from(Vec::<&str>::new())),
-                Arc::new(Int64Array::from(Vec::<i64>::new())),
-                Arc::new(Int64Array::from(Vec::<i64>::new())),
-                Arc::new(BinaryArray::from(Vec::<Option<&[u8]>>::new())),
-                Arc::new(StringArray::from(Vec::<Option<&str>>::new())),
-            ],
-        )
-        .expect("Failed to create empty resource batch");
-
-        // Create empty task batch
-        let task_batch = RecordBatch::try_new(
-            task_schema(),
-            vec![
-                Arc::new(BinaryArray::from(Vec::<&[u8]>::new())),
-                Arc::new(StringArray::from(Vec::<&str>::new())),
-                Arc::new(StringArray::from(Vec::<&str>::new())),
-                Arc::new(Int64Array::from(Vec::<i64>::new())),
-                Arc::new(BinaryArray::from(Vec::<Option<&[u8]>>::new())),
-                Arc::new(BinaryArray::from(Vec::<Option<&[u8]>>::new())),
-                Arc::new(Int32Array::from(Vec::<i32>::new())),
-                Arc::new(StringArray::from(Vec::<Option<&str>>::new())),
-                Arc::new(Int64Array::from(Vec::<Option<i64>>::new())), // allocated_at_millis
-                Arc::new(Int64Array::from(Vec::<i64>::new())),         // estimated_duration_secs
-            ],
-        )
-        .expect("Failed to create empty task batch");
-
-        Self {
-            resources: resource_batch,
-            resource_id_to_row: HashMap::new(),
-            tasks: task_batch,
-            task_id_to_row: HashMap::new(),
-            task_metadata: HashMap::new(),
-            ctx: SessionContext::new(),
-            _marker: PhantomData,
-        }
-    }
-
-    /// Add a resource to the allocator
-    ///
-    /// Appends the resource to the RecordBatch and updates the index map.
-    ///
-    /// # Arguments
-    ///
-    /// * `resource` - The resource to add
-    ///
-    /// # Returns
-    ///
-    /// Result indicating success or failure
-    pub fn add_resource(&mut self, resource: R) -> Result<()> {
-        let id = resource.id();
-        let row_index = self.resources.num_rows();
-
-        // Build new batch with the additional resource
-        let mut id_builder = BinaryBuilder::new();
-        let mut type_builder = StringBuilder::new();
-        let mut capacity_builder = Int64Builder::new();
-        let mut available_builder = Int64Builder::new();
-        let mut location_builder = BinaryBuilder::new();
-        let mut metadata_builder = StringBuilder::new();
-
-        // Copy existing rows
-        let id_array = self
-            .resources
-            .column(0)
-            .as_any()
-            .downcast_ref::<BinaryArray>()
-            .ok_or_else(|| {
-                crate::Error::Resource("Failed to downcast id column to BinaryArray".to_string())
-            })?;
-        let type_array = self
-            .resources
-            .column(1)
-            .as_any()
-            .downcast_ref::<StringArray>()
-            .ok_or_else(|| {
-                crate::Error::Resource("Failed to downcast type column to StringArray".to_string())
-            })?;
-        let capacity_array = self
-            .resources
-            .column(2)
-            .as_any()
-            .downcast_ref::<Int64Array>()
-            .ok_or_else(|| {
-                crate::Error::Resource(
-                    "Failed to downcast capacity column to Int64Array".to_string(),
-                )
-            })?;
-        let available_array = self
-            .resources
-            .column(3)
-            .as_any()
-            .downcast_ref::<Int64Array>()
-            .ok_or_else(|| {
-                crate::Error::Resource(
-                    "Failed to downcast available column to Int64Array".to_string(),
-                )
-            })?;
-        let location_array = self
-            .resources
-            .column(4)
-            .as_any()
-            .downcast_ref::<BinaryArray>()
-            .ok_or_else(|| {
-                crate::Error::Resource(
-                    "Failed to downcast location column to BinaryArray".to_string(),
-                )
-            })?;
-        let metadata_array = self
-            .resources
-            .column(5)
-            .as_any()
-            .downcast_ref::<StringArray>()
-            .ok_or_else(|| {
-                crate::Error::Resource(
-                    "Failed to downcast metadata column to StringArray".to_string(),
-                )
-            })?;
-
-        for i in 0..self.resources.num_rows() {
-            id_builder.append_value(id_array.value(i));
-            type_builder.append_value(type_array.value(i));
-            capacity_builder.append_value(capacity_array.value(i));
-            available_builder.append_value(available_array.value(i));
-            if location_array.is_null(i) {
-                location_builder.append_null();
-            } else {
-                location_builder.append_value(location_array.value(i));
-            }
-            if metadata_array.is_null(i) {
-                metadata_builder.append_null();
-            } else {
-                metadata_builder.append_value(metadata_array.value(i));
-            }
-        }
-
-        // Add new resource
-        id_builder.append_value(id.as_bytes());
-        type_builder.append_value(resource.resource_type());
-        capacity_builder.append_value(resource.capacity() as i64);
-        available_builder.append_value(resource.available_capacity() as i64);
-        location_builder.append_null(); // Location not tracked yet
-        metadata_builder.append_value("{}");
-
-        // Create new batch
-        let new_batch = RecordBatch::try_new(
-            resource_schema(),
-            vec![
-                Arc::new(id_builder.finish()),
-                Arc::new(type_builder.finish()),
-                Arc::new(capacity_builder.finish()),
-                Arc::new(available_builder.finish()),
-                Arc::new(location_builder.finish()),
-                Arc::new(metadata_builder.finish()),
-            ],
-        )
-        .map_err(|e| crate::Error::Custom(format!("Failed to create resource batch: {}", e)))?;
-
-        self.resources = new_batch;
-        self.resource_id_to_row.insert(id, row_index);
-
-        Ok(())
-    }
-
-    /// Add multiple resources in a single batch operation.
-    /// Much more efficient than calling add_resource() in a loop.
-    pub fn add_resources(&mut self, resources: Vec<R>) -> Result<()> {
-        for resource in resources {
-            self.add_resource(resource)?;
-        }
-        Ok(())
-    }
-
-    /// Remove a resource from the allocator
-    pub fn remove_resource(&mut self, id: ResourceId) -> Result<()> {
-        if let Some(row) = self.resource_id_to_row.remove(&id) {
-            // Rebuild batch without this row
-            self.rebuild_resource_batch_excluding(row)?;
-        }
-        Ok(())
-    }
-
-    /// Add a pending task to the allocator
-    ///
-    /// # Arguments
-    ///
-    /// * `task` - The task to add
-    pub fn add_task(&mut self, task: T) -> Result<()> {
-        let id = task.id();
-        let row_index = self.tasks.num_rows();
-
-        // Build new batch with the additional task
-        let mut id_builder = BinaryBuilder::new();
-        let mut type_builder = StringBuilder::new();
-        let mut status_builder = StringBuilder::new();
-        let mut capacity_builder = Int64Builder::new();
-        let mut resource_builder = BinaryBuilder::new();
-        let mut workflow_builder = BinaryBuilder::new();
-        let mut priority_builder = Int32Builder::new();
-        let mut metadata_builder = StringBuilder::new();
-        let mut allocated_at_builder = Int64Builder::new();
-        let mut duration_builder = Int64Builder::new();
-
-        // Copy existing rows
-        let id_array = self
-            .tasks
-            .column(0)
-            .as_any()
-            .downcast_ref::<BinaryArray>()
-            .ok_or_else(|| {
-                crate::Error::Resource("Failed to downcast id column to BinaryArray".to_string())
-            })?;
-        let type_array = self
-            .tasks
-            .column(1)
-            .as_any()
-            .downcast_ref::<StringArray>()
-            .ok_or_else(|| {
-                crate::Error::Resource("Failed to downcast type column to StringArray".to_string())
-            })?;
-        let status_array = self
-            .tasks
-            .column(2)
-            .as_any()
-            .downcast_ref::<StringArray>()
-            .ok_or_else(|| {
-                crate::Error::Resource(
-                    "Failed to downcast status column to StringArray".to_string(),
-                )
-            })?;
-        let capacity_array = self
-            .tasks
-            .column(3)
-            .as_any()
-            .downcast_ref::<Int64Array>()
-            .ok_or_else(|| {
-                crate::Error::Resource(
-                    "Failed to downcast capacity column to Int64Array".to_string(),
-                )
-            })?;
-        let resource_array = self
-            .tasks
-            .column(4)
-            .as_any()
-            .downcast_ref::<BinaryArray>()
-            .ok_or_else(|| {
-                crate::Error::Resource(
-                    "Failed to downcast resource column to BinaryArray".to_string(),
-                )
-            })?;
-        let workflow_array = self
-            .tasks
-            .column(5)
-            .as_any()
-            .downcast_ref::<BinaryArray>()
-            .ok_or_else(|| {
-                crate::Error::Resource(
-                    "Failed to downcast workflow column to BinaryArray".to_string(),
-                )
-            })?;
-        let priority_array = self
-            .tasks
-            .column(6)
-            .as_any()
-            .downcast_ref::<Int32Array>()
-            .ok_or_else(|| {
-                crate::Error::Resource(
-                    "Failed to downcast priority column to Int32Array".to_string(),
-                )
-            })?;
-        let metadata_array = self
-            .tasks
-            .column(7)
-            .as_any()
-            .downcast_ref::<StringArray>()
-            .ok_or_else(|| {
-                crate::Error::Resource(
-                    "Failed to downcast metadata column to StringArray".to_string(),
-                )
-            })?;
-        let allocated_at_array = self
-            .tasks
-            .column(8)
-            .as_any()
-            .downcast_ref::<Int64Array>()
-            .ok_or_else(|| {
-                crate::Error::Resource(
-                    "Failed to downcast allocated_at column to Int64Array".to_string(),
-                )
-            })?;
-        let duration_array = self
-            .tasks
-            .column(9)
-            .as_any()
-            .downcast_ref::<Int64Array>()
-            .ok_or_else(|| {
-                crate::Error::Resource(
-                    "Failed to downcast duration column to Int64Array".to_string(),
-                )
-            })?;
-
-        for i in 0..self.tasks.num_rows() {
-            id_builder.append_value(id_array.value(i));
-            type_builder.append_value(type_array.value(i));
-            status_builder.append_value(status_array.value(i));
-            capacity_builder.append_value(capacity_array.value(i));
-            if resource_array.is_null(i) {
-                resource_builder.append_null();
-            } else {
-                resource_builder.append_value(resource_array.value(i));
-            }
-            if workflow_array.is_null(i) {
-                workflow_builder.append_null();
-            } else {
-                workflow_builder.append_value(workflow_array.value(i));
-            }
-            priority_builder.append_value(priority_array.value(i));
-            if metadata_array.is_null(i) {
-                metadata_builder.append_null();
-            } else {
-                metadata_builder.append_value(metadata_array.value(i));
-            }
-            if allocated_at_array.is_null(i) {
-                allocated_at_builder.append_null();
-            } else {
-                allocated_at_builder.append_value(allocated_at_array.value(i));
-            }
-            duration_builder.append_value(duration_array.value(i));
-        }
-
-        // Add new task
-        id_builder.append_value(id.as_bytes());
-        type_builder.append_value(task.required_resource_type());
-        status_builder.append_value(task_status::PENDING);
-        capacity_builder.append_value(1); // Simplified: 1 unit per task
-        resource_builder.append_null(); // Not assigned yet
-        if let Some(workflow_id) = task.workflow_instance_id() {
-            workflow_builder.append_value(workflow_id.as_bytes());
-        } else {
-            workflow_builder.append_null();
-        }
-        priority_builder.append_value(task.priority());
-        metadata_builder.append_value("{}");
-        allocated_at_builder.append_null(); // Not allocated yet
-        duration_builder.append_value(task.estimated_duration().num_seconds());
-
-        // Create new batch
-        let new_batch = RecordBatch::try_new(
-            task_schema(),
-            vec![
-                Arc::new(id_builder.finish()),
-                Arc::new(type_builder.finish()),
-                Arc::new(status_builder.finish()),
-                Arc::new(capacity_builder.finish()),
-                Arc::new(resource_builder.finish()),
-                Arc::new(workflow_builder.finish()),
-                Arc::new(priority_builder.finish()),
-                Arc::new(metadata_builder.finish()),
-                Arc::new(allocated_at_builder.finish()),
-                Arc::new(duration_builder.finish()),
-            ],
-        )
-        .map_err(|e| crate::Error::Custom(format!("Failed to create task batch: {}", e)))?;
-
-        self.tasks = new_batch;
-        self.task_id_to_row.insert(id, row_index);
-        self.task_metadata.insert(
-            id,
-            TaskMetadata {
-                allocated_at: None,
-                estimated_duration: task.estimated_duration(),
-            },
-        );
-
-        Ok(())
-    }
-
-    /// Add multiple tasks in a single batch operation.
-    /// Much more efficient than calling add_task() in a loop.
-    pub fn add_tasks(&mut self, tasks: Vec<T>) -> Result<()> {
-        for task in tasks {
-            self.add_task(task)?;
-        }
-        Ok(())
-    }
-
-    /// Remove a task from the allocator
-    pub fn remove_task(&mut self, id: TaskId) -> Result<Option<()>> {
-        if let Some(row) = self.task_id_to_row.remove(&id) {
-            self.task_metadata.remove(&id);
-            self.rebuild_task_batch_excluding(row)?;
-            Ok(Some(()))
-        } else {
-            Ok(None)
-        }
-    }
-
-    /// Get resource count
-    pub fn resource_count(&self) -> usize {
-        self.resources.num_rows()
-    }
-
-    /// Get pending task count
-    pub fn pending_task_count(&self) -> usize {
-        let status_array = match self.tasks.column(2).as_any().downcast_ref::<StringArray>() {
-            Some(arr) => arr,
-            None => return 0,
-        };
-        (0..self.tasks.num_rows())
-            .filter(|&i| status_array.value(i) == task_status::PENDING)
-            .count()
-    }
-
-    /// Get iterator over pending task IDs
-    pub fn pending_tasks(&self) -> impl Iterator<Item = (TaskId, ())> + '_ {
-        // Try to get arrays, return empty iterator if downcast fails
-        let id_array_opt = self.tasks.column(0).as_any().downcast_ref::<BinaryArray>();
-        let status_array_opt = self.tasks.column(2).as_any().downcast_ref::<StringArray>();
-
-        let (id_array, status_array) = match (id_array_opt, status_array_opt) {
-            (Some(id), Some(status)) => (id, status),
-            _ => return vec![].into_iter(),
-        };
-
-        (0..self.tasks.num_rows())
-            .filter(move |&i| status_array.value(i) == task_status::PENDING)
-            .filter_map(move |i| {
-                let id_bytes = id_array.value(i);
-                TaskId::from_bytes(id_bytes).ok().map(|id| (id, ()))
-            })
-            .collect::<Vec<_>>()
-            .into_iter()
-    }
-
-    /// Assign pending tasks to available resources
-    ///
-    /// Uses Arrow RecordBatch for efficient resource matching.
-    /// Future enhancement: DataFusion SQL queries for complex allocation strategies.
-    ///
-    /// # Arguments
-    ///
-    /// * `_strategy` - Allocation strategy to use (currently simplified)
-    /// * `current_time` - Current simulation time
-    ///
-    /// # Returns
-    ///
-    /// Vector of assignments made
-    pub fn assign_tasks(
-        &mut self,
-        _strategy: &dyn AllocationStrategy<R, T>,
-        current_time: DateTime<Utc>,
-    ) -> Result<Vec<Assignment>> {
-        let mut assignments = Vec::new();
-
-        // Get pending tasks
-        let pending_task_ids: Vec<TaskId> = self.pending_tasks().map(|(id, _)| id).collect();
-
-        // For each pending task, find available resource (simplified version)
-        // NOTE: DataFusion batch matching was evaluated but not implemented because:
-        // 1. Current RecordBatch iteration is O(n) with efficient columnar access
-        // 2. DataFusion SQL overhead is only beneficial for complex queries (joins, aggregations)
-        // 3. Simple type+availability filtering doesn't benefit from query optimization
-        // 4. For 1000s of resources, direct iteration remains faster (< 1ms)
-        // 5. DataFusion would be useful for: multi-constraint allocation, scoring functions,
-        //    or when integrating with external data sources
-        // Decision: Keep simple iteration for now, revisit if allocation complexity increases
-        for task_id in pending_task_ids {
-            if let Some(resource_id) = self.find_available_resource_for_task(task_id)? {
-                // Update task status to allocated
-                self.update_task_assignment(task_id, resource_id, current_time)?;
-
-                // Update resource available capacity
-                self.decrease_resource_capacity(resource_id)?;
-
-                assignments.push(Assignment {
-                    task_id,
-                    resource_id,
-                });
-            }
-        }
-
-        Ok(assignments)
-    }
-
-    /// Get assignment for a task
-    pub fn get_assignment(&self, task_id: TaskId) -> Option<ResourceId> {
-        let row = self.task_id_to_row.get(&task_id)?;
-        let resource_array = self
-            .tasks
-            .column(4)
-            .as_any()
-            .downcast_ref::<BinaryArray>()?;
-
-        if resource_array.is_null(*row) {
-            None
-        } else {
-            let bytes = resource_array.value(*row);
-            ResourceId::from_bytes(bytes).ok()
-        }
-    }
-
-    /// Complete a task (remove assignment)
-    pub fn complete_task(&mut self, task_id: TaskId) -> Result<()> {
-        if let Some(resource_id) = self.get_assignment(task_id) {
-            // Increase resource capacity
-            self.increase_resource_capacity(resource_id)?;
-        }
-
-        // Update task status to completed
-        self.update_task_status(task_id, task_status::COMPLETED)?;
-        Ok(())
-    }
-
-    /// Get all assignments as a map of task_id -> resource_id
-    pub fn assignments(&self) -> HashMap<TaskId, ResourceId> {
-        let mut result = HashMap::new();
-
-        let id_array = match self.tasks.column(0).as_any().downcast_ref::<BinaryArray>() {
-            Some(arr) => arr,
-            None => return result,
-        };
-        let status_array = match self.tasks.column(2).as_any().downcast_ref::<StringArray>() {
-            Some(arr) => arr,
-            None => return result,
-        };
-        let resource_array = match self.tasks.column(4).as_any().downcast_ref::<BinaryArray>() {
-            Some(arr) => arr,
-            None => return result,
-        };
-
-        for i in 0..self.tasks.num_rows() {
-            if status_array.value(i) == task_status::ALLOCATED
-                && !resource_array.is_null(i)
-                && let (Ok(task_id), Ok(resource_id)) = (
-                    TaskId::from_bytes(id_array.value(i)),
-                    ResourceId::from_bytes(resource_array.value(i)),
-                )
-            {
-                result.insert(task_id, resource_id);
-            }
-        }
-
-        result
-    }
-
-    /// Get tasks that completed since a given time
-    ///
-    /// Returns a vector of (TaskId, WorkflowInstanceId) pairs for tasks that:
-    /// - Are currently allocated to resources
-    /// - Have workflow instance IDs
-    /// - Have been allocated long enough to complete
-    ///
-    /// This method also removes the completed tasks from the allocator.
-    pub fn get_completed_tasks(
-        &mut self,
-        current_time: DateTime<Utc>,
-    ) -> Result<Vec<(TaskId, WorkflowInstanceId)>> {
-        let mut completed = Vec::new();
-
-        let id_array = self
-            .tasks
-            .column(0)
-            .as_any()
-            .downcast_ref::<BinaryArray>()
-            .ok_or_else(|| {
-                crate::Error::Resource("Failed to downcast id column to BinaryArray".to_string())
-            })?;
-        let status_array = self
-            .tasks
-            .column(2)
-            .as_any()
-            .downcast_ref::<StringArray>()
-            .ok_or_else(|| {
-                crate::Error::Resource(
-                    "Failed to downcast status column to StringArray".to_string(),
-                )
-            })?;
-        let workflow_array = self
-            .tasks
-            .column(5)
-            .as_any()
-            .downcast_ref::<BinaryArray>()
-            .ok_or_else(|| {
-                crate::Error::Resource(
-                    "Failed to downcast workflow column to BinaryArray".to_string(),
-                )
-            })?;
-
-        for i in 0..self.tasks.num_rows() {
-            if status_array.value(i) == task_status::ALLOCATED {
-                let task_id = TaskId::from_bytes(id_array.value(i))
-                    .map_err(|e| crate::Error::Custom(format!("Invalid task ID: {}", e)))?;
-
-                if let Some(metadata) = self.task_metadata.get(&task_id)
-                    && let Some(allocated_at) = metadata.allocated_at
-                {
-                    let completion_time = allocated_at + metadata.estimated_duration;
-                    if completion_time <= current_time && !workflow_array.is_null(i) {
-                        let workflow_id = WorkflowInstanceId::from_bytes(workflow_array.value(i))
-                            .map_err(|e| {
-                            crate::Error::Custom(format!("Invalid workflow ID: {}", e))
-                        })?;
-                        completed.push((task_id, workflow_id));
-                    }
-                }
-            }
-        }
-
-        // Complete the tasks (update status and release resources)
-        for (task_id, _) in &completed {
-            self.complete_task(*task_id)?;
-        }
-
-        Ok(completed)
-    }
-
-    /// Get the workflow instance ID for a task
-    pub fn get_task_workflow_instance_id(&self, task_id: TaskId) -> Option<WorkflowInstanceId> {
-        let task_row = self.task_id_to_row.get(&task_id)?;
-        let workflow_array = self
-            .tasks
-            .column(5)
-            .as_any()
-            .downcast_ref::<BinaryArray>()?;
-
-        if workflow_array.is_null(*task_row) {
-            None
-        } else {
-            WorkflowInstanceId::from_bytes(workflow_array.value(*task_row)).ok()
-        }
-    }
-
-    /// Get the estimated duration for a task
-    pub fn get_task_estimated_duration(&self, task_id: TaskId) -> Option<Duration> {
-        self.task_metadata
-            .get(&task_id)
-            .map(|m| m.estimated_duration)
-    }
-
-    /// Find all available resources of a specific type
-    ///
-    /// Returns a vector of ResourceIds that match the given resource type and have
-    /// available capacity greater than zero. This method uses direct RecordBatch
-    /// iteration for simplicity and performance on small to medium datasets.
-    ///
-    /// # Arguments
-    ///
-    /// * `resource_type` - The type of resource to search for
-    ///
-    /// # Returns
-    ///
-    /// Vector of available resource IDs matching the type
-    ///
-    /// # Example
-    ///
-    /// ```rust,ignore
-    /// let available = allocator.find_available_resources_by_type("gpu")?;
-    /// println!("Found {} available GPU resources", available.len());
-    /// ```
-    pub fn find_available_resources_by_type(&self, resource_type: &str) -> Result<Vec<ResourceId>> {
-        let mut results = Vec::new();
-
-        let id_array = self
-            .resources
-            .column(0)
-            .as_any()
-            .downcast_ref::<BinaryArray>()
-            .ok_or_else(|| {
-                crate::Error::Resource("Failed to downcast id column to BinaryArray".to_string())
-            })?;
-        let type_array = self
-            .resources
-            .column(1)
-            .as_any()
-            .downcast_ref::<StringArray>()
-            .ok_or_else(|| {
-                crate::Error::Resource("Failed to downcast type column to StringArray".to_string())
-            })?;
-        let available_array = self
-            .resources
-            .column(3)
-            .as_any()
-            .downcast_ref::<Int64Array>()
-            .ok_or_else(|| {
-                crate::Error::Resource(
-                    "Failed to downcast available column to Int64Array".to_string(),
-                )
-            })?;
-
-        for i in 0..self.resources.num_rows() {
-            if type_array.value(i) == resource_type && available_array.value(i) > 0 {
-                let resource_id = ResourceId::from_bytes(id_array.value(i))
-                    .map_err(|e| crate::Error::Custom(format!("Invalid resource ID: {}", e)))?;
-                results.push(resource_id);
-            }
-        }
-
-        Ok(results)
-    }
-
-    /// Allocate multiple tasks to resources in a single batch operation
-    ///
-    /// This method is significantly more efficient than calling `assign_tasks()` multiple times
-    /// when you have a large number of tasks to allocate. It performs all allocations in a
-    /// single RecordBatch update operation.
-    ///
-    /// # Arguments
-    ///
-    /// * `task_ids` - Vector of task IDs to allocate
-    /// * `strategy` - Allocation strategy to use
-    /// * `current_time` - Current simulation time
-    ///
-    /// # Returns
-    ///
-    /// Vector of successful assignments
-    ///
-    /// # Example
-    ///
-    /// ```rust,ignore
-    /// let task_ids = vec![task1_id, task2_id, task3_id];
-    /// let assignments = allocator.allocate_batch(task_ids, &LeastLoaded, Utc::now())?;
-    /// ```
-    pub fn allocate_batch(
-        &mut self,
-        task_ids: Vec<TaskId>,
-        _strategy: &dyn AllocationStrategy<R, T>,
-        current_time: DateTime<Utc>,
-    ) -> Result<Vec<Assignment>> {
-        let mut assignments = Vec::new();
-
-        // Filter to only pending tasks
-        let pending_task_ids: Vec<TaskId> = task_ids
-            .into_iter()
-            .filter(|id| {
-                if let Some(row) = self.task_id_to_row.get(id)
-                    && let Ok(status_array) = self
-                        .tasks
-                        .column(2)
-                        .as_any()
-                        .downcast_ref::<StringArray>()
-                        .ok_or_else(|| {
-                            crate::Error::Resource("Failed to downcast status column".to_string())
-                        })
-                {
-                    return status_array.value(*row) == task_status::PENDING;
-                }
-                false
-            })
-            .collect();
-
-        // Allocate each task
-        for task_id in pending_task_ids {
-            if let Some(resource_id) = self.find_available_resource_for_task(task_id)? {
-                self.update_task_assignment(task_id, resource_id, current_time)?;
-                self.decrease_resource_capacity(resource_id)?;
-                assignments.push(Assignment {
-                    task_id,
-                    resource_id,
-                });
-            }
-        }
-
-        Ok(assignments)
-    }
-
-    /// Deallocate multiple tasks in a single batch operation
-    ///
-    /// This method is more efficient than calling `complete_task()` multiple times.
-    /// It releases all task assignments and updates resource capacities in batch.
-    ///
-    /// # Arguments
-    ///
-    /// * `task_ids` - Vector of task IDs to deallocate
-    ///
-    /// # Returns
-    ///
-    /// Number of tasks successfully deallocated
-    ///
-    /// # Example
-    ///
-    /// ```rust,ignore
-    /// let completed_tasks = vec![task1_id, task2_id, task3_id];
-    /// let count = allocator.deallocate_batch(completed_tasks)?;
-    /// println!("Deallocated {} tasks", count);
-    /// ```
-    pub fn deallocate_batch(&mut self, task_ids: Vec<TaskId>) -> Result<usize> {
-        let mut deallocated = 0;
-
-        for task_id in task_ids {
-            // Get resource assignment
-            if let Some(resource_id) = self.get_assignment(task_id) {
-                // Increase resource capacity
-                self.increase_resource_capacity(resource_id)?;
-                deallocated += 1;
-            }
-
-            // Update task status to completed
-            self.update_task_status(task_id, task_status::COMPLETED)?;
-        }
-
-        Ok(deallocated)
-    }
-
-    /// Export both resources and tasks RecordBatches
-    ///
-    /// Returns a tuple of (resources_batch, tasks_batch) that can be used to
-    /// restore the allocator state via `import_batch`.
-    ///
-    /// # Returns
-    ///
-    /// Tuple of (RecordBatch, RecordBatch) representing resources and tasks
-    pub fn export_batch(&self) -> (RecordBatch, RecordBatch) {
-        (self.resources.clone(), self.tasks.clone())
-    }
-
-    /// Import both resources and tasks RecordBatches and rebuild indices
-    ///
-    /// Restores the allocator state from previously exported RecordBatches.
-    /// This method validates the schema, rebuilds all internal indices, and
-    /// reconstructs task metadata from the task batch.
-    ///
-    /// # Arguments
-    ///
-    /// * `resources` - RecordBatch containing resource data
-    /// * `tasks` - RecordBatch containing task data
-    ///
-    /// # Returns
-    ///
-    /// Result indicating success or failure with validation details
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - Resource schema validation fails
-    /// - Task schema validation fails
-    /// - Index rebuilding encounters invalid IDs
-    pub fn import_batch(&mut self, resources: RecordBatch, tasks: RecordBatch) -> Result<()> {
-        // Validate schemas
-        Self::validate_resource_schema(&resources)?;
-        Self::validate_task_schema(&tasks)?;
-
-        // Rebuild resource index
-        let mut resource_id_to_row = HashMap::new();
-        let resource_id_array = resources
-            .column(0)
-            .as_any()
-            .downcast_ref::<BinaryArray>()
-            .ok_or_else(|| {
-                crate::Error::Resource("Failed to downcast id column to BinaryArray".to_string())
-            })?;
-
-        for i in 0..resources.num_rows() {
-            let id_bytes = resource_id_array.value(i);
-            let id = ResourceId::from_bytes(id_bytes).map_err(|e| {
-                crate::Error::Custom(format!("Invalid resource ID at row {}: {}", i, e))
-            })?;
-            resource_id_to_row.insert(id, i);
-        }
-
-        // Rebuild task index
-        let mut task_id_to_row = HashMap::new();
-        let task_id_array = tasks
-            .column(0)
-            .as_any()
-            .downcast_ref::<BinaryArray>()
-            .ok_or_else(|| {
-                crate::Error::Resource("Failed to downcast id column to BinaryArray".to_string())
-            })?;
-
-        for i in 0..tasks.num_rows() {
-            let id_bytes = task_id_array.value(i);
-            let id = TaskId::from_bytes(id_bytes).map_err(|e| {
-                crate::Error::Custom(format!("Invalid task ID at row {}: {}", i, e))
-            })?;
-            task_id_to_row.insert(id, i);
-        }
-
-        // Rebuild task metadata from task batch — read cols 8 and 9 faithfully
-        let mut task_metadata = HashMap::new();
-
-        let allocated_at_array = tasks
-            .column(8)
-            .as_any()
-            .downcast_ref::<Int64Array>()
-            .ok_or_else(|| {
-                crate::Error::Resource(
-                    "Failed to downcast allocated_at_millis column to Int64Array".to_string(),
-                )
-            })?;
-        let duration_array = tasks
-            .column(9)
-            .as_any()
-            .downcast_ref::<Int64Array>()
-            .ok_or_else(|| {
-                crate::Error::Resource(
-                    "Failed to downcast estimated_duration_secs column to Int64Array".to_string(),
-                )
-            })?;
-
-        for i in 0..tasks.num_rows() {
-            let id_bytes = task_id_array.value(i);
-            let id = TaskId::from_bytes(id_bytes).map_err(|e| {
-                crate::Error::Custom(format!("Invalid task ID at row {}: {}", i, e))
-            })?;
-
-            let allocated_at = if allocated_at_array.is_null(i) {
-                None
-            } else {
-                DateTime::from_timestamp_millis(allocated_at_array.value(i))
-            };
-
-            let estimated_duration = Duration::seconds(duration_array.value(i));
-
-            task_metadata.insert(
-                id,
-                TaskMetadata {
-                    allocated_at,
-                    estimated_duration,
-                },
-            );
-        }
-
-        // Update state
-        self.resources = resources;
-        self.resource_id_to_row = resource_id_to_row;
-        self.tasks = tasks;
-        self.task_id_to_row = task_id_to_row;
-        self.task_metadata = task_metadata;
-
-        Ok(())
-    }
-
-    // Helper methods
-
-    fn find_available_resource_for_task(&self, task_id: TaskId) -> Result<Option<ResourceId>> {
-        let task_row = self
-            .task_id_to_row
-            .get(&task_id)
-            .ok_or_else(|| crate::Error::Custom(format!("Task not found: {:?}", task_id)))?;
-
-        let task_type_array = self
-            .tasks
-            .column(1)
-            .as_any()
-            .downcast_ref::<StringArray>()
-            .ok_or_else(|| {
-                crate::Error::Resource("Failed to downcast type column to StringArray".to_string())
-            })?;
-        let task_type = task_type_array.value(*task_row);
-
-        // Find matching available resource
-        let id_array = self
-            .resources
-            .column(0)
-            .as_any()
-            .downcast_ref::<BinaryArray>()
-            .ok_or_else(|| {
-                crate::Error::Resource("Failed to downcast id column to BinaryArray".to_string())
-            })?;
-        let type_array = self
-            .resources
-            .column(1)
-            .as_any()
-            .downcast_ref::<StringArray>()
-            .ok_or_else(|| {
-                crate::Error::Resource("Failed to downcast type column to StringArray".to_string())
-            })?;
-        let available_array = self
-            .resources
-            .column(3)
-            .as_any()
-            .downcast_ref::<Int64Array>()
-            .ok_or_else(|| {
-                crate::Error::Resource(
-                    "Failed to downcast available column to Int64Array".to_string(),
-                )
-            })?;
-
-        for i in 0..self.resources.num_rows() {
-            if type_array.value(i) == task_type && available_array.value(i) > 0 {
-                let resource_id = ResourceId::from_bytes(id_array.value(i))
-                    .map_err(|e| crate::Error::Custom(format!("Invalid resource ID: {}", e)))?;
-                return Ok(Some(resource_id));
-            }
-        }
-
-        Ok(None)
-    }
-
-    fn update_task_assignment(
-        &mut self,
-        task_id: TaskId,
-        resource_id: ResourceId,
-        current_time: DateTime<Utc>,
-    ) -> Result<()> {
-        // Update metadata
-        if let Some(metadata) = self.task_metadata.get_mut(&task_id) {
-            metadata.allocated_at = Some(current_time);
-        }
-
-        // Rebuild task batch with updated status and resource
-        let task_row = self
-            .task_id_to_row
-            .get(&task_id)
-            .ok_or_else(|| crate::Error::Custom(format!("Task not found: {:?}", task_id)))?;
-
-        let mut id_builder = BinaryBuilder::new();
-        let mut type_builder = StringBuilder::new();
-        let mut status_builder = StringBuilder::new();
-        let mut capacity_builder = Int64Builder::new();
-        let mut resource_builder = BinaryBuilder::new();
-        let mut workflow_builder = BinaryBuilder::new();
-        let mut priority_builder = Int32Builder::new();
-        let mut metadata_builder = StringBuilder::new();
-        let mut allocated_at_builder = Int64Builder::new();
-        let mut duration_builder = Int64Builder::new();
-
-        let id_array = self
-            .tasks
-            .column(0)
-            .as_any()
-            .downcast_ref::<BinaryArray>()
-            .ok_or_else(|| {
-                crate::Error::Resource("Failed to downcast id column to BinaryArray".to_string())
-            })?;
-        let type_array = self
-            .tasks
-            .column(1)
-            .as_any()
-            .downcast_ref::<StringArray>()
-            .ok_or_else(|| {
-                crate::Error::Resource("Failed to downcast type column to StringArray".to_string())
-            })?;
-        let status_array = self
-            .tasks
-            .column(2)
-            .as_any()
-            .downcast_ref::<StringArray>()
-            .ok_or_else(|| {
-                crate::Error::Resource(
-                    "Failed to downcast status column to StringArray".to_string(),
-                )
-            })?;
-        let capacity_array = self
-            .tasks
-            .column(3)
-            .as_any()
-            .downcast_ref::<Int64Array>()
-            .ok_or_else(|| {
-                crate::Error::Resource(
-                    "Failed to downcast capacity column to Int64Array".to_string(),
-                )
-            })?;
-        let resource_array = self
-            .tasks
-            .column(4)
-            .as_any()
-            .downcast_ref::<BinaryArray>()
-            .ok_or_else(|| {
-                crate::Error::Resource(
-                    "Failed to downcast resource column to BinaryArray".to_string(),
-                )
-            })?;
-        let workflow_array = self
-            .tasks
-            .column(5)
-            .as_any()
-            .downcast_ref::<BinaryArray>()
-            .ok_or_else(|| {
-                crate::Error::Resource(
-                    "Failed to downcast workflow column to BinaryArray".to_string(),
-                )
-            })?;
-        let priority_array = self
-            .tasks
-            .column(6)
-            .as_any()
-            .downcast_ref::<Int32Array>()
-            .ok_or_else(|| {
-                crate::Error::Resource(
-                    "Failed to downcast priority column to Int32Array".to_string(),
-                )
-            })?;
-        let metadata_array = self
-            .tasks
-            .column(7)
-            .as_any()
-            .downcast_ref::<StringArray>()
-            .ok_or_else(|| {
-                crate::Error::Resource(
-                    "Failed to downcast metadata column to StringArray".to_string(),
-                )
-            })?;
-        let allocated_at_array = self
-            .tasks
-            .column(8)
-            .as_any()
-            .downcast_ref::<Int64Array>()
-            .ok_or_else(|| {
-                crate::Error::Resource(
-                    "Failed to downcast allocated_at column to Int64Array".to_string(),
-                )
-            })?;
-        let duration_array = self
-            .tasks
-            .column(9)
-            .as_any()
-            .downcast_ref::<Int64Array>()
-            .ok_or_else(|| {
-                crate::Error::Resource(
-                    "Failed to downcast duration column to Int64Array".to_string(),
-                )
-            })?;
-
-        for i in 0..self.tasks.num_rows() {
-            id_builder.append_value(id_array.value(i));
-            type_builder.append_value(type_array.value(i));
-
-            if i == *task_row {
-                status_builder.append_value(task_status::ALLOCATED);
-                resource_builder.append_value(resource_id.as_bytes());
-            } else {
-                status_builder.append_value(status_array.value(i));
-                if resource_array.is_null(i) {
-                    resource_builder.append_null();
-                } else {
-                    resource_builder.append_value(resource_array.value(i));
-                }
-            }
-
-            capacity_builder.append_value(capacity_array.value(i));
-            if workflow_array.is_null(i) {
-                workflow_builder.append_null();
-            } else {
-                workflow_builder.append_value(workflow_array.value(i));
-            }
-            priority_builder.append_value(priority_array.value(i));
-            if metadata_array.is_null(i) {
-                metadata_builder.append_null();
-            } else {
-                metadata_builder.append_value(metadata_array.value(i));
-            }
-            if i == *task_row {
-                allocated_at_builder.append_value(current_time.timestamp_millis());
-            } else if allocated_at_array.is_null(i) {
-                allocated_at_builder.append_null();
-            } else {
-                allocated_at_builder.append_value(allocated_at_array.value(i));
-            }
-            duration_builder.append_value(duration_array.value(i));
-        }
-
-        let new_batch = RecordBatch::try_new(
-            task_schema(),
-            vec![
-                Arc::new(id_builder.finish()),
-                Arc::new(type_builder.finish()),
-                Arc::new(status_builder.finish()),
-                Arc::new(capacity_builder.finish()),
-                Arc::new(resource_builder.finish()),
-                Arc::new(workflow_builder.finish()),
-                Arc::new(priority_builder.finish()),
-                Arc::new(metadata_builder.finish()),
-                Arc::new(allocated_at_builder.finish()),
-                Arc::new(duration_builder.finish()),
-            ],
-        )
-        .map_err(|e| crate::Error::Custom(format!("Failed to create task batch: {}", e)))?;
-
-        self.tasks = new_batch;
-        Ok(())
-    }
-
-    fn update_task_status(&mut self, task_id: TaskId, new_status: &str) -> Result<()> {
-        let task_row = self
-            .task_id_to_row
-            .get(&task_id)
-            .ok_or_else(|| crate::Error::Custom(format!("Task not found: {:?}", task_id)))?;
-
-        let mut id_builder = BinaryBuilder::new();
-        let mut type_builder = StringBuilder::new();
-        let mut status_builder = StringBuilder::new();
-        let mut capacity_builder = Int64Builder::new();
-        let mut resource_builder = BinaryBuilder::new();
-        let mut workflow_builder = BinaryBuilder::new();
-        let mut priority_builder = Int32Builder::new();
-        let mut metadata_builder = StringBuilder::new();
-        let mut allocated_at_builder = Int64Builder::new();
-        let mut duration_builder = Int64Builder::new();
-
-        let id_array = self
-            .tasks
-            .column(0)
-            .as_any()
-            .downcast_ref::<BinaryArray>()
-            .ok_or_else(|| {
-                crate::Error::Resource("Failed to downcast id column to BinaryArray".to_string())
-            })?;
-        let type_array = self
-            .tasks
-            .column(1)
-            .as_any()
-            .downcast_ref::<StringArray>()
-            .ok_or_else(|| {
-                crate::Error::Resource("Failed to downcast type column to StringArray".to_string())
-            })?;
-        let status_array = self
-            .tasks
-            .column(2)
-            .as_any()
-            .downcast_ref::<StringArray>()
-            .ok_or_else(|| {
-                crate::Error::Resource(
-                    "Failed to downcast status column to StringArray".to_string(),
-                )
-            })?;
-        let capacity_array = self
-            .tasks
-            .column(3)
-            .as_any()
-            .downcast_ref::<Int64Array>()
-            .ok_or_else(|| {
-                crate::Error::Resource(
-                    "Failed to downcast capacity column to Int64Array".to_string(),
-                )
-            })?;
-        let resource_array = self
-            .tasks
-            .column(4)
-            .as_any()
-            .downcast_ref::<BinaryArray>()
-            .ok_or_else(|| {
-                crate::Error::Resource(
-                    "Failed to downcast resource column to BinaryArray".to_string(),
-                )
-            })?;
-        let workflow_array = self
-            .tasks
-            .column(5)
-            .as_any()
-            .downcast_ref::<BinaryArray>()
-            .ok_or_else(|| {
-                crate::Error::Resource(
-                    "Failed to downcast workflow column to BinaryArray".to_string(),
-                )
-            })?;
-        let priority_array = self
-            .tasks
-            .column(6)
-            .as_any()
-            .downcast_ref::<Int32Array>()
-            .ok_or_else(|| {
-                crate::Error::Resource(
-                    "Failed to downcast priority column to Int32Array".to_string(),
-                )
-            })?;
-        let metadata_array = self
-            .tasks
-            .column(7)
-            .as_any()
-            .downcast_ref::<StringArray>()
-            .ok_or_else(|| {
-                crate::Error::Resource(
-                    "Failed to downcast metadata column to StringArray".to_string(),
-                )
-            })?;
-        let allocated_at_array = self
-            .tasks
-            .column(8)
-            .as_any()
-            .downcast_ref::<Int64Array>()
-            .ok_or_else(|| {
-                crate::Error::Resource(
-                    "Failed to downcast allocated_at column to Int64Array".to_string(),
-                )
-            })?;
-        let duration_array = self
-            .tasks
-            .column(9)
-            .as_any()
-            .downcast_ref::<Int64Array>()
-            .ok_or_else(|| {
-                crate::Error::Resource(
-                    "Failed to downcast duration column to Int64Array".to_string(),
-                )
-            })?;
-
-        for i in 0..self.tasks.num_rows() {
-            id_builder.append_value(id_array.value(i));
-            type_builder.append_value(type_array.value(i));
-
-            if i == *task_row {
-                status_builder.append_value(new_status);
-            } else {
-                status_builder.append_value(status_array.value(i));
-            }
-
-            capacity_builder.append_value(capacity_array.value(i));
-            if resource_array.is_null(i) {
-                resource_builder.append_null();
-            } else {
-                resource_builder.append_value(resource_array.value(i));
-            }
-            if workflow_array.is_null(i) {
-                workflow_builder.append_null();
-            } else {
-                workflow_builder.append_value(workflow_array.value(i));
-            }
-            priority_builder.append_value(priority_array.value(i));
-            if metadata_array.is_null(i) {
-                metadata_builder.append_null();
-            } else {
-                metadata_builder.append_value(metadata_array.value(i));
-            }
-            if allocated_at_array.is_null(i) {
-                allocated_at_builder.append_null();
-            } else {
-                allocated_at_builder.append_value(allocated_at_array.value(i));
-            }
-            duration_builder.append_value(duration_array.value(i));
-        }
-
-        let new_batch = RecordBatch::try_new(
-            task_schema(),
-            vec![
-                Arc::new(id_builder.finish()),
-                Arc::new(type_builder.finish()),
-                Arc::new(status_builder.finish()),
-                Arc::new(capacity_builder.finish()),
-                Arc::new(resource_builder.finish()),
-                Arc::new(workflow_builder.finish()),
-                Arc::new(priority_builder.finish()),
-                Arc::new(metadata_builder.finish()),
-                Arc::new(allocated_at_builder.finish()),
-                Arc::new(duration_builder.finish()),
-            ],
-        )
-        .map_err(|e| crate::Error::Custom(format!("Failed to create task batch: {}", e)))?;
-
-        self.tasks = new_batch;
-        Ok(())
-    }
-
-    fn decrease_resource_capacity(&mut self, resource_id: ResourceId) -> Result<()> {
-        let resource_row = self.resource_id_to_row.get(&resource_id).ok_or_else(|| {
-            crate::Error::Custom(format!("Resource not found: {:?}", resource_id))
-        })?;
-
-        self.update_resource_capacity(*resource_row, -1)
-    }
-
-    fn increase_resource_capacity(&mut self, resource_id: ResourceId) -> Result<()> {
-        let resource_row = self.resource_id_to_row.get(&resource_id).ok_or_else(|| {
-            crate::Error::Custom(format!("Resource not found: {:?}", resource_id))
-        })?;
-
-        self.update_resource_capacity(*resource_row, 1)
-    }
-
-    fn update_resource_capacity(&mut self, row: usize, delta: i64) -> Result<()> {
-        let mut id_builder = BinaryBuilder::new();
-        let mut type_builder = StringBuilder::new();
-        let mut capacity_builder = Int64Builder::new();
-        let mut available_builder = Int64Builder::new();
-        let mut location_builder = BinaryBuilder::new();
-        let mut metadata_builder = StringBuilder::new();
-
-        let id_array = self
-            .resources
-            .column(0)
-            .as_any()
-            .downcast_ref::<BinaryArray>()
-            .ok_or_else(|| {
-                crate::Error::Resource("Failed to downcast id column to BinaryArray".to_string())
-            })?;
-        let type_array = self
-            .resources
-            .column(1)
-            .as_any()
-            .downcast_ref::<StringArray>()
-            .ok_or_else(|| {
-                crate::Error::Resource("Failed to downcast type column to StringArray".to_string())
-            })?;
-        let capacity_array = self
-            .resources
-            .column(2)
-            .as_any()
-            .downcast_ref::<Int64Array>()
-            .ok_or_else(|| {
-                crate::Error::Resource(
-                    "Failed to downcast capacity column to Int64Array".to_string(),
-                )
-            })?;
-        let available_array = self
-            .resources
-            .column(3)
-            .as_any()
-            .downcast_ref::<Int64Array>()
-            .ok_or_else(|| {
-                crate::Error::Resource(
-                    "Failed to downcast available column to Int64Array".to_string(),
-                )
-            })?;
-        let location_array = self
-            .resources
-            .column(4)
-            .as_any()
-            .downcast_ref::<BinaryArray>()
-            .ok_or_else(|| {
-                crate::Error::Resource(
-                    "Failed to downcast location column to BinaryArray".to_string(),
-                )
-            })?;
-        let metadata_array = self
-            .resources
-            .column(5)
-            .as_any()
-            .downcast_ref::<StringArray>()
-            .ok_or_else(|| {
-                crate::Error::Resource(
-                    "Failed to downcast metadata column to StringArray".to_string(),
-                )
-            })?;
-
-        for i in 0..self.resources.num_rows() {
-            id_builder.append_value(id_array.value(i));
-            type_builder.append_value(type_array.value(i));
-            capacity_builder.append_value(capacity_array.value(i));
-
-            if i == row {
-                let new_available = (available_array.value(i) + delta).max(0);
-                available_builder.append_value(new_available);
-            } else {
-                available_builder.append_value(available_array.value(i));
-            }
-
-            if location_array.is_null(i) {
-                location_builder.append_null();
-            } else {
-                location_builder.append_value(location_array.value(i));
-            }
-            if metadata_array.is_null(i) {
-                metadata_builder.append_null();
-            } else {
-                metadata_builder.append_value(metadata_array.value(i));
-            }
-        }
-
-        let new_batch = RecordBatch::try_new(
-            resource_schema(),
-            vec![
-                Arc::new(id_builder.finish()),
-                Arc::new(type_builder.finish()),
-                Arc::new(capacity_builder.finish()),
-                Arc::new(available_builder.finish()),
-                Arc::new(location_builder.finish()),
-                Arc::new(metadata_builder.finish()),
-            ],
-        )
-        .map_err(|e| crate::Error::Custom(format!("Failed to create resource batch: {}", e)))?;
-
-        self.resources = new_batch;
-        Ok(())
-    }
-
-    fn rebuild_resource_batch_excluding(&mut self, exclude_row: usize) -> Result<()> {
-        let mut id_builder = BinaryBuilder::new();
-        let mut type_builder = StringBuilder::new();
-        let mut capacity_builder = Int64Builder::new();
-        let mut available_builder = Int64Builder::new();
-        let mut location_builder = BinaryBuilder::new();
-        let mut metadata_builder = StringBuilder::new();
-
-        let id_array = self
-            .resources
-            .column(0)
-            .as_any()
-            .downcast_ref::<BinaryArray>()
-            .ok_or_else(|| {
-                crate::Error::Resource("Failed to downcast id column to BinaryArray".to_string())
-            })?;
-        let type_array = self
-            .resources
-            .column(1)
-            .as_any()
-            .downcast_ref::<StringArray>()
-            .ok_or_else(|| {
-                crate::Error::Resource("Failed to downcast type column to StringArray".to_string())
-            })?;
-        let capacity_array = self
-            .resources
-            .column(2)
-            .as_any()
-            .downcast_ref::<Int64Array>()
-            .ok_or_else(|| {
-                crate::Error::Resource(
-                    "Failed to downcast capacity column to Int64Array".to_string(),
-                )
-            })?;
-        let available_array = self
-            .resources
-            .column(3)
-            .as_any()
-            .downcast_ref::<Int64Array>()
-            .ok_or_else(|| {
-                crate::Error::Resource(
-                    "Failed to downcast available column to Int64Array".to_string(),
-                )
-            })?;
-        let location_array = self
-            .resources
-            .column(4)
-            .as_any()
-            .downcast_ref::<BinaryArray>()
-            .ok_or_else(|| {
-                crate::Error::Resource(
-                    "Failed to downcast location column to BinaryArray".to_string(),
-                )
-            })?;
-        let metadata_array = self
-            .resources
-            .column(5)
-            .as_any()
-            .downcast_ref::<StringArray>()
-            .ok_or_else(|| {
-                crate::Error::Resource(
-                    "Failed to downcast metadata column to StringArray".to_string(),
-                )
-            })?;
-
-        for i in 0..self.resources.num_rows() {
-            if i != exclude_row {
-                id_builder.append_value(id_array.value(i));
-                type_builder.append_value(type_array.value(i));
-                capacity_builder.append_value(capacity_array.value(i));
-                available_builder.append_value(available_array.value(i));
-                if location_array.is_null(i) {
-                    location_builder.append_null();
-                } else {
-                    location_builder.append_value(location_array.value(i));
-                }
-                if metadata_array.is_null(i) {
-                    metadata_builder.append_null();
-                } else {
-                    metadata_builder.append_value(metadata_array.value(i));
-                }
-            }
-        }
-
-        let new_batch = RecordBatch::try_new(
-            resource_schema(),
-            vec![
-                Arc::new(id_builder.finish()),
-                Arc::new(type_builder.finish()),
-                Arc::new(capacity_builder.finish()),
-                Arc::new(available_builder.finish()),
-                Arc::new(location_builder.finish()),
-                Arc::new(metadata_builder.finish()),
-            ],
-        )
-        .map_err(|e| crate::Error::Custom(format!("Failed to create resource batch: {}", e)))?;
-
-        // Rebuild index map
-        self.resource_id_to_row.clear();
-        for (new_row, i) in (0..self.resources.num_rows())
-            .filter(|&i| i != exclude_row)
-            .enumerate()
-        {
-            if let Ok(id) = ResourceId::from_bytes(id_array.value(i)) {
-                self.resource_id_to_row.insert(id, new_row);
-            }
-        }
-
-        self.resources = new_batch;
-        Ok(())
-    }
-
-    fn rebuild_task_batch_excluding(&mut self, exclude_row: usize) -> Result<()> {
-        let mut id_builder = BinaryBuilder::new();
-        let mut type_builder = StringBuilder::new();
-        let mut status_builder = StringBuilder::new();
-        let mut capacity_builder = Int64Builder::new();
-        let mut resource_builder = BinaryBuilder::new();
-        let mut workflow_builder = BinaryBuilder::new();
-        let mut priority_builder = Int32Builder::new();
-        let mut metadata_builder = StringBuilder::new();
-        let mut allocated_at_builder = Int64Builder::new();
-        let mut duration_builder = Int64Builder::new();
-
-        let id_array = self
-            .tasks
-            .column(0)
-            .as_any()
-            .downcast_ref::<BinaryArray>()
-            .ok_or_else(|| {
-                crate::Error::Resource("Failed to downcast id column to BinaryArray".to_string())
-            })?;
-        let type_array = self
-            .tasks
-            .column(1)
-            .as_any()
-            .downcast_ref::<StringArray>()
-            .ok_or_else(|| {
-                crate::Error::Resource("Failed to downcast type column to StringArray".to_string())
-            })?;
-        let status_array = self
-            .tasks
-            .column(2)
-            .as_any()
-            .downcast_ref::<StringArray>()
-            .ok_or_else(|| {
-                crate::Error::Resource(
-                    "Failed to downcast status column to StringArray".to_string(),
-                )
-            })?;
-        let capacity_array = self
-            .tasks
-            .column(3)
-            .as_any()
-            .downcast_ref::<Int64Array>()
-            .ok_or_else(|| {
-                crate::Error::Resource(
-                    "Failed to downcast capacity column to Int64Array".to_string(),
-                )
-            })?;
-        let resource_array = self
-            .tasks
-            .column(4)
-            .as_any()
-            .downcast_ref::<BinaryArray>()
-            .ok_or_else(|| {
-                crate::Error::Resource(
-                    "Failed to downcast resource column to BinaryArray".to_string(),
-                )
-            })?;
-        let workflow_array = self
-            .tasks
-            .column(5)
-            .as_any()
-            .downcast_ref::<BinaryArray>()
-            .ok_or_else(|| {
-                crate::Error::Resource(
-                    "Failed to downcast workflow column to BinaryArray".to_string(),
-                )
-            })?;
-        let priority_array = self
-            .tasks
-            .column(6)
-            .as_any()
-            .downcast_ref::<Int32Array>()
-            .ok_or_else(|| {
-                crate::Error::Resource(
-                    "Failed to downcast priority column to Int32Array".to_string(),
-                )
-            })?;
-        let metadata_array = self
-            .tasks
-            .column(7)
-            .as_any()
-            .downcast_ref::<StringArray>()
-            .ok_or_else(|| {
-                crate::Error::Resource(
-                    "Failed to downcast metadata column to StringArray".to_string(),
-                )
-            })?;
-        let allocated_at_array = self
-            .tasks
-            .column(8)
-            .as_any()
-            .downcast_ref::<Int64Array>()
-            .ok_or_else(|| {
-                crate::Error::Resource(
-                    "Failed to downcast allocated_at column to Int64Array".to_string(),
-                )
-            })?;
-        let duration_array = self
-            .tasks
-            .column(9)
-            .as_any()
-            .downcast_ref::<Int64Array>()
-            .ok_or_else(|| {
-                crate::Error::Resource(
-                    "Failed to downcast duration column to Int64Array".to_string(),
-                )
-            })?;
-
-        for i in 0..self.tasks.num_rows() {
-            if i != exclude_row {
-                id_builder.append_value(id_array.value(i));
-                type_builder.append_value(type_array.value(i));
-                status_builder.append_value(status_array.value(i));
-                capacity_builder.append_value(capacity_array.value(i));
-                if resource_array.is_null(i) {
-                    resource_builder.append_null();
-                } else {
-                    resource_builder.append_value(resource_array.value(i));
-                }
-                if workflow_array.is_null(i) {
-                    workflow_builder.append_null();
-                } else {
-                    workflow_builder.append_value(workflow_array.value(i));
-                }
-                priority_builder.append_value(priority_array.value(i));
-                if metadata_array.is_null(i) {
-                    metadata_builder.append_null();
-                } else {
-                    metadata_builder.append_value(metadata_array.value(i));
-                }
-                if allocated_at_array.is_null(i) {
-                    allocated_at_builder.append_null();
-                } else {
-                    allocated_at_builder.append_value(allocated_at_array.value(i));
-                }
-                duration_builder.append_value(duration_array.value(i));
-            }
-        }
-
-        let new_batch = RecordBatch::try_new(
-            task_schema(),
-            vec![
-                Arc::new(id_builder.finish()),
-                Arc::new(type_builder.finish()),
-                Arc::new(status_builder.finish()),
-                Arc::new(capacity_builder.finish()),
-                Arc::new(resource_builder.finish()),
-                Arc::new(workflow_builder.finish()),
-                Arc::new(priority_builder.finish()),
-                Arc::new(metadata_builder.finish()),
-                Arc::new(allocated_at_builder.finish()),
-                Arc::new(duration_builder.finish()),
-            ],
-        )
-        .map_err(|e| crate::Error::Custom(format!("Failed to create task batch: {}", e)))?;
-
-        // Rebuild index map
-        self.task_id_to_row.clear();
-        for (new_row, i) in (0..self.tasks.num_rows())
-            .filter(|&i| i != exclude_row)
-            .enumerate()
-        {
-            if let Ok(id) = TaskId::from_bytes(id_array.value(i)) {
-                self.task_id_to_row.insert(id, new_row);
-            }
-        }
-
-        self.tasks = new_batch;
-        Ok(())
-    }
+    /// Resources in insertion order
+    resources: Vec<ResourceSlot>,
+    resource_index: HashMap<ResourceId, usize>,
+
+    /// Tasks keyed by insertion sequence number (gives deterministic order)
+    tasks: BTreeMap<u64, TaskRecord>,
+    task_index: HashMap<TaskId, u64>,
+    next_seq: u64,
+
+    _marker: PhantomData<fn() -> (R, T)>,
 }
 
 impl<R: Resource, T: Task> Default for ResourceAllocator<R, T> {
@@ -1997,503 +132,628 @@ impl<R: Resource, T: Task> Default for ResourceAllocator<R, T> {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::resources::LeastLoaded;
-
-    #[derive(Debug)]
-    struct TestResource {
-        id: ResourceId,
-        capacity: usize,
-        load: usize,
-    }
-
-    impl Resource for TestResource {
-        fn id(&self) -> ResourceId {
-            self.id
-        }
-        fn resource_type(&self) -> &str {
-            "test"
-        }
-        fn capacity(&self) -> usize {
-            self.capacity
-        }
-        fn current_load(&self) -> usize {
-            self.load
+impl<R: Resource, T: Task> ResourceAllocator<R, T> {
+    /// Create an empty allocator
+    pub fn new() -> Self {
+        Self {
+            resources: Vec::new(),
+            resource_index: HashMap::new(),
+            tasks: BTreeMap::new(),
+            task_index: HashMap::new(),
+            next_seq: 0,
+            _marker: PhantomData,
         }
     }
 
-    #[derive(Debug)]
-    struct TestTask {
-        id: TaskId,
-    }
+    // ----- resources -------------------------------------------------------
 
-    impl Task for TestTask {
-        fn id(&self) -> TaskId {
-            self.id
+    /// Add a resource
+    ///
+    /// Its initial free capacity is `resource.available_capacity()`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if a resource with the same ID is already registered.
+    pub fn add_resource(&mut self, resource: R) -> Result<()> {
+        let id = resource.id();
+        if self.resource_index.contains_key(&id) {
+            return Err(Error::Resource(format!("Resource {id} already registered")));
         }
-        fn required_resource_type(&self) -> &str {
-            "test"
+        self.resource_index.insert(id, self.resources.len());
+        self.resources.push(ResourceSlot {
+            id,
+            resource_type: resource.resource_type().to_string(),
+            capacity: resource.capacity(),
+            available: resource.available_capacity(),
+        });
+        Ok(())
+    }
+
+    /// Add several resources
+    pub fn add_resources(&mut self, resources: impl IntoIterator<Item = R>) -> Result<()> {
+        for resource in resources {
+            self.add_resource(resource)?;
         }
-        fn estimated_duration(&self) -> Duration {
-            Duration::seconds(10)
+        Ok(())
+    }
+
+    /// Remove a resource
+    ///
+    /// Returns `Ok(false)` if the resource is unknown.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if tasks are still allocated to the resource.
+    pub fn remove_resource(&mut self, id: ResourceId) -> Result<bool> {
+        let Some(&row) = self.resource_index.get(&id) else {
+            return Ok(false);
+        };
+        if self
+            .tasks
+            .values()
+            .any(|t| matches!(t.allocation, Some((r, _)) if r == id))
+        {
+            return Err(Error::Resource(format!(
+                "Cannot remove resource {id}: tasks are still allocated to it"
+            )));
         }
+        self.resources.remove(row);
+        self.rebuild_resource_index();
+        Ok(true)
     }
 
-    #[test]
-    fn test_allocator_creation() {
-        let allocator = ResourceAllocator::<TestResource, TestTask>::new();
-        assert_eq!(allocator.resource_count(), 0);
-        assert_eq!(allocator.pending_task_count(), 0);
+    /// Number of registered resources
+    pub fn resource_count(&self) -> usize {
+        self.resources.len()
     }
 
-    #[test]
-    fn test_add_resources_and_tasks() {
-        let mut allocator = ResourceAllocator::new();
-
-        let resource = TestResource {
-            id: ResourceId::new(),
-            capacity: 5,
-            load: 0,
-        };
-        let task = TestTask { id: TaskId::new() };
-
-        allocator.add_resource(resource).unwrap();
-        allocator.add_task(task).unwrap();
-
-        assert_eq!(allocator.resource_count(), 1);
-        assert_eq!(allocator.pending_task_count(), 1);
+    /// Total capacity of a resource
+    pub fn resource_capacity(&self, id: ResourceId) -> Option<usize> {
+        self.slot(id).map(|s| s.capacity)
     }
 
-    #[test]
-    fn test_assign_tasks() {
-        let mut allocator = ResourceAllocator::new();
-
-        let resource = TestResource {
-            id: ResourceId::new(),
-            capacity: 5,
-            load: 0,
-        };
-        let task = TestTask { id: TaskId::new() };
-
-        let resource_id = resource.id();
-        let task_id = task.id();
-
-        allocator.add_resource(resource).unwrap();
-        allocator.add_task(task).unwrap();
-
-        let current_time = Utc::now();
-        let assignments = allocator.assign_tasks(&LeastLoaded, current_time).unwrap();
-
-        assert_eq!(assignments.len(), 1);
-        assert_eq!(assignments[0].task_id, task_id);
-        assert_eq!(assignments[0].resource_id, resource_id);
-        assert_eq!(allocator.pending_task_count(), 0);
+    /// Free capacity of a resource
+    pub fn resource_available(&self, id: ResourceId) -> Option<usize> {
+        self.slot(id).map(|s| s.available)
     }
 
-    #[test]
-    fn test_complete_task() {
-        let mut allocator = ResourceAllocator::new();
-
-        let resource = TestResource {
-            id: ResourceId::new(),
-            capacity: 5,
-            load: 0,
-        };
-        let task = TestTask { id: TaskId::new() };
-
-        let task_id = task.id();
-
-        allocator.add_resource(resource).unwrap();
-        allocator.add_task(task).unwrap();
-
-        let current_time = Utc::now();
-        allocator.assign_tasks(&LeastLoaded, current_time).unwrap();
-        assert!(allocator.get_assignment(task_id).is_some());
-
-        allocator.complete_task(task_id).unwrap();
-        // Task should still exist but with completed status
-        assert!(allocator.task_id_to_row.contains_key(&task_id));
+    /// Resources of `resource_type` with free capacity, in insertion order
+    pub fn find_available_resources_by_type(&self, resource_type: &str) -> Vec<ResourceId> {
+        self.resources
+            .iter()
+            .filter(|s| s.resource_type == resource_type && s.available > 0)
+            .map(|s| s.id)
+            .collect()
     }
 
-    #[test]
-    fn test_get_completed_tasks() {
-        use crate::utils::idents::WorkflowInstanceId;
+    // ----- tasks -----------------------------------------------------------
 
-        #[derive(Debug)]
-        struct WorkflowTask {
-            id: TaskId,
-            instance_id: WorkflowInstanceId,
-            duration: Duration,
+    /// Queue a pending task
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if a task with the same ID is already queued or allocated.
+    pub fn add_task(&mut self, task: T) -> Result<()> {
+        let id = task.id();
+        if self.task_index.contains_key(&id) {
+            return Err(Error::Resource(format!("Task {id} already queued")));
         }
+        let seq = self.next_seq;
+        self.next_seq += 1;
+        self.task_index.insert(id, seq);
+        self.tasks.insert(
+            seq,
+            TaskRecord {
+                id,
+                resource_type: task.required_resource_type().to_string(),
+                priority: task.priority(),
+                workflow_instance_id: task.workflow_instance_id(),
+                estimated_duration: task.estimated_duration(),
+                allocation: None,
+            },
+        );
+        Ok(())
+    }
 
-        impl Task for WorkflowTask {
-            fn id(&self) -> TaskId {
-                self.id
-            }
-            fn required_resource_type(&self) -> &str {
-                "test"
-            }
-            fn estimated_duration(&self) -> Duration {
-                self.duration
-            }
-            fn workflow_instance_id(&self) -> Option<WorkflowInstanceId> {
-                Some(self.instance_id)
-            }
+    /// Queue several pending tasks
+    pub fn add_tasks(&mut self, tasks: impl IntoIterator<Item = T>) -> Result<()> {
+        for task in tasks {
+            self.add_task(task)?;
         }
-
-        let mut allocator = ResourceAllocator::new();
-
-        let resource = TestResource {
-            id: ResourceId::new(),
-            capacity: 5,
-            load: 0,
-        };
-
-        let instance_id = WorkflowInstanceId::new();
-        let task = WorkflowTask {
-            id: TaskId::new(),
-            instance_id,
-            duration: Duration::seconds(10),
-        };
-
-        let task_id = task.id();
-
-        allocator.add_resource(resource).unwrap();
-        allocator.add_task(task).unwrap();
-
-        // Allocate task at T=0
-        let start_time = Utc::now();
-        allocator.assign_tasks(&LeastLoaded, start_time).unwrap();
-
-        // Check at T=5 (not complete yet)
-        let mid_time = start_time + Duration::seconds(5);
-        let completed = allocator.get_completed_tasks(mid_time).unwrap();
-        assert_eq!(completed.len(), 0);
-        assert!(allocator.get_assignment(task_id).is_some());
-
-        // Check at T=10 (just completed)
-        let end_time = start_time + Duration::seconds(10);
-        let completed = allocator.get_completed_tasks(end_time).unwrap();
-        assert_eq!(completed.len(), 1);
-        assert_eq!(completed[0].0, task_id);
-        assert_eq!(completed[0].1, instance_id);
+        Ok(())
     }
 
-    #[test]
-    fn test_export_import_empty_allocator() {
-        let allocator = ResourceAllocator::<TestResource, TestTask>::new();
-
-        // Export empty state
-        let (resources, tasks) = allocator.export_batch();
-
-        // Verify exported batches are empty
-        assert_eq!(resources.num_rows(), 0);
-        assert_eq!(tasks.num_rows(), 0);
-
-        // Import into new allocator
-        let mut new_allocator = ResourceAllocator::<TestResource, TestTask>::new();
-        new_allocator.import_batch(resources, tasks).unwrap();
-
-        // Verify state
-        assert_eq!(new_allocator.resource_count(), 0);
-        assert_eq!(new_allocator.pending_task_count(), 0);
+    /// Remove a task, releasing its capacity if it was allocated
+    ///
+    /// Returns `Ok(false)` if the task is unknown.
+    pub fn remove_task(&mut self, id: TaskId) -> Result<bool> {
+        Ok(self.take_task(id)?.is_some())
     }
 
-    #[test]
-    fn test_export_import_with_resources() {
-        let mut allocator = ResourceAllocator::<TestResource, TestTask>::new();
-
-        // Add multiple resources
-        let resource1 = TestResource {
-            id: ResourceId::new(),
-            capacity: 5,
-            load: 0,
-        };
-        let resource2 = TestResource {
-            id: ResourceId::new(),
-            capacity: 10,
-            load: 0,
-        };
-        let resource3 = TestResource {
-            id: ResourceId::new(),
-            capacity: 3,
-            load: 0,
-        };
-
-        let r1_id = resource1.id();
-        let r2_id = resource2.id();
-        let r3_id = resource3.id();
-
-        allocator.add_resource(resource1).unwrap();
-        allocator.add_resource(resource2).unwrap();
-        allocator.add_resource(resource3).unwrap();
-
-        assert_eq!(allocator.resource_count(), 3);
-
-        // Export and import
-        let (resources, tasks) = allocator.export_batch();
-        let mut new_allocator = ResourceAllocator::<TestResource, TestTask>::new();
-        new_allocator.import_batch(resources, tasks).unwrap();
-
-        // Verify resource count
-        assert_eq!(new_allocator.resource_count(), 3);
-
-        // Verify all resource IDs are in the index
-        assert!(new_allocator.resource_id_to_row.contains_key(&r1_id));
-        assert!(new_allocator.resource_id_to_row.contains_key(&r2_id));
-        assert!(new_allocator.resource_id_to_row.contains_key(&r3_id));
+    /// Finish an allocated task now, releasing its capacity and removing it
+    ///
+    /// Use this when domain logic decides a task is done before its estimated
+    /// duration has elapsed. Tasks that run their full duration are completed
+    /// by [`get_completed_tasks`](Self::get_completed_tasks) instead.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the task is unknown or still pending.
+    pub fn complete_task(&mut self, task_id: TaskId) -> Result<CompletedTask> {
+        let seq = *self
+            .task_index
+            .get(&task_id)
+            .ok_or_else(|| Error::Resource(format!("Task {task_id} not found")))?;
+        if self.tasks[&seq].allocation.is_none() {
+            return Err(Error::Resource(format!(
+                "Task {task_id} is pending and cannot be completed"
+            )));
+        }
+        let record = self
+            .take_task(task_id)?
+            .expect("task presence checked above");
+        let (resource_id, _) = record.allocation.expect("allocation checked above");
+        Ok(CompletedTask {
+            task_id,
+            resource_id,
+            workflow_instance_id: record.workflow_instance_id,
+        })
     }
 
-    #[test]
-    fn test_export_import_with_tasks() {
-        let mut allocator = ResourceAllocator::<TestResource, TestTask>::new();
-
-        // Add multiple tasks
-        let task1 = TestTask { id: TaskId::new() };
-        let task2 = TestTask { id: TaskId::new() };
-        let task3 = TestTask { id: TaskId::new() };
-
-        let t1_id = task1.id();
-        let t2_id = task2.id();
-        let t3_id = task3.id();
-
-        allocator.add_task(task1).unwrap();
-        allocator.add_task(task2).unwrap();
-        allocator.add_task(task3).unwrap();
-
-        assert_eq!(allocator.pending_task_count(), 3);
-
-        // Export and import
-        let (resources, tasks) = allocator.export_batch();
-        let mut new_allocator = ResourceAllocator::<TestResource, TestTask>::new();
-        new_allocator.import_batch(resources, tasks).unwrap();
-
-        // Verify task count
-        assert_eq!(new_allocator.pending_task_count(), 3);
-
-        // Verify all task IDs are in the index
-        assert!(new_allocator.task_id_to_row.contains_key(&t1_id));
-        assert!(new_allocator.task_id_to_row.contains_key(&t2_id));
-        assert!(new_allocator.task_id_to_row.contains_key(&t3_id));
+    /// Number of pending (unallocated) tasks
+    pub fn pending_task_count(&self) -> usize {
+        self.tasks
+            .values()
+            .filter(|t| t.allocation.is_none())
+            .count()
     }
 
-    #[test]
-    fn test_export_import_with_allocations() {
-        let mut allocator = ResourceAllocator::<TestResource, TestTask>::new();
-
-        // Add resources and tasks
-        let resource = TestResource {
-            id: ResourceId::new(),
-            capacity: 5,
-            load: 0,
-        };
-        let task = TestTask { id: TaskId::new() };
-
-        let resource_id = resource.id();
-        let task_id = task.id();
-
-        allocator.add_resource(resource).unwrap();
-        allocator.add_task(task).unwrap();
-
-        // Assign task to resource
-        let current_time = Utc::now();
-        let assignments = allocator.assign_tasks(&LeastLoaded, current_time).unwrap();
-        assert_eq!(assignments.len(), 1);
-
-        // Export and import
-        let (resources, tasks) = allocator.export_batch();
-        let mut new_allocator = ResourceAllocator::<TestResource, TestTask>::new();
-        new_allocator.import_batch(resources, tasks).unwrap();
-
-        // Verify assignment is preserved
-        let assignment = new_allocator.get_assignment(task_id);
-        assert_eq!(assignment, Some(resource_id));
-
-        // Verify pending task count is 0 (task is allocated)
-        assert_eq!(new_allocator.pending_task_count(), 0);
+    /// Number of allocated (in-progress) tasks
+    pub fn allocated_task_count(&self) -> usize {
+        self.tasks.len() - self.pending_task_count()
     }
 
-    #[test]
-    fn test_export_import_lookup_functionality() {
-        let mut allocator = ResourceAllocator::<TestResource, TestTask>::new();
-
-        // Add resource and first task
-        let resource = TestResource {
-            id: ResourceId::new(),
-            capacity: 5,
-            load: 0,
-        };
-        let task1 = TestTask { id: TaskId::new() };
-
-        let resource_id = resource.id();
-        let task1_id = task1.id();
-
-        allocator.add_resource(resource).unwrap();
-        allocator.add_task(task1).unwrap();
-
-        // Assign the first task
-        let current_time = Utc::now();
-        let assignments = allocator.assign_tasks(&LeastLoaded, current_time).unwrap();
-        assert_eq!(assignments.len(), 1);
-
-        // Now add second task (won't be assigned yet)
-        let task2 = TestTask { id: TaskId::new() };
-        let task2_id = task2.id();
-        allocator.add_task(task2).unwrap();
-
-        // Export and import
-        let (resources, tasks) = allocator.export_batch();
-        let mut new_allocator = ResourceAllocator::<TestResource, TestTask>::new();
-        new_allocator.import_batch(resources, tasks).unwrap();
-
-        // Verify lookup for assigned task works
-        assert_eq!(new_allocator.get_assignment(task1_id), Some(resource_id));
-
-        // Verify lookup for pending task returns None
-        assert_eq!(new_allocator.get_assignment(task2_id), None);
-
-        // Verify pending_tasks iterator works
-        let pending: Vec<_> = new_allocator.pending_tasks().collect();
-        assert_eq!(pending.len(), 1);
+    /// Pending task IDs in insertion order
+    pub fn pending_tasks(&self) -> impl Iterator<Item = TaskId> + '_ {
+        self.tasks
+            .values()
+            .filter(|t| t.allocation.is_none())
+            .map(|t| t.id)
     }
 
-    #[test]
-    fn test_import_with_invalid_resource_schema() {
-        use arrow::array::{Int32Array, StringArray};
-
-        // Create a batch with wrong schema (missing columns)
-        let invalid_batch = RecordBatch::try_new(
-            Arc::new(arrow::datatypes::Schema::new(vec![
-                arrow::datatypes::Field::new("id", arrow::datatypes::DataType::Binary, false),
-                arrow::datatypes::Field::new("name", arrow::datatypes::DataType::Utf8, false),
-            ])),
-            vec![
-                Arc::new(BinaryArray::from(Vec::<&[u8]>::new())),
-                Arc::new(StringArray::from(Vec::<&str>::new())),
-            ],
-        )
-        .unwrap();
-
-        let valid_tasks = RecordBatch::try_new(
-            task_schema(),
-            vec![
-                Arc::new(BinaryArray::from(Vec::<&[u8]>::new())),
-                Arc::new(StringArray::from(Vec::<&str>::new())),
-                Arc::new(StringArray::from(Vec::<&str>::new())),
-                Arc::new(Int64Array::from(Vec::<i64>::new())),
-                Arc::new(BinaryArray::from(Vec::<Option<&[u8]>>::new())),
-                Arc::new(BinaryArray::from(Vec::<Option<&[u8]>>::new())),
-                Arc::new(Int32Array::from(Vec::<i32>::new())),
-                Arc::new(StringArray::from(Vec::<Option<&str>>::new())),
-                Arc::new(Int64Array::from(Vec::<Option<i64>>::new())),
-                Arc::new(Int64Array::from(Vec::<i64>::new())),
-            ],
-        )
-        .unwrap();
-
-        let mut allocator = ResourceAllocator::<TestResource, TestTask>::new();
-        let result = allocator.import_batch(invalid_batch, valid_tasks);
-
-        assert!(result.is_err());
+    /// Resource a task is allocated to (`None` if pending or unknown)
+    pub fn get_assignment(&self, task_id: TaskId) -> Option<ResourceId> {
+        self.record(task_id)?.allocation.map(|(r, _)| r)
     }
 
-    #[test]
-    fn test_import_with_invalid_task_schema() {
-        let valid_resources = RecordBatch::try_new(
+    /// All current allocations, in task insertion order
+    pub fn assignments(&self) -> Vec<Assignment> {
+        self.tasks
+            .values()
+            .filter_map(|t| {
+                t.allocation.map(|(resource_id, _)| Assignment {
+                    task_id: t.id,
+                    resource_id,
+                    workflow_instance_id: t.workflow_instance_id,
+                })
+            })
+            .collect()
+    }
+
+    /// Workflow instance that owns a task
+    pub fn get_task_workflow_instance_id(&self, task_id: TaskId) -> Option<WorkflowInstanceId> {
+        self.record(task_id)?.workflow_instance_id
+    }
+
+    /// Estimated duration of a task
+    pub fn get_task_estimated_duration(&self, task_id: TaskId) -> Option<Duration> {
+        self.record(task_id).map(|t| t.estimated_duration)
+    }
+
+    // ----- allocation ------------------------------------------------------
+
+    /// Allocate pending tasks to resources
+    ///
+    /// Tasks are considered highest priority first (ties in insertion order).
+    /// For each, `strategy` picks among the resources of the required type
+    /// that have free capacity; tasks with no candidate stay pending.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the strategy picks a resource that was not offered.
+    pub fn assign_tasks(
+        &mut self,
+        strategy: &dyn AllocationStrategy,
+        current_time: DateTime<Utc>,
+    ) -> Result<Vec<Assignment>> {
+        let pending: Vec<u64> = self
+            .tasks
+            .iter()
+            .filter(|(_, t)| t.allocation.is_none())
+            .map(|(seq, _)| *seq)
+            .collect();
+        self.allocate_seqs(pending, strategy, current_time)
+    }
+
+    /// Like [`assign_tasks`](Self::assign_tasks), restricted to `task_ids`
+    ///
+    /// Unknown or already-allocated IDs are skipped.
+    pub fn allocate_batch(
+        &mut self,
+        task_ids: impl IntoIterator<Item = TaskId>,
+        strategy: &dyn AllocationStrategy,
+        current_time: DateTime<Utc>,
+    ) -> Result<Vec<Assignment>> {
+        let mut seqs: Vec<u64> = task_ids
+            .into_iter()
+            .filter_map(|id| self.task_index.get(&id).copied())
+            .filter(|seq| self.tasks[seq].allocation.is_none())
+            .collect();
+        seqs.sort_unstable();
+        seqs.dedup();
+        self.allocate_seqs(seqs, strategy, current_time)
+    }
+
+    /// Complete every allocated task whose estimated duration has elapsed
+    ///
+    /// Releases capacity, removes the tasks and returns them in insertion
+    /// order. Tasks with and without a workflow instance are both completed.
+    pub fn get_completed_tasks(
+        &mut self,
+        current_time: DateTime<Utc>,
+    ) -> Result<Vec<CompletedTask>> {
+        let due: Vec<TaskId> = self
+            .tasks
+            .values()
+            .filter(|t| {
+                t.allocation
+                    .is_some_and(|(_, at)| at + t.estimated_duration <= current_time)
+            })
+            .map(|t| t.id)
+            .collect();
+        due.into_iter().map(|id| self.complete_task(id)).collect()
+    }
+
+    // ----- snapshot boundary ----------------------------------------------
+
+    /// Export resources and tasks as Arrow batches
+    ///
+    /// The schemas are [`resource_schema`] and [`task_schema`]. Rows are in
+    /// insertion order.
+    pub fn export_batch(&self) -> Result<(RecordBatch, RecordBatch)> {
+        let n = self.resources.len();
+        let resources = RecordBatch::try_new(
             resource_schema(),
             vec![
-                Arc::new(BinaryArray::from(Vec::<&[u8]>::new())),
-                Arc::new(StringArray::from(Vec::<&str>::new())),
-                Arc::new(Int64Array::from(Vec::<i64>::new())),
-                Arc::new(Int64Array::from(Vec::<i64>::new())),
-                Arc::new(BinaryArray::from(Vec::<Option<&[u8]>>::new())),
-                Arc::new(StringArray::from(Vec::<Option<&str>>::new())),
+                Arc::new(BinaryArray::from_iter_values(
+                    self.resources.iter().map(|s| s.id.as_bytes().as_slice()),
+                )) as ArrayRef,
+                Arc::new(StringArray::from_iter_values(
+                    self.resources.iter().map(|s| s.resource_type.as_str()),
+                )),
+                Arc::new(Int64Array::from_iter_values(
+                    self.resources.iter().map(|s| s.capacity as i64),
+                )),
+                Arc::new(Int64Array::from_iter_values(
+                    self.resources.iter().map(|s| s.available as i64),
+                )),
+                Arc::new(BinaryArray::from(vec![None::<&[u8]>; n])),
+                Arc::new(StringArray::from(vec![None::<&str>; n])),
             ],
-        )
-        .unwrap();
+        )?;
 
-        // Create a batch with wrong schema (missing columns)
-        let invalid_batch = RecordBatch::try_new(
-            Arc::new(arrow::datatypes::Schema::new(vec![
-                arrow::datatypes::Field::new("id", arrow::datatypes::DataType::Binary, false),
-                arrow::datatypes::Field::new("type", arrow::datatypes::DataType::Utf8, false),
-            ])),
+        let tasks: Vec<&TaskRecord> = self.tasks.values().collect();
+        let tasks = RecordBatch::try_new(
+            task_schema(),
             vec![
-                Arc::new(BinaryArray::from(Vec::<&[u8]>::new())),
-                Arc::new(StringArray::from(Vec::<&str>::new())),
+                Arc::new(BinaryArray::from_iter_values(
+                    tasks.iter().map(|t| t.id.as_bytes().as_slice()),
+                )) as ArrayRef,
+                Arc::new(StringArray::from_iter_values(
+                    tasks.iter().map(|t| t.resource_type.as_str()),
+                )),
+                Arc::new(StringArray::from_iter_values(tasks.iter().map(|t| {
+                    if t.allocation.is_some() {
+                        task_status::ALLOCATED
+                    } else {
+                        task_status::PENDING
+                    }
+                }))),
+                Arc::new(Int64Array::from_iter_values(tasks.iter().map(|_| 1))),
+                Arc::new(BinaryArray::from_iter(tasks.iter().map(|t| {
+                    t.allocation.as_ref().map(|(r, _)| r.as_bytes().as_slice())
+                }))),
+                Arc::new(BinaryArray::from_iter(tasks.iter().map(|t| {
+                    t.workflow_instance_id
+                        .as_ref()
+                        .map(|w| w.as_bytes().as_slice())
+                }))),
+                Arc::new(Int32Array::from_iter_values(
+                    tasks.iter().map(|t| t.priority),
+                )),
+                Arc::new(StringArray::from(vec![None::<&str>; tasks.len()])),
+                Arc::new(Int64Array::from_iter(
+                    tasks
+                        .iter()
+                        .map(|t| t.allocation.map(|(_, at)| at.timestamp_millis())),
+                )),
+                Arc::new(Int64Array::from_iter_values(
+                    tasks
+                        .iter()
+                        .map(|t| t.estimated_duration.num_milliseconds()),
+                )),
             ],
-        )
-        .unwrap();
+        )?;
 
-        let mut allocator = ResourceAllocator::<TestResource, TestTask>::new();
-        let result = allocator.import_batch(valid_resources, invalid_batch);
-
-        assert!(result.is_err());
+        Ok((resources, tasks))
     }
 
-    #[test]
-    fn test_export_import_round_trip_preserves_state() {
-        let mut allocator = ResourceAllocator::<TestResource, TestTask>::new();
+    /// Replace the allocator state with previously exported batches
+    ///
+    /// The import is validated in full before anything is replaced: on error
+    /// the allocator is unchanged.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if a schema does not match, an ID is malformed or
+    /// duplicated, a task references an unknown resource, or a resource's free
+    /// capacity plus its allocated tasks exceeds its capacity.
+    pub fn import_batch(&mut self, resources: RecordBatch, tasks: RecordBatch) -> Result<()> {
+        check_schema(&resources, &resource_schema(), "resource")?;
+        check_schema(&tasks, &task_schema(), "task")?;
 
-        // Create a complex scenario
-        let resource1 = TestResource {
-            id: ResourceId::new(),
-            capacity: 5,
-            load: 0,
-        };
-        let resource2 = TestResource {
-            id: ResourceId::new(),
-            capacity: 3,
-            load: 0,
-        };
-        let task1 = TestTask { id: TaskId::new() };
-        let task2 = TestTask { id: TaskId::new() };
-        let task3 = TestTask { id: TaskId::new() };
+        let mut staged = Self::new();
 
-        let r1_id = resource1.id();
-        let r2_id = resource2.id();
-        let t1_id = task1.id();
-        let t2_id = task2.id();
-        let t3_id = task3.id();
-
-        allocator.add_resource(resource1).unwrap();
-        allocator.add_resource(resource2).unwrap();
-        allocator.add_task(task1).unwrap();
-        allocator.add_task(task2).unwrap();
-        allocator.add_task(task3).unwrap();
-
-        // Assign some tasks
-        let current_time = Utc::now();
-        let _assignments = allocator.assign_tasks(&LeastLoaded, current_time).unwrap();
-
-        // Get original state
-        let original_resource_count = allocator.resource_count();
-        let original_pending_count = allocator.pending_task_count();
-        let original_assignments = allocator.assignments();
-
-        // Export and import
-        let (resources, tasks) = allocator.export_batch();
-        let mut new_allocator = ResourceAllocator::<TestResource, TestTask>::new();
-        new_allocator.import_batch(resources, tasks).unwrap();
-
-        // Verify counts match
-        assert_eq!(new_allocator.resource_count(), original_resource_count);
-        assert_eq!(new_allocator.pending_task_count(), original_pending_count);
-
-        // Verify assignments match
-        let new_assignments = new_allocator.assignments();
-        assert_eq!(new_assignments.len(), original_assignments.len());
-        for (task_id, resource_id) in &original_assignments {
-            assert_eq!(new_assignments.get(task_id), Some(resource_id));
+        let ids = column::<BinaryArray>(&resources, 0)?;
+        let types = column::<StringArray>(&resources, 1)?;
+        let capacities = column::<Int64Array>(&resources, 2)?;
+        let available = column::<Int64Array>(&resources, 3)?;
+        for i in 0..resources.num_rows() {
+            let id = ResourceId::from_bytes(ids.value(i))
+                .map_err(|e| Error::Resource(format!("Invalid resource ID at row {i}: {e}")))?;
+            let capacity = non_negative(capacities.value(i), "capacity", i)?;
+            let free = non_negative(available.value(i), "available", i)?;
+            if free > capacity {
+                return Err(Error::Resource(format!(
+                    "Resource {id}: available ({free}) exceeds capacity ({capacity})"
+                )));
+            }
+            if staged
+                .resource_index
+                .insert(id, staged.resources.len())
+                .is_some()
+            {
+                return Err(Error::Resource(format!("Duplicate resource {id}")));
+            }
+            staged.resources.push(ResourceSlot {
+                id,
+                resource_type: types.value(i).to_string(),
+                capacity,
+                available: free,
+            });
         }
 
-        // Verify lookups still work
-        assert!(new_allocator.resource_id_to_row.contains_key(&r1_id));
-        assert!(new_allocator.resource_id_to_row.contains_key(&r2_id));
-        assert!(new_allocator.task_id_to_row.contains_key(&t1_id));
-        assert!(new_allocator.task_id_to_row.contains_key(&t2_id));
-        assert!(new_allocator.task_id_to_row.contains_key(&t3_id));
+        let ids = column::<BinaryArray>(&tasks, 0)?;
+        let types = column::<StringArray>(&tasks, 1)?;
+        let statuses = column::<StringArray>(&tasks, 2)?;
+        let assigned = column::<BinaryArray>(&tasks, 4)?;
+        let workflows = column::<BinaryArray>(&tasks, 5)?;
+        let priorities = column::<Int32Array>(&tasks, 6)?;
+        let allocated_at = column::<Int64Array>(&tasks, 8)?;
+        let durations = column::<Int64Array>(&tasks, 9)?;
+        let mut used: HashMap<ResourceId, usize> = HashMap::new();
+        for i in 0..tasks.num_rows() {
+            let id = TaskId::from_bytes(ids.value(i))
+                .map_err(|e| Error::Resource(format!("Invalid task ID at row {i}: {e}")))?;
+            let allocation = match statuses.value(i) {
+                task_status::PENDING => None,
+                task_status::ALLOCATED => {
+                    if assigned.is_null(i) || allocated_at.is_null(i) {
+                        return Err(Error::Resource(format!(
+                            "Allocated task {id} has no resource or allocation time"
+                        )));
+                    }
+                    let resource_id = ResourceId::from_bytes(assigned.value(i)).map_err(|e| {
+                        Error::Resource(format!("Invalid resource ID for task {id}: {e}"))
+                    })?;
+                    if !staged.resource_index.contains_key(&resource_id) {
+                        return Err(Error::Resource(format!(
+                            "Task {id} is allocated to unknown resource {resource_id}"
+                        )));
+                    }
+                    *used.entry(resource_id).or_default() += 1;
+                    let at = DateTime::from_timestamp_millis(allocated_at.value(i)).ok_or_else(
+                        || Error::Resource(format!("Invalid allocation time for task {id}")),
+                    )?;
+                    Some((resource_id, at))
+                }
+                other => {
+                    return Err(Error::Resource(format!(
+                        "Task {id} has unknown status '{other}'"
+                    )));
+                }
+            };
+            let workflow_instance_id = if workflows.is_null(i) {
+                None
+            } else {
+                Some(
+                    WorkflowInstanceId::from_bytes(workflows.value(i)).map_err(|e| {
+                        Error::Resource(format!("Invalid workflow instance ID for task {id}: {e}"))
+                    })?,
+                )
+            };
+            let seq = staged.next_seq;
+            staged.next_seq += 1;
+            if staged.task_index.insert(id, seq).is_some() {
+                return Err(Error::Resource(format!("Duplicate task {id}")));
+            }
+            staged.tasks.insert(
+                seq,
+                TaskRecord {
+                    id,
+                    resource_type: types.value(i).to_string(),
+                    priority: priorities.value(i),
+                    workflow_instance_id,
+                    estimated_duration: Duration::milliseconds(durations.value(i)),
+                    allocation,
+                },
+            );
+        }
+
+        // Resources may start partly loaded (`available_capacity() < capacity()`),
+        // so free + allocated may be below capacity but never above it.
+        for slot in &staged.resources {
+            let in_use = used.get(&slot.id).copied().unwrap_or(0);
+            if slot.available + in_use > slot.capacity {
+                return Err(Error::Resource(format!(
+                    "Resource {}: available {} + allocated {} exceeds capacity {}",
+                    slot.id, slot.available, in_use, slot.capacity
+                )));
+            }
+        }
+
+        *self = staged;
+        Ok(())
+    }
+
+    // ----- internals -------------------------------------------------------
+
+    fn slot(&self, id: ResourceId) -> Option<&ResourceSlot> {
+        self.resource_index
+            .get(&id)
+            .map(|&row| &self.resources[row])
+    }
+
+    fn record(&self, id: TaskId) -> Option<&TaskRecord> {
+        self.task_index.get(&id).map(|seq| &self.tasks[seq])
+    }
+
+    fn rebuild_resource_index(&mut self) {
+        self.resource_index = self
+            .resources
+            .iter()
+            .enumerate()
+            .map(|(row, s)| (s.id, row))
+            .collect();
+    }
+
+    /// Remove a task and release its capacity if it was allocated
+    fn take_task(&mut self, id: TaskId) -> Result<Option<TaskRecord>> {
+        let Some(seq) = self.task_index.remove(&id) else {
+            return Ok(None);
+        };
+        let record = self.tasks.remove(&seq).expect("task index out of sync");
+        if let Some((resource_id, _)) = record.allocation {
+            let row = *self.resource_index.get(&resource_id).ok_or_else(|| {
+                Error::InvalidState(format!(
+                    "Task {id} was allocated to unknown resource {resource_id}"
+                ))
+            })?;
+            let slot = &mut self.resources[row];
+            if slot.available >= slot.capacity {
+                return Err(Error::InvalidState(format!(
+                    "Resource {resource_id} released more capacity than it has"
+                )));
+            }
+            slot.available += 1;
+        }
+        Ok(Some(record))
+    }
+
+    fn allocate_seqs(
+        &mut self,
+        mut seqs: Vec<u64>,
+        strategy: &dyn AllocationStrategy,
+        current_time: DateTime<Utc>,
+    ) -> Result<Vec<Assignment>> {
+        // Highest priority first; `seqs` is ascending so the stable sort keeps
+        // insertion order among equal priorities.
+        seqs.sort_by_key(|seq| std::cmp::Reverse(self.tasks[seq].priority));
+
+        let mut assignments = Vec::new();
+        for seq in seqs {
+            let task = &self.tasks[&seq];
+            let candidates: Vec<ResourceCandidate<'_>> = self
+                .resources
+                .iter()
+                .filter(|s| s.resource_type == task.resource_type && s.available > 0)
+                .map(|s| ResourceCandidate {
+                    id: s.id,
+                    resource_type: &s.resource_type,
+                    capacity: s.capacity,
+                    available: s.available,
+                })
+                .collect();
+            if candidates.is_empty() {
+                continue;
+            }
+            let view = TaskCandidate {
+                id: task.id,
+                required_resource_type: &task.resource_type,
+                priority: task.priority,
+                workflow_instance_id: task.workflow_instance_id,
+            };
+            let Some(resource_id) = strategy.assign(&view, &candidates) else {
+                continue;
+            };
+            if !candidates.iter().any(|c| c.id == resource_id) {
+                return Err(Error::Resource(format!(
+                    "Allocation strategy chose resource {resource_id}, which was not a candidate for task {}",
+                    task.id
+                )));
+            }
+            let task_id = task.id;
+            let workflow_instance_id = task.workflow_instance_id;
+            let row = self.resource_index[&resource_id];
+            self.resources[row].available -= 1;
+            self.tasks
+                .get_mut(&seq)
+                .expect("seq from task map")
+                .allocation = Some((resource_id, current_time));
+            assignments.push(Assignment {
+                task_id,
+                resource_id,
+                workflow_instance_id,
+            });
+        }
+        Ok(assignments)
     }
 }
+
+fn check_schema(
+    batch: &RecordBatch,
+    expected: &arrow::datatypes::SchemaRef,
+    what: &str,
+) -> Result<()> {
+    let actual = batch.schema();
+    let same = actual.fields().len() == expected.fields().len()
+        && actual
+            .fields()
+            .iter()
+            .zip(expected.fields())
+            .all(|(a, e)| a.name() == e.name() && a.data_type() == e.data_type());
+    if same {
+        Ok(())
+    } else {
+        Err(Error::Resource(format!(
+            "{what} batch schema mismatch: expected {expected:?}, got {actual:?}"
+        )))
+    }
+}
+
+fn column<A: Array + 'static>(batch: &RecordBatch, idx: usize) -> Result<&A> {
+    batch
+        .column(idx)
+        .as_any()
+        .downcast_ref::<A>()
+        .ok_or_else(|| Error::Resource(format!("Unexpected array type in column {idx}")))
+}
+
+fn non_negative(value: i64, field: &str, row: usize) -> Result<usize> {
+    usize::try_from(value)
+        .map_err(|_| Error::Resource(format!("Negative {field} ({value}) at row {row}")))
+}
+
+#[cfg(test)]
+#[path = "allocator_tests.rs"]
+mod tests;
