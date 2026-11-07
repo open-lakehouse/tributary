@@ -1,284 +1,346 @@
-//! Logistics simulation orchestration
+//! Logistics simulation
 //!
-//! This module provides the main simulation runner and metrics collection,
-//! wired up using `SimulationRunner`, `WorkflowRegistry`, and `SimulationHooks`
-//! from `sim-core` — the same pattern used by `sim-kitchen`.
+//! [`LogisticsSimulation`] ships packages from warehouses to delivery
+//! addresses on the sim-core framework:
 //!
-//! # Architecture
+//! - A Poisson [`DemandGenerator`](sim_core::DemandGenerator) creates packages
+//!   (10 per hour); [`LogisticsSimulation::create_package`] adds more.
+//! - Each package is a [`PackageShipmentWorkflow`] instance whose five steps
+//!   are [`ShipmentTask`]s allocated to [`Station`]s: receivers, sorting
+//!   stations, loading docks, drivers (one package at a time each) and
+//!   delivery confirmers.
+//! - Each package is also a passive [`Package`] agent whose stage follows its
+//!   workflow, so the population shows where every package is.
 //!
-//! 1. **SimulationRunner**: Core orchestrator (ticks agents, processes workflows,
-//!    manages time)
-//! 2. **PopulationHandler**: Manages the Driver agent population
-//! 3. **ResourceAllocator**: Manages SortingStation resources and ShipmentTask
-//!    assignment
-//! 4. **WorkflowRegistry**: Registers the `PackageShipmentWorkflow` engine
-//! 5. **LogisticsSimulationHooks**: Domain callbacks that track package lifecycle
-//!    and metrics
-//!
-//! # Lifecycle Flow
-//!
-//! Each simulation step follows this sequence:
+//! # Events
 //!
 //! ```text
-//! 1. on_before_tick()
-//!    ↓
-//! 2. Tick all driver agents
-//!    ↓
-//! 3. on_agents_ticked()
-//!    ↓
-//! 4. Tick workflow registry (advance time-based steps)
-//!    ↓
-//! 5. Allocate tasks to resources
-//!    ↓
-//! 6. on_resources_allocated() — track assignments
-//!    ↓
-//! 7. on_after_tick()
+//! receive step done    → io.logistics.package.received
+//! sort step done       → io.logistics.package.sorted
+//! driver allocated     → io.logistics.package.loaded, io.logistics.package.in_transit
+//! confirm step done    → io.logistics.package.delivered
 //! ```
 
-use crate::locations::Warehouse;
-use crate::resources::SortingStation;
+use crate::locations::{DeliveryAddress, Warehouse};
+use crate::resources::{Station, StationKind};
 use crate::workflows::{PackageShipmentWorkflow, ShipmentTask, ShipmentTaskFactory};
-use crate::{DeliveryAddress, Driver, Package, PackagePriority};
+use crate::{Package, PackagePriority, PackageStage, events::*};
 use chrono::{DateTime, Duration, Utc};
 use geo::Point;
-use rand::RngExt;
+use rand::{RngExt, SeedableRng, rngs::StdRng};
 use sim_core::{
-    PoissonDemandGenerator, PopulationHandler, ResourceAllocator, SimulationConfig,
-    SimulationHooks, SimulationRunner, Workflow, WorkflowId, WorkflowRegistry,
-    population::{AgentTickResult, Demand},
+    AgentId, PoissonDemandGenerator, PopulationHandler, ResourceAllocator, ResourceId,
+    SimulationConfig, SimulationContext, SimulationHooks, SimulationRunner, Workflow,
+    WorkflowRegistry,
+    population::Demand,
     resources::Assignment,
-    workflows::WorkflowEngine,
+    utils::idents::WorkflowInstanceId,
+    workflows::{WorkflowEngine, WorkflowStepEvent},
 };
 use sim_events::{Event, EventDispatcher};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
-/// Build a `StdRng` from a `u64` seed (expanded to the 32-byte seed it needs).
-fn seeded_std_rng(seed: u64) -> rand::rngs::StdRng {
-    let mut seed_array = [0u8; 32];
-    seed_array[0..8].copy_from_slice(&seed.to_le_bytes());
-    rand::SeedableRng::from_seed(seed_array)
-}
+/// The runner type behind [`LogisticsSimulation`]
+pub type LogisticsRunner =
+    SimulationRunner<Package, Station, ShipmentTask, PackageShipmentWorkflow>;
 
-/// Metadata tracked for each in-flight workflow instance
-struct WorkflowMeta {
-    tracking_number: String,
-    destination: Point<f64>,
-    started_at: DateTime<Utc>,
-}
+/// Name of the workflow engine holding [`PackageShipmentWorkflow`]
+pub const SHIPMENT_ENGINE: &str = "package_shipment";
+
+/// Simulation step length
+const TIME_STEP_SECS: i64 = 30;
+
+/// Packages created per hour by the demand generator
+const PACKAGES_PER_HOUR: f64 = 10.0;
+
+/// Size of the driver fleet
+const NUM_DRIVERS: usize = 20;
 
 /// Logistics simulation metrics
 #[derive(Debug, Clone, Default)]
 pub struct LogisticsMetrics {
     pub packages_created: u64,
     pub packages_delivered: u64,
+    /// Distinct drivers that have carried at least one package
     pub drivers_used: u64,
+    /// Mean time from package creation to delivery
     pub average_delivery_time_secs: f64,
+    /// Mean share of drivers carrying a package, over all steps
     pub driver_utilization_percent: f64,
 }
 
-/// Simulation hooks for the logistics domain
+/// A package's shipment while its workflow runs
+#[derive(Debug)]
+struct Shipment {
+    package: AgentId,
+    tracking_number: String,
+    warehouse: String,
+    destination: Point<f64>,
+    created_at: DateTime<Utc>,
+    /// Station that handled each step, filled in as steps are allocated
+    stations: Vec<ResourceId>,
+}
+
+/// A package created this tick, waiting for its workflow instance
+#[derive(Debug)]
+struct NewPackage {
+    package: Package,
+    created_at: DateTime<Utc>,
+}
+
+/// Hooks that track shipments, emit logistics events and collect metrics
 ///
-/// Receives lifecycle callbacks from `SimulationRunner` and tracks package
-/// creation, workflow progression, and delivery metrics.
+/// Hook state is not part of runner snapshots; after a restore, shipments the
+/// hooks don't know about complete without events.
 pub struct LogisticsSimulationHooks {
-    /// Cumulative metrics
-    pub metrics: LogisticsMetrics,
-    /// Packages waiting to be registered in the workflow registry.
-    /// Drained each step and added as workflow instances by `LogisticsSimulation`.
-    pub pending_shipments: Vec<PackageShipmentWorkflow>,
-    /// Event dispatcher for CloudEvents emission
     dispatcher: EventDispatcher,
-    /// Metadata per workflow (keyed by WorkflowId)
-    workflow_metadata: HashMap<WorkflowId, WorkflowMeta>,
-    /// Delivery time samples (seconds) for computing average
-    delivery_time_samples: Vec<f64>,
-    /// Driver utilization samples (fraction 0.0–1.0) per tick
-    driver_utilization_samples: Vec<f64>,
-    /// Total number of drivers in the simulation
-    total_drivers: usize,
-    /// Random number generator for demand-to-workflow mapping
-    rng: rand::rngs::StdRng,
-    /// Warehouses available for shipment origin
+    rng: StdRng,
     warehouses: Vec<(String, Point<f64>)>,
-    /// Delivery addresses available as shipment destinations
-    delivery_addresses: Vec<Point<f64>>,
-    /// Monotonically increasing counter for tracking numbers
+    addresses: Vec<Point<f64>>,
+    station_names: HashMap<ResourceId, String>,
+    shipments: HashMap<WorkflowInstanceId, Shipment>,
+    new_packages: Vec<NewPackage>,
+    stage_updates: Vec<(AgentId, PackageStage)>,
+    finished: Vec<WorkflowInstanceId>,
     package_counter: u64,
+    packages_created: u64,
+    packages_delivered: u64,
+    delivery_secs: Vec<f64>,
+    total_drivers: usize,
+    busy_drivers: usize,
+    drivers_used: HashSet<ResourceId>,
+    utilization_samples: Vec<f64>,
 }
 
 impl LogisticsSimulationHooks {
-    /// Create hooks with warehouse/address data for autonomous demand handling.
-    pub fn new(
+    fn new(
         warehouses: Vec<(String, Point<f64>)>,
-        delivery_addresses: Vec<Point<f64>>,
-        total_drivers: usize,
+        addresses: Vec<Point<f64>>,
+        stations: &[Station],
+        rng: StdRng,
     ) -> Self {
-        Self::new_seeded(warehouses, delivery_addresses, total_drivers, None)
-    }
-
-    /// Create hooks with an optional seed for the demand-to-workflow mapping RNG.
-    pub fn new_seeded(
-        warehouses: Vec<(String, Point<f64>)>,
-        delivery_addresses: Vec<Point<f64>>,
-        total_drivers: usize,
-        seed: Option<u64>,
-    ) -> Self {
-        let rng = match seed {
-            Some(s) => seeded_std_rng(s),
-            None => rand::SeedableRng::from_seed(rand::random()),
-        };
         Self {
-            metrics: LogisticsMetrics::default(),
-            pending_shipments: Vec::new(),
             dispatcher: EventDispatcher::new(),
-            workflow_metadata: HashMap::new(),
-            delivery_time_samples: Vec::new(),
-            driver_utilization_samples: Vec::new(),
-            total_drivers,
             rng,
             warehouses,
-            delivery_addresses,
+            addresses,
+            station_names: stations.iter().map(|s| (s.id, s.name.clone())).collect(),
+            shipments: HashMap::new(),
+            new_packages: Vec::new(),
+            stage_updates: Vec::new(),
+            finished: Vec::new(),
             package_counter: 0,
+            packages_created: 0,
+            packages_delivered: 0,
+            delivery_secs: Vec::new(),
+            total_drivers: stations
+                .iter()
+                .filter(|s| s.kind == StationKind::Driver)
+                .count(),
+            busy_drivers: 0,
+            drivers_used: HashSet::new(),
+            utilization_samples: Vec::new(),
         }
     }
 
-    /// Drain pending shipment workflows so the simulation loop can register them.
-    pub fn drain_pending_shipments(&mut self) -> Vec<PackageShipmentWorkflow> {
-        std::mem::take(&mut self.pending_shipments)
-    }
-
-    /// Access the event dispatcher (read-only).
+    /// All events emitted so far
     pub fn dispatcher(&self) -> &EventDispatcher {
         &self.dispatcher
     }
 
-    /// Access the event dispatcher (mutable).
-    pub fn dispatcher_mut(&mut self) -> &mut EventDispatcher {
-        &mut self.dispatcher
+    /// Metrics so far
+    pub fn metrics(&self) -> LogisticsMetrics {
+        let mean = |v: &[f64]| {
+            if v.is_empty() {
+                0.0
+            } else {
+                v.iter().sum::<f64>() / v.len() as f64
+            }
+        };
+        LogisticsMetrics {
+            packages_created: self.packages_created,
+            packages_delivered: self.packages_delivered,
+            drivers_used: self.drivers_used.len() as u64,
+            average_delivery_time_secs: mean(&self.delivery_secs),
+            driver_utilization_percent: mean(&self.utilization_samples) * 100.0,
+        }
     }
 
-    /// Record a new package to be shipped.
-    pub fn enqueue_shipment(&mut self, workflow: PackageShipmentWorkflow) {
-        self.metrics.packages_created += 1;
-        self.pending_shipments.push(workflow);
+    fn enqueue(&mut self, package: Package, created_at: DateTime<Utc>) {
+        self.packages_created += 1;
+        self.new_packages.push(NewPackage {
+            package,
+            created_at,
+        });
+    }
+
+    fn next_tracking_number(&mut self) -> String {
+        self.package_counter += 1;
+        format!("PKG-{:06}", self.package_counter)
+    }
+
+    fn station_name(&self, id: ResourceId) -> String {
+        self.station_names
+            .get(&id)
+            .cloned()
+            .unwrap_or_else(|| id.to_string())
     }
 }
 
 impl SimulationHooks for LogisticsSimulationHooks {
     fn on_demands_generated(
         &mut self,
-        ctx: &sim_core::SimulationContext,
+        ctx: &SimulationContext,
         demands: &[Demand],
     ) -> sim_core::Result<()> {
-        for _demand in demands {
-            if self.warehouses.is_empty() || self.delivery_addresses.is_empty() {
-                continue;
-            }
-            let w_idx = self.rng.random_range(0..self.warehouses.len());
-            let d_idx = self.rng.random_range(0..self.delivery_addresses.len());
-            let (warehouse_name, _warehouse_loc) = &self.warehouses[w_idx];
-            let destination = self.delivery_addresses[d_idx];
-            self.package_counter += 1;
-            let tracking = format!("PKG-{:06}", self.package_counter);
-
-            let workflow = PackageShipmentWorkflow::new(
-                tracking.clone(),
-                warehouse_name.clone(),
-                destination,
-                1.0, // default weight kg
-            );
-            let workflow_id = Workflow::id(&workflow);
-            self.workflow_metadata.insert(
-                workflow_id,
-                WorkflowMeta {
-                    tracking_number: tracking,
-                    destination,
-                    started_at: ctx.current_time(),
-                },
-            );
-            self.enqueue_shipment(workflow);
+        if self.warehouses.is_empty() || self.addresses.is_empty() {
+            return Ok(());
         }
-        Ok(())
-    }
-
-    fn on_agents_ticked(
-        &mut self,
-        _ctx: &sim_core::SimulationContext,
-        results: &[AgentTickResult],
-    ) -> sim_core::Result<()> {
-        if self.total_drivers > 0 {
-            // Each driver produces one AgentTickResult per tick.
-            // results.len() == number of drivers that ticked this step.
-            let utilization = results.len() as f64 / self.total_drivers as f64;
-            self.driver_utilization_samples.push(utilization.min(1.0));
+        for _ in demands {
+            let (warehouse, origin) =
+                self.warehouses[self.rng.random_range(0..self.warehouses.len())].clone();
+            let destination = self.addresses[self.rng.random_range(0..self.addresses.len())];
+            let tracking = self.next_tracking_number();
+            let package = Package::new(
+                tracking,
+                warehouse,
+                origin,
+                destination,
+                1.0,
+                PackagePriority::Standard,
+            );
+            self.enqueue(package, ctx.current_time());
         }
         Ok(())
     }
 
     fn on_resources_allocated(
         &mut self,
-        _ctx: &sim_core::SimulationContext,
-        _assignments: &[Assignment],
+        ctx: &SimulationContext,
+        assignments: &[Assignment],
     ) -> sim_core::Result<()> {
+        let now = ctx.current_time();
+        for a in assignments {
+            let Some(instance_id) = a.workflow_instance_id else {
+                continue;
+            };
+            let Some(shipment) = self.shipments.get_mut(&instance_id) else {
+                continue;
+            };
+            // Steps run in order, so this is the step being allocated.
+            let step = shipment.stations.len();
+            shipment.stations.push(a.resource_id);
+            if step != PackageShipmentWorkflow::TRANSIT_STEP {
+                continue;
+            }
+
+            self.busy_drivers += 1;
+            self.drivers_used.insert(a.resource_id);
+            let package_id = shipment.tracking_number.clone();
+            let dock = shipment.stations[PackageShipmentWorkflow::TRANSIT_STEP - 1];
+            let package = shipment.package;
+            let (driver, dock) = (self.station_name(a.resource_id), self.station_name(dock));
+            self.dispatcher.emit(Event::new(
+                Box::new(PackageLoadedEvent {
+                    package_id: package_id.clone(),
+                    driver_id: driver.clone(),
+                    loading_dock_id: dock,
+                }),
+                now,
+            ));
+            self.dispatcher.emit(Event::new(
+                Box::new(PackageInTransitEvent {
+                    package_id,
+                    driver_id: driver,
+                    estimated_arrival: now
+                        + PackageShipmentWorkflow::step_duration(
+                            PackageShipmentWorkflow::TRANSIT_STEP,
+                        ),
+                }),
+                now,
+            ));
+            self.stage_updates.push((package, PackageStage::InTransit));
+        }
         Ok(())
     }
 
     fn on_workflow_step_completed(
         &mut self,
-        ctx: &sim_core::SimulationContext,
-        event: &sim_core::workflows::WorkflowStepEvent,
+        _ctx: &SimulationContext,
+        event: &WorkflowStepEvent,
     ) -> sim_core::Result<()> {
-        use sim_core::workflows::WorkflowStepEvent;
-
         match event {
             WorkflowStepEvent::StepCompleted {
                 instance_id,
                 step_index,
-                ..
+                completion_time,
             } => {
-                // Emit a CloudEvent for each step completion
-                use crate::events::PackageSortedEvent;
-                let evt = Event::new(
-                    Box::new(PackageSortedEvent {
-                        package_id: format!("instance-{}", instance_id),
-                        sorting_station_id: format!("step-{}", step_index),
-                        warehouse_id: String::new(),
-                    }),
-                    ctx.current_time(),
-                );
-                self.dispatcher.emit(evt);
+                let Some(shipment) = self.shipments.get(instance_id) else {
+                    return Ok(());
+                };
+                let package = shipment.package;
+                match *step_index {
+                    0 => {
+                        let evt = PackageReceivedEvent {
+                            package_id: shipment.tracking_number.clone(),
+                            warehouse_id: shipment.warehouse.clone(),
+                            destination: shipment.destination,
+                            timestamp: *completion_time,
+                        };
+                        self.dispatcher
+                            .emit(Event::new(Box::new(evt), *completion_time));
+                        self.stage_updates.push((package, PackageStage::Received));
+                    }
+                    1 => {
+                        let evt = PackageSortedEvent {
+                            package_id: shipment.tracking_number.clone(),
+                            sorting_station_id: self.station_name(shipment.stations[1]),
+                            warehouse_id: shipment.warehouse.clone(),
+                        };
+                        self.dispatcher
+                            .emit(Event::new(Box::new(evt), *completion_time));
+                        self.stage_updates.push((package, PackageStage::Sorted));
+                    }
+                    PackageShipmentWorkflow::TRANSIT_STEP => {
+                        self.busy_drivers = self.busy_drivers.saturating_sub(1);
+                    }
+                    _ => {}
+                }
             }
-
             WorkflowStepEvent::WorkflowCompleted {
-                workflow_id,
+                instance_id,
                 completion_time,
                 ..
             } => {
-                self.metrics.packages_delivered += 1;
-
-                if let Some(meta) = self.workflow_metadata.remove(workflow_id) {
-                    let delivery_secs = (*completion_time - meta.started_at).num_seconds() as f64;
-                    self.delivery_time_samples.push(delivery_secs.max(0.0));
-
-                    // Emit a delivered CloudEvent
-                    use crate::events::PackageDeliveredEvent;
-                    let evt = Event::new(
-                        Box::new(PackageDeliveredEvent {
-                            package_id: meta.tracking_number,
-                            driver_id: String::from("unknown"),
-                            delivery_time: *completion_time,
-                            destination: meta.destination,
-                        }),
-                        *completion_time,
-                    );
-                    self.dispatcher.emit(evt);
-                } else {
-                    // Workflow created manually (not via demand generator) — still count time
-                    let delivery_secs =
-                        (*completion_time - ctx.current_time()).num_seconds().abs() as f64;
-                    self.delivery_time_samples.push(delivery_secs);
-                }
+                let Some(shipment) = self.shipments.remove(instance_id) else {
+                    return Ok(());
+                };
+                self.packages_delivered += 1;
+                self.delivery_secs
+                    .push((*completion_time - shipment.created_at).num_seconds() as f64);
+                let driver =
+                    self.station_name(shipment.stations[PackageShipmentWorkflow::TRANSIT_STEP]);
+                self.dispatcher.emit(Event::new(
+                    Box::new(PackageDeliveredEvent {
+                        package_id: shipment.tracking_number,
+                        driver_id: driver,
+                        delivery_time: *completion_time,
+                        destination: shipment.destination,
+                    }),
+                    *completion_time,
+                ));
+                self.stage_updates
+                    .push((shipment.package, PackageStage::Delivered));
+                self.finished.push(*instance_id);
             }
+        }
+        Ok(())
+    }
+
+    fn on_after_tick(&mut self, _ctx: &SimulationContext) -> sim_core::Result<()> {
+        if self.total_drivers > 0 {
+            self.utilization_samples
+                .push(self.busy_drivers as f64 / self.total_drivers as f64);
         }
         Ok(())
     }
@@ -292,239 +354,149 @@ impl SimulationHooks for LogisticsSimulationHooks {
     }
 }
 
-/// Get current simulation metrics (computed from samples)
-impl LogisticsSimulationHooks {
-    pub fn get_metrics(&self) -> LogisticsMetrics {
-        LogisticsMetrics {
-            packages_created: self.metrics.packages_created,
-            packages_delivered: self.metrics.packages_delivered,
-            drivers_used: self.metrics.drivers_used,
-            average_delivery_time_secs: if self.delivery_time_samples.is_empty() {
-                0.0
-            } else {
-                self.delivery_time_samples.iter().sum::<f64>()
-                    / self.delivery_time_samples.len() as f64
-            },
-            driver_utilization_percent: if self.driver_utilization_samples.is_empty() {
-                0.0
-            } else {
-                (self.driver_utilization_samples.iter().sum::<f64>()
-                    / self.driver_utilization_samples.len() as f64)
-                    * 100.0
-            },
-        }
-    }
-}
-
-/// Build a `SimulationRunner` wired up for the logistics domain.
+/// Package delivery simulation
 ///
-/// Sets up:
-/// - 2 SortingStation resources in a `ResourceAllocator`
-/// - A `WorkflowRegistry` with a `PackageShipmentWorkflow` engine
-/// - A `ShipmentTaskFactory` as the task factory
-/// - A `PoissonDemandGenerator` at 10 packages/hour
-///
-/// Hooks are NOT set here — they are set in `LogisticsSimulation::new()` after
-/// warehouse/address data is available.
-pub fn build_logistics_runner(
-    verbose: bool,
-) -> SimulationRunner<Driver, SortingStation, ShipmentTask, PackageShipmentWorkflow> {
-    build_logistics_runner_seeded(verbose, None)
-}
-
-/// Build the logistics runner, optionally with a global seed for reproducibility.
-pub fn build_logistics_runner_seeded(
-    verbose: bool,
-    seed: Option<u64>,
-) -> SimulationRunner<Driver, SortingStation, ShipmentTask, PackageShipmentWorkflow> {
-    let config = SimulationConfig {
-        name: "logistics_simulation".to_string(),
-        time_step: Duration::seconds(30),
-        verbose,
-        seed,
-        ..Default::default()
-    };
-
-    let mut runner = SimulationRunner::new(config);
-
-    // Resource allocator — sorting stations handle ShipmentTasks
-    let mut allocator: ResourceAllocator<SortingStation, ShipmentTask> = ResourceAllocator::new();
-    allocator
-        .add_resource(SortingStation::standard("Sorting-A".to_string()))
-        .expect("add resource");
-    allocator
-        .add_resource(SortingStation::standard("Sorting-B".to_string()))
-        .expect("add resource");
-    runner.set_resource_allocator(allocator);
-
-    // Workflow registry for package shipment workflows
-    let mut registry: WorkflowRegistry<PackageShipmentWorkflow> = WorkflowRegistry::new();
-    let engine: WorkflowEngine<PackageShipmentWorkflow> = WorkflowEngine::new();
-    registry
-        .register("package_shipment".to_string(), engine)
-        .expect("register workflow engine");
-    runner.set_workflow_registry(registry);
-
-    // Task factory — uses a placeholder; real metadata comes per-shipment
-    let task_factory =
-        ShipmentTaskFactory::new(String::new(), 0.0, String::new(), Point::new(0.0, 0.0));
-    runner.set_task_factory(Box::new(task_factory));
-
-    // Demand generator — 10 packages/hour autonomous creation (seeded if requested)
-    let demand_gen = match seed {
-        Some(global) => PoissonDemandGenerator::with_seed(
-            10.0,
-            "package_shipment",
-            sim_core::derive_seed(global, "logistics-demand"),
-        ),
-        None => PoissonDemandGenerator::new(10.0, "package_shipment"),
-    };
-    runner.set_demand_generator(Box::new(demand_gen));
-
-    runner
-}
-
-/// Main logistics simulation
-///
-/// Orchestrates package delivery simulation with warehouses, drivers, and packages.
-/// Uses `SimulationRunner` + `WorkflowRegistry` for consistent simulation lifecycle.
+/// Two warehouses, 1000 delivery addresses in the Bay Area and a fleet of 20
+/// drivers. Time advances 30 s per step. Drive it with
+/// [`step`](Self::step) or [`run_for_hours`](Self::run_for_hours): package
+/// workflows start and package stages update in `step`, around the
+/// framework tick.
 pub struct LogisticsSimulation {
-    runner: SimulationRunner<Driver, SortingStation, ShipmentTask, PackageShipmentWorkflow>,
+    runner: LogisticsRunner,
+    factory: ShipmentTaskFactory,
     warehouses: Vec<Warehouse>,
     delivery_addresses: Vec<DeliveryAddress>,
-    /// Local package tracking (separate from workflow state)
-    packages: PopulationHandler<Package>,
 }
 
 impl LogisticsSimulation {
-    /// Create a new logistics simulation with default setup
-    ///
-    /// Initializes:
-    /// - 2 warehouses
-    /// - 1000 delivery addresses
-    /// - 20 drivers
+    /// Default setup, unseeded
     pub fn new() -> Self {
         Self::new_seeded(None)
     }
 
-    /// Create a logistics simulation with an optional global seed.
+    /// Default setup with an optional global seed
     ///
-    /// When `seed` is `Some`, RNG-driven decisions (demand generation, the
-    /// random delivery-address layout, and demand-to-workflow mapping in the
-    /// hooks) are reproducible run-to-run. Equivalent to [`Self::new`] when
-    /// `seed` is `None`.
+    /// With a seed, the address layout, package demand and package routing
+    /// are reproducible.
     pub fn new_seeded(seed: Option<u64>) -> Self {
-        let mut runner = build_logistics_runner_seeded(false, seed);
+        let rng = |label: &str| match seed {
+            Some(global) => StdRng::seed_from_u64(sim_core::derive_seed(global, label)),
+            None => StdRng::from_seed(rand::random()),
+        };
 
-        // Create warehouses
+        let config = SimulationConfig {
+            name: "logistics_simulation".to_string(),
+            time_step: Duration::seconds(TIME_STEP_SECS),
+            seed,
+            ..Default::default()
+        };
+        let mut runner = LogisticsRunner::new(config);
+
         let warehouses = vec![
             Warehouse::new(
                 "Warehouse North".to_string(),
                 Point::new(-122.4, 37.8),
                 1000,
             )
-            .unwrap(),
+            .expect("valid coordinates"),
             Warehouse::new(
                 "Warehouse South".to_string(),
                 Point::new(-122.3, 37.7),
                 1000,
             )
-            .unwrap(),
+            .expect("valid coordinates"),
         ];
-
-        // Create delivery addresses (1000 addresses in Bay Area). Seed the
-        // scatter RNG when reproducibility is requested.
-        let mut rng: rand::rngs::StdRng = match seed {
-            Some(global) => seeded_std_rng(sim_core::derive_seed(global, "logistics-addresses")),
-            None => rand::SeedableRng::from_seed(rand::random()),
-        };
+        let mut address_rng = rng("logistics-addresses");
         let delivery_addresses: Vec<DeliveryAddress> = (0..1000)
             .map(|i| {
-                let lat = 37.7 + rng.random::<f64>() * 0.2;
-                let lon = -122.5 + rng.random::<f64>() * 0.3;
-                DeliveryAddress::new(Point::new(lon, lat), format!("Customer-{}", i)).unwrap()
+                let lat = 37.7 + address_rng.random::<f64>() * 0.2;
+                let lon = -122.5 + address_rng.random::<f64>() * 0.3;
+                DeliveryAddress::new(Point::new(lon, lat), format!("Customer-{i}"))
+                    .expect("valid coordinates")
             })
             .collect();
 
-        // Create drivers (20 drivers at Warehouse North) and attach to runner
-        let mut drivers = PopulationHandler::new();
-        for _ in 0..20 {
-            drivers.add_agent(Driver::new(Point::new(-122.4, 37.8)));
-        }
+        let mut stations = vec![
+            Station::new("Receiving", StationKind::Receiver, 10),
+            Station::new("Sorting-A", StationKind::Sorting, 5),
+            Station::new("Sorting-B", StationKind::Sorting, 5),
+            Station::new("Dock-1", StationKind::LoadingDock, 4),
+            Station::new("Dock-2", StationKind::LoadingDock, 4),
+            Station::new("Confirmation", StationKind::DeliveryConfirmer, 10),
+        ];
+        stations.extend(
+            (1..=NUM_DRIVERS).map(|i| Station::new(format!("Driver-{i}"), StationKind::Driver, 1)),
+        );
 
-        // Build warehouse/address info for hooks
-        let warehouse_info: Vec<(String, Point<f64>)> = warehouses
-            .iter()
-            .map(|w| (w.name.clone(), w.location))
-            .collect();
-        let address_points: Vec<Point<f64>> =
-            delivery_addresses.iter().map(|a| a.location).collect();
-        let hooks = LogisticsSimulationHooks::new_seeded(
-            warehouse_info,
-            address_points,
-            20,
-            seed.map(|g| sim_core::derive_seed(g, "logistics-hooks")),
+        let hooks = LogisticsSimulationHooks::new(
+            warehouses
+                .iter()
+                .map(|w| (w.name.clone(), w.location))
+                .collect(),
+            delivery_addresses.iter().map(|a| a.location).collect(),
+            &stations,
+            rng("logistics-hooks"),
         );
         runner.set_hooks(Box::new(hooks));
 
-        let mut sim = Self {
+        let mut allocator = ResourceAllocator::new();
+        allocator
+            .add_resources(stations)
+            .expect("station names are unique");
+        runner.set_resource_allocator(allocator);
+
+        let mut engine = WorkflowEngine::new();
+        engine.register_workflow(PackageShipmentWorkflow::new());
+        let mut registry = WorkflowRegistry::new();
+        registry
+            .register(SHIPMENT_ENGINE.to_string(), engine)
+            .expect("fresh registry");
+        runner.set_workflow_registry(registry);
+
+        let factory = ShipmentTaskFactory::new();
+        runner.set_task_factory(Box::new(factory.clone()));
+        let demand = match seed {
+            Some(global) => PoissonDemandGenerator::with_seed(
+                PACKAGES_PER_HOUR,
+                "package_shipment",
+                sim_core::derive_seed(global, "logistics-demand"),
+            ),
+            None => PoissonDemandGenerator::new(PACKAGES_PER_HOUR, "package_shipment"),
+        };
+        runner.set_demand_generator(Box::new(demand));
+        runner.set_population_handler(PopulationHandler::new());
+
+        Self {
             runner,
+            factory,
             warehouses,
             delivery_addresses,
-            packages: PopulationHandler::new(),
-        };
-        sim.runner.set_population_handler(drivers);
-        sim
+        }
     }
 
-    /// Run simulation for specified number of hours
-    ///
-    /// # Arguments
-    ///
-    /// * `hours` - Number of simulation hours to run
+    /// Run for `hours` of simulated time
     pub fn run_for_hours(&mut self, hours: u64) -> crate::Result<()> {
-        let steps = hours * 120; // 30 sec/step = 120 steps/hour
+        let steps = hours * 3600 / TIME_STEP_SECS as u64;
         for _ in 0..steps {
             self.step()?;
         }
         Ok(())
     }
 
-    /// Execute one simulation step via `SimulationRunner`.
+    /// Execute one simulation step
     ///
-    /// 1. Ticks the runner (agents, workflows, time advancement)
-    /// 2. Drains pending shipment workflows from hooks and registers them
-    /// 3. Allocates tasks to resources
-    pub fn step(&mut self) -> crate::Result<()> {
-        // Tick agents + workflow registry + advance time (TickResult handled by caller if needed)
-        let _ = self.runner.tick()?;
-
-        // Drain pending shipments enqueued via create_package() or on_demands_generated(),
-        // then register as workflow instances
-        let pending = if let Some(hooks) = self.runner.hooks_as_mut::<LogisticsSimulationHooks>() {
-            hooks.drain_pending_shipments()
-        } else {
-            Vec::new()
-        };
-
-        if !pending.is_empty()
-            && let Some(registry) = self.runner.workflow_registry_mut()
-            && let Some(engine) = registry.get_mut("package_shipment")
-        {
-            for workflow in pending {
-                let workflow_id = workflow.id();
-                engine.register_workflow(workflow);
-                let _ = engine.start_instance(workflow_id);
-            }
-        }
-
-        // Allocate tasks to sorting stations
-        let _ = self.runner.allocate_resources();
-
-        Ok(())
+    /// Ticks the runner, then starts shipments for packages created this
+    /// tick and moves packages to their new stages.
+    pub fn step(&mut self) -> crate::Result<sim_core::TickResult> {
+        let tick = self.runner.tick()?;
+        self.start_new_shipments()?;
+        self.apply_stage_updates()?;
+        Ok(tick)
     }
 
-    /// Create a new package and enqueue it for shipment via the workflow.
+    /// Ship a package from warehouse `warehouse_idx` to address `destination_idx`
+    ///
+    /// The shipment starts on the next step.
     pub fn create_package(
         &mut self,
         warehouse_idx: usize,
@@ -532,79 +504,76 @@ impl LogisticsSimulation {
         weight_kg: f64,
         priority: PackagePriority,
     ) -> crate::Result<()> {
-        if warehouse_idx >= self.warehouses.len() {
-            return Err(crate::Error::Logistics(
-                "Invalid warehouse index".to_string(),
-            ));
-        }
-        if destination_idx >= self.delivery_addresses.len() {
-            return Err(crate::Error::Logistics(
-                "Invalid destination index".to_string(),
-            ));
-        }
-
-        let warehouse = &self.warehouses[warehouse_idx];
-        let destination = &self.delivery_addresses[destination_idx];
-
-        // Add to local package population for tracking
-        let package = Package::new(
+        let warehouse = self
+            .warehouses
+            .get(warehouse_idx)
+            .ok_or_else(|| crate::Error::Logistics("Invalid warehouse index".to_string()))?;
+        let destination = self
+            .delivery_addresses
+            .get(destination_idx)
+            .ok_or_else(|| crate::Error::Logistics("Invalid destination index".to_string()))?;
+        let (name, origin, dest) = (
+            warehouse.name.clone(),
             warehouse.location,
             destination.location,
-            weight_kg,
-            priority,
         );
-        self.packages.add_agent(package);
-
-        // Enqueue a workflow for this shipment
-        let workflow = PackageShipmentWorkflow::new(
-            format!("PKG-{}", self.packages.count()),
-            warehouse.id.to_string(),
-            destination.location,
-            weight_kg,
+        let now = self.runner.context().current_time();
+        let hooks = self.hooks_mut();
+        let tracking = hooks.next_tracking_number();
+        hooks.enqueue(
+            Package::new(tracking, name, origin, dest, weight_kg, priority),
+            now,
         );
-
-        if let Some(hooks) = self.runner.hooks_as_mut::<LogisticsSimulationHooks>() {
-            hooks.enqueue_shipment(workflow);
-        }
-
         Ok(())
     }
 
-    /// Get current simulation metrics
+    /// Current metrics
     pub fn get_metrics(&self) -> LogisticsMetrics {
-        if let Some(hooks) = self.runner.hooks_as::<LogisticsSimulationHooks>() {
-            hooks.get_metrics()
-        } else {
-            LogisticsMetrics::default()
-        }
+        self.hooks().metrics()
     }
 
-    /// Get number of active drivers
+    /// Size of the driver fleet
     pub fn driver_count(&self) -> usize {
-        self.runner.population().map(|p| p.count()).unwrap_or(0)
+        self.hooks().total_drivers
     }
 
-    /// Get number of packages (local tracking)
+    /// Packages created so far, including delivered ones and those whose
+    /// shipment starts on the next step
     pub fn package_count(&self) -> usize {
-        self.packages.count()
+        self.runner.population().map_or(0, |p| p.count()) + self.hooks().new_packages.len()
     }
 
-    /// Get number of warehouses
+    /// Number of warehouses
     pub fn warehouse_count(&self) -> usize {
         self.warehouses.len()
     }
 
-    /// Get number of delivery addresses
+    /// Number of delivery addresses
     pub fn delivery_address_count(&self) -> usize {
         self.delivery_addresses.len()
     }
 
-    /// Get simulation runner stats
+    /// The underlying runner
+    pub fn runner(&self) -> &LogisticsRunner {
+        &self.runner
+    }
+
+    /// The underlying runner, mutably
+    pub fn runner_mut(&mut self) -> &mut LogisticsRunner {
+        &mut self.runner
+    }
+
+    /// Runner statistics
     pub fn runner_stats(&self) -> &sim_core::SimulationStats {
         self.runner.stats()
     }
 
-    /// Save all emitted events to a Parquet file.
+    /// All events emitted so far, in emission order
+    pub fn event_records(&self) -> Vec<sim_events::EventRecord> {
+        self.hooks().dispatcher.to_records()
+    }
+
+    /// Write all events emitted so far to a Parquet file and clear them
     pub fn save_events(
         &mut self,
         path: impl Into<std::path::PathBuf>,
@@ -613,23 +582,101 @@ impl LogisticsSimulation {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
+        let records = self.event_records();
+        self.hooks_mut().dispatcher.clear();
+        let mut writer = sim_events::storage::ParquetEventWriter::new(path)?;
+        writer.write_events(&records)?;
+        writer.close()?;
+        Ok(records.len())
+    }
 
-        let records = if let Some(hooks) = self.runner.hooks_as_mut::<LogisticsSimulationHooks>() {
-            let records = hooks.dispatcher_mut().to_records();
-            hooks.dispatcher_mut().clear();
-            records
-        } else {
-            Vec::new()
-        };
+    fn hooks(&self) -> &LogisticsSimulationHooks {
+        self.runner
+            .hooks_as::<LogisticsSimulationHooks>()
+            .expect("LogisticsSimulation installs LogisticsSimulationHooks")
+    }
 
-        let count = records.len();
-        if count > 0 {
-            let mut writer = sim_events::storage::ParquetEventWriter::new(path)?;
-            writer.write_events(&records)?;
-            writer.close()?;
+    fn hooks_mut(&mut self) -> &mut LogisticsSimulationHooks {
+        self.runner
+            .hooks_as_mut::<LogisticsSimulationHooks>()
+            .expect("LogisticsSimulation installs LogisticsSimulationHooks")
+    }
+
+    fn start_new_shipments(&mut self) -> crate::Result<()> {
+        let new = std::mem::take(&mut self.hooks_mut().new_packages);
+        if new.is_empty() {
+            return Ok(());
+        }
+        let engine = self
+            .runner
+            .workflow_registry_mut()
+            .and_then(|r| r.get_mut(SHIPMENT_ENGINE))
+            .ok_or_else(|| crate::Error::Logistics("shipment engine missing".into()))?;
+        let workflow_id = PackageShipmentWorkflow::new().id();
+        let mut started = Vec::with_capacity(new.len());
+        for NewPackage {
+            package,
+            created_at,
+        } in new
+        {
+            let instance = engine.start_instance(workflow_id)?;
+            self.factory
+                .set_priority(instance.id, package.priority.rank());
+            started.push((instance.id, package, created_at));
         }
 
-        Ok(count)
+        let population = self
+            .runner
+            .population_mut()
+            .ok_or_else(|| crate::Error::Logistics("no package population".into()))?;
+        let mut shipments = Vec::with_capacity(started.len());
+        for (instance_id, package, created_at) in started {
+            shipments.push((
+                instance_id,
+                Shipment {
+                    package: package.id,
+                    tracking_number: package.tracking_number.clone(),
+                    warehouse: package.warehouse.clone(),
+                    destination: package.destination,
+                    created_at,
+                    stations: Vec::with_capacity(PackageShipmentWorkflow::STEPS.len()),
+                },
+            ));
+            population.add_agent(package);
+        }
+        self.hooks_mut().shipments.extend(shipments);
+        Ok(())
+    }
+
+    fn apply_stage_updates(&mut self) -> crate::Result<()> {
+        let hooks = self.hooks_mut();
+        let updates = std::mem::take(&mut hooks.stage_updates);
+        let finished = std::mem::take(&mut hooks.finished);
+        for instance_id in finished {
+            self.factory.forget(instance_id);
+        }
+        if updates.is_empty() {
+            return Ok(());
+        }
+        let population = self
+            .runner
+            .population_mut()
+            .ok_or_else(|| crate::Error::Logistics("no package population".into()))?;
+        let mut latest: HashMap<AgentId, PackageStage> = HashMap::new();
+        for (id, stage) in updates {
+            latest.insert(id, stage);
+        }
+        let changed: Vec<Package> = latest
+            .into_iter()
+            .filter_map(|(id, stage)| {
+                population.get_agent(id).map(|mut p| {
+                    p.stage = stage;
+                    p
+                })
+            })
+            .collect();
+        population.update_agents(changed)?;
+        Ok(())
     }
 }
 
@@ -640,151 +687,5 @@ impl Default for LogisticsSimulation {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_simulation_creation() {
-        let sim = LogisticsSimulation::new();
-
-        assert_eq!(sim.warehouse_count(), 2);
-        assert_eq!(sim.delivery_address_count(), 1000);
-        assert_eq!(sim.driver_count(), 20);
-        assert_eq!(sim.package_count(), 0);
-    }
-
-    #[test]
-    fn test_create_package() {
-        let mut sim = LogisticsSimulation::new();
-
-        sim.create_package(0, 0, 2.5, PackagePriority::Standard)
-            .unwrap();
-        assert_eq!(sim.package_count(), 1);
-        assert_eq!(sim.get_metrics().packages_created, 1);
-
-        sim.create_package(1, 5, 1.0, PackagePriority::Express)
-            .unwrap();
-        assert_eq!(sim.package_count(), 2);
-    }
-
-    #[test]
-    fn test_invalid_warehouse_index() {
-        let mut sim = LogisticsSimulation::new();
-
-        let result = sim.create_package(10, 0, 1.0, PackagePriority::Standard);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_invalid_destination_index() {
-        let mut sim = LogisticsSimulation::new();
-
-        let result = sim.create_package(0, 2000, 1.0, PackagePriority::Standard);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_run_simulation_steps() {
-        let mut sim = LogisticsSimulation::new();
-
-        // Add some packages
-        sim.create_package(0, 0, 1.0, PackagePriority::Standard)
-            .unwrap();
-        sim.create_package(0, 1, 1.5, PackagePriority::Express)
-            .unwrap();
-
-        // Run for 1 hour (120 steps)
-        let result = sim.run_for_hours(1);
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_metrics_tracking() {
-        let mut sim = LogisticsSimulation::new();
-
-        assert_eq!(sim.get_metrics().packages_created, 0);
-
-        sim.create_package(0, 0, 1.0, PackagePriority::Standard)
-            .unwrap();
-        assert_eq!(sim.get_metrics().packages_created, 1);
-
-        sim.create_package(0, 1, 2.0, PackagePriority::Express)
-            .unwrap();
-        assert_eq!(sim.get_metrics().packages_created, 2);
-    }
-
-    #[test]
-    fn test_default_construction() {
-        let sim = LogisticsSimulation::default();
-        assert_eq!(sim.warehouse_count(), 2);
-        assert_eq!(sim.driver_count(), 20);
-    }
-
-    #[test]
-    fn test_multiple_simulation_steps() {
-        let mut sim = LogisticsSimulation::new();
-
-        for _ in 0..10 {
-            let result = sim.step();
-            assert!(result.is_ok());
-        }
-    }
-
-    #[test]
-    fn test_simulation_with_multiple_packages() {
-        let mut sim = LogisticsSimulation::new();
-
-        // Create 10 packages
-        for i in 0..10 {
-            sim.create_package(
-                i % 2,
-                i * 10,
-                1.0 + i as f64 * 0.1,
-                PackagePriority::Standard,
-            )
-            .unwrap();
-        }
-
-        assert_eq!(sim.package_count(), 10);
-        assert_eq!(sim.get_metrics().packages_created, 10);
-
-        // Run simulation
-        sim.run_for_hours(1).unwrap();
-    }
-
-    #[test]
-    fn test_warehouse_locations() {
-        let sim = LogisticsSimulation::new();
-
-        assert_eq!(sim.warehouses[0].name, "Warehouse North");
-        assert_eq!(sim.warehouses[1].name, "Warehouse South");
-    }
-
-    #[test]
-    fn test_workflow_registry_wired_up() {
-        let mut sim = LogisticsSimulation::new();
-
-        // Create a package — its workflow should be enqueued
-        sim.create_package(0, 0, 1.0, PackagePriority::Standard)
-            .unwrap();
-
-        // After one step, the pending shipment should be registered and started
-        sim.step().unwrap();
-
-        // Runner stats should show at least one step executed
-        assert!(sim.runner_stats().total_steps >= 1);
-    }
-
-    #[test]
-    fn test_runner_stats_advance_with_steps() {
-        let mut sim = LogisticsSimulation::new();
-
-        sim.create_package(0, 5, 2.0, PackagePriority::Express)
-            .unwrap();
-
-        sim.run_for_hours(1).unwrap();
-
-        // 1 hour = 120 steps
-        assert_eq!(sim.runner_stats().total_steps, 120);
-    }
-}
+#[path = "simulation_tests.rs"]
+mod tests;

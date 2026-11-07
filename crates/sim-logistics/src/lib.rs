@@ -5,24 +5,17 @@
 //!
 //! # Domain Model
 //!
-//! ## Agents
-//! - **Package**: Passive agent tracking package lifecycle
-//! - **Driver**: Active agent handling pickup and delivery
-//!
-//! ## Resources
-//! - **SortingStation**: Package sorting with capacity constraints
-//! - **LoadingDock**: Vehicle loading operations
-//!
-//! ## Workflows
-//! - **PackageShipmentWorkflow**: 5-step delivery pipeline
-//!
-//! ## Locations
-//! - **Warehouse**: Package processing centers
-//! - **DeliveryAddress**: Final destinations with H3 indexing
+//! - **Package** agents: passive; their stage (`created → received → sorted →
+//!   in_transit → delivered`) follows their shipment workflow
+//! - **Station** resources: receivers, sorting stations, loading docks,
+//!   drivers (capacity 1 each) and delivery confirmers
+//! - **PackageShipmentWorkflow**: receive → sort (5 min) → load (6 min) →
+//!   transit (30 min) → confirm (1 min), one instance per package
+//! - **Warehouse** / **DeliveryAddress** locations (H3-indexed)
 //!
 //! # Example
 //!
-//! ```rust,ignore
+//! ```rust,no_run
 //! use sim_logistics::LogisticsSimulation;
 //!
 //! let mut sim = LogisticsSimulation::new();
@@ -30,14 +23,14 @@
 //!
 //! let metrics = sim.get_metrics();
 //! println!("Packages delivered: {}", metrics.packages_delivered);
-//! println!("Driver utilization: {:.1}%", metrics.driver_utilization);
+//! println!("Driver utilization: {:.1}%", metrics.driver_utilization_percent);
+//! # Ok::<(), sim_logistics::Error>(())
 //! ```
 //!
 //! # Framework Validation
 //!
-//! This crate validates the framework's generality by implementing a complete
-//! logistics simulation with **ZERO modifications** to sim-core, sim-geo, or
-//! sim-events.
+//! This crate exercises the framework from a second domain (agents, stations,
+//! workflows, demand generation) without domain code in sim-core.
 
 pub mod agents;
 pub mod events;
@@ -46,18 +39,17 @@ pub mod resources;
 pub mod simulation;
 pub mod workflows;
 
-#[cfg(test)]
-mod lifecycle_invariant_tests;
-
-// Re-export commonly used types
-pub use agents::{Driver, DriverState, Package, PackagePriority, PackageState};
+pub use agents::{Package, PackagePriority, PackageStage};
 pub use events::{
     PackageDeliveredEvent, PackageInTransitEvent, PackageLoadedEvent, PackageReceivedEvent,
     PackageSortedEvent,
 };
 pub use locations::{DeliveryAddress, Warehouse};
-pub use resources::{LoadingDock, SortingStation, VehicleLoadingState};
-pub use simulation::{LogisticsMetrics, LogisticsSimulation, LogisticsSimulationHooks};
+pub use resources::{Station, StationKind};
+pub use simulation::{
+    LogisticsMetrics, LogisticsRunner, LogisticsSimulation, LogisticsSimulationHooks,
+    SHIPMENT_ENGINE,
+};
 pub use workflows::{PackageShipmentWorkflow, ShipmentTask, ShipmentTaskFactory};
 
 /// Result type for logistics operations
