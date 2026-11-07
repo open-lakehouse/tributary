@@ -6,6 +6,15 @@ use crate::error::Error;
 
 mod error;
 
+/// Start time of a seeded run, matching `caspers run --seed` without
+/// `--start-time`: a fixed instant makes the event times reproducible.
+const SEEDED_START_TIME: &str = "2026-01-05T11:00:00Z";
+
+/// The fixed start time for a seeded run, or `None` (start now) without a seed
+fn seeded_start(seed: Option<u64>) -> Option<chrono::DateTime<chrono::Utc>> {
+    seed.map(|_| SEEDED_START_TIME.parse().expect("valid RFC 3339"))
+}
+
 /// Result returned from a kitchen simulation run.
 #[pyclass]
 pub struct KitchenResult {
@@ -42,20 +51,26 @@ pub struct LogisticsResult {
 ///     kitchen_capacity: Concurrent order capacity per kitchen (default 5).
 ///     num_customers: Number of customer agents (default 20).
 ///     output_dir: Directory to write events.parquet (and artifacts/) into (default ".caspers/sim-kitchen").
+///     seed: Global seed (default None). A seeded run starts at 2026-01-05T11:00:00Z
+///         and reproduces its events (all but the CloudEvents ids) and artifacts.
 ///
 /// Returns:
 ///     KitchenResult with events_path and run statistics.
 #[pyfunction]
-#[pyo3(signature = (steps=100, num_kitchens=3, kitchen_capacity=5, num_customers=20, output_dir=".caspers/sim-kitchen"))]
+#[pyo3(signature = (steps=100, num_kitchens=3, kitchen_capacity=5, num_customers=20, output_dir=".caspers/sim-kitchen", seed=None))]
 fn run_kitchen_simulation(
     steps: usize,
     num_kitchens: usize,
     kitchen_capacity: usize,
     num_customers: usize,
     output_dir: &str,
+    seed: Option<u64>,
 ) -> PyResult<KitchenResult> {
-    let mut sim = KitchenSimulation::new(num_kitchens, kitchen_capacity, false)
+    let mut sim = KitchenSimulation::new_seeded(num_kitchens, kitchen_capacity, false, seed)
         .with_artifact_dir(std::path::Path::new(output_dir).join("artifacts"));
+    if let Some(start) = seeded_start(seed) {
+        sim.runner_mut().context_mut().set_current_time(start);
+    }
     sim.add_customers(num_customers);
     sim.run_for_steps(steps)
         .map_err(|e| Error::Simulation(e.to_string()))?;
@@ -84,13 +99,22 @@ fn run_kitchen_simulation(
 /// Args:
 ///     steps: Number of simulation steps to run (30 seconds each, 120 steps/hour).
 ///     output_dir: Directory to write events.parquet into (default ".caspers/sim-logistics").
+///     seed: Global seed (default None). A seeded run starts at 2026-01-05T11:00:00Z
+///         and reproduces its events (all but the CloudEvents ids).
 ///
 /// Returns:
 ///     LogisticsResult with events_path and delivery metrics.
 #[pyfunction]
-#[pyo3(signature = (steps=120, output_dir=".caspers/sim-logistics"))]
-fn run_logistics_simulation(steps: usize, output_dir: &str) -> PyResult<LogisticsResult> {
-    let mut sim = LogisticsSimulation::new();
+#[pyo3(signature = (steps=120, output_dir=".caspers/sim-logistics", seed=None))]
+fn run_logistics_simulation(
+    steps: usize,
+    output_dir: &str,
+    seed: Option<u64>,
+) -> PyResult<LogisticsResult> {
+    let mut sim = LogisticsSimulation::new_seeded(seed);
+    if let Some(start) = seeded_start(seed) {
+        sim.runner_mut().context_mut().set_current_time(start);
+    }
     for _ in 0..steps {
         sim.step().map_err(|e| Error::Simulation(e.to_string()))?;
     }

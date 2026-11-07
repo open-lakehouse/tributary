@@ -28,6 +28,10 @@ CI gates on the same checks `just check` runs:
 
 `just fix` applies clippy's auto-fixes and then formats.
 
+CI does not build the Python package. After changing `python/` (or the
+simulations it wraps), run `just test-py`: it builds `caspers` into
+`python/.venv` and runs `python/tests`.
+
 ## Dependencies
 
 Every external dependency is declared once in the root `Cargo.toml` under

@@ -12,6 +12,7 @@ live in [`docs/`](docs/).
 | Run simulation (TUI) | `just run [duration]` | Default: 100 steps; opens live TUI |
 | Run sim-kitchen | `just sim-kitchen [steps]` | Default: 100 steps, writes artifacts |
 | Python dev | `just build-py` | Build Python bindings |
+| Python tests | `just test-py` | Build into `python/.venv`, run `python/tests` (not in CI) |
 | Notebooks | `just scratch` | Launch Marimo notebook |
 | Inspect events | `just inspect` | Open sim_events.py Marimo notebook |
 | Kitchen notebook | `just kitchen` | Run + analyze in one Marimo notebook |

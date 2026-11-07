@@ -42,6 +42,7 @@ def run_kitchen_simulation(
     kitchen_capacity: int = 5,
     num_customers: int = 20,
     output_dir: str = ".caspers/sim-kitchen",
+    seed: int | None = None,
 ) -> KitchenResult:
     """Run the ghost kitchen simulation and write events to Parquet.
 
@@ -50,7 +51,9 @@ def run_kitchen_simulation(
         num_kitchens: Number of kitchens.
         kitchen_capacity: Concurrent order capacity per kitchen.
         num_customers: Number of customer agents.
-        output_dir: Directory to write events.parquet into.
+        output_dir: Directory to write events.parquet (and artifacts/) into.
+        seed: Global seed. A seeded run starts at 2026-01-05T11:00:00Z and
+            reproduces its events (all but the CloudEvents ids) and artifacts.
 
     Returns:
         KitchenResult with events_path and run statistics.
@@ -59,12 +62,15 @@ def run_kitchen_simulation(
 def run_logistics_simulation(
     steps: int = 120,
     output_dir: str = ".caspers/sim-logistics",
+    seed: int | None = None,
 ) -> LogisticsResult:
     """Run the logistics (package delivery) simulation and write events to Parquet.
 
     Args:
         steps: Number of simulation steps (30 seconds each; 120 steps = 1 hour).
         output_dir: Directory to write events.parquet into.
+        seed: Global seed. A seeded run starts at 2026-01-05T11:00:00Z and
+            reproduces its events (all but the CloudEvents ids).
 
     Returns:
         LogisticsResult with events_path and delivery metrics.

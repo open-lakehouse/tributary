@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added: caspers-python
+- `run_kitchen_simulation` and `run_logistics_simulation` take an optional
+  `seed`. A seeded run starts at `2026-01-05T11:00:00Z`, like
+  `caspers run --seed`, so it reproduces its events.
+- `python/tests` checks both functions and their seeding;
+  `just test-py` builds the package and runs them.
+
 ### Changed: caspers-cli
 - `caspers run --domain logistics --no-tui` runs the package simulation
   (range mode only) and prints its delivery metrics. Logistics used to have

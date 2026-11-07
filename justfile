@@ -9,6 +9,14 @@ _default:
 build-py:
     uvx --from 'maturin[zig]' maturin develop -m python/Cargo.toml
 
+# build the python package into python/.venv and run its tests
+[group('check')]
+test-py:
+    uv venv -q --allow-existing python/.venv
+    uv pip install -q --python python/.venv pytest pyarrow polars
+    VIRTUAL_ENV="$PWD/python/.venv" uvx --from 'maturin[zig]' maturin develop -q -m python/Cargo.toml
+    python/.venv/bin/python -m pytest python/tests -q
+
 # run simulation for a given duration
 [group('caspers')]
 run duration='100':

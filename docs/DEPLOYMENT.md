@@ -65,9 +65,14 @@ Everything is written relative to the working directory. `output/` and
 import caspers
 
 kitchen = caspers.run_kitchen_simulation(
-    steps=2880, num_kitchens=3, kitchen_capacity=5, num_customers=20, output_dir="out/kitchen"
+    steps=2880,
+    num_kitchens=3,
+    kitchen_capacity=5,
+    num_customers=20,
+    output_dir="out/kitchen",
+    seed=42,
 )
-logistics = caspers.run_logistics_simulation(steps=2880, output_dir="out/logistics")
+logistics = caspers.run_logistics_simulation(steps=2880, output_dir="out/logistics", seed=42)
 print(kitchen.events_path, logistics.packages_delivered)
 ```
 
