@@ -10,6 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- The `caspers` Python package builds again: maturin's `module-name` is
+  `caspers._internal`, but the Python sources still lived in
+  `python/caspers_universe/`, so wheels shipped without `__init__.py` and
+  `import caspers` failed. The package licence now matches the workspace
+  (`MIT OR Apache-2.0`).
 - `caspers run --no-tui` no longer hangs in range mode. The kitchen simulation
   pauses at the step limit to keep the TUI alive, and the headless driver now
   stops the run when it sees that pause.
