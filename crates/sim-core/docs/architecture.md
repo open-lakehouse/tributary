@@ -372,7 +372,7 @@ impl SimulationHooks for EventHooks {
     fn on_agents_ticked(&mut self, ctx: &SimulationContext, results: &[AgentTickResult]) -> Result<()> {
         for result in results {
             for demand in &result.demands {
-                let event = Event::new(Box::new(DemandCreated { ... }));
+                let event = Event::new(Box::new(DemandCreated { ... }), ctx.current_time());
                 self.dispatcher.emit(event);
             }
         }

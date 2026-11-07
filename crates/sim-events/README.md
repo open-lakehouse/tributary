@@ -65,7 +65,7 @@ let event = Event::new(Box::new(AgentSpawned {
     agent_id: "agent-001".to_string(),
     agent_type: "customer".to_string(),
     location: "store-123".to_string(),
-}));
+}), ctx.current_time());
 
 dispatcher.emit(event);
 ```
@@ -177,14 +177,10 @@ impl EventDispatcher {
 
 ### Custom Timestamps
 
-Override event timestamp:
+Every event carries the simulation time it occurred, passed explicitly:
 
 ```rust
-use chrono::Utc;
-
-let custom_time = Utc::now();
-let event = Event::new(Box::new(payload))
-    .with_time(custom_time);
+let event = Event::new(Box::new(payload), ctx.current_time());
 ```
 
 ### Event Tracking

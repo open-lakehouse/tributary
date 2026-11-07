@@ -185,7 +185,7 @@ impl SimulationHooks for MyHooks {
         // Process demands, emit events
         for result in results {
             for demand in &result.demands {
-                let event = Event::new(Box::new(MyEvent { /* ... */ }));
+                let event = Event::new(Box::new(MyEvent { /* ... */ }), ctx.current_time());
                 self.dispatcher.emit(event);
             }
         }

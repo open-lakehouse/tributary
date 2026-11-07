@@ -526,8 +526,8 @@ impl SimulationHooks for MySimulationHooks {
     fn on_resources_allocated(&mut self, ctx: &SimulationContext, assignments: &[Assignment]) -> Result<()> {
         // Emit assignment events
         for assignment in assignments {
-            let event = Event::new(Box::new(TaskAssignedEvent { /* ... */ }));
-            self.event_dispatcher.emit(event)?;
+            let event = Event::new(Box::new(TaskAssignedEvent { /* ... */ }), ctx.current_time());
+            self.event_dispatcher.emit(event);
         }
         Ok(())
     }

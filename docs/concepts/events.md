@@ -97,7 +97,7 @@ let event = Event::new(Box::new(OrderCreatedEvent {
     customer_id: AgentId::new(),
     items: vec!["burger".to_string(), "fries".to_string()],
     timestamp: Utc::now(),
-}));
+}), ctx.current_time());
 
 dispatcher.emit(event);
 
@@ -189,7 +189,7 @@ impl SimulationHooks for MyHooks {
                     old_status: change.old_status.clone(),
                     new_status: change.new_status.clone(),
                     timestamp: ctx.current_time(),
-                }));
+                }), ctx.current_time());
                 self.dispatcher.emit(event);
             }
         }
@@ -213,7 +213,7 @@ impl SimulationHooks for MyHooks {
             instance_id,
             step_index,
             timestamp: Utc::now(),
-        }));
+        }), ctx.current_time());
         self.dispatcher.emit(event);
         Ok(())
     }
@@ -225,7 +225,7 @@ impl SimulationHooks for MyHooks {
         let event = Event::new(Box::new(WorkflowCompletedEvent {
             instance_id,
             timestamp: Utc::now(),
-        }));
+        }), ctx.current_time());
         self.dispatcher.emit(event);
         Ok(())
     }
@@ -247,7 +247,7 @@ impl SimulationHooks for MyHooks {
                 task_id: assignment.task_id,
                 resource_id: assignment.resource_id,
                 timestamp: Utc::now(),
-            }));
+            }), ctx.current_time());
             self.dispatcher.emit(event);
         }
         Ok(())
@@ -482,7 +482,7 @@ mod tests {
             customer_id: AgentId::new(),
             items: vec!["burger".to_string()],
             timestamp: Utc::now(),
-        }));
+        }), ctx.current_time());
 
         assert_eq!(event.event_type(), "io.kitchen.order.created");
         assert!(event.id().to_string().starts_with("019cf220"));
@@ -494,10 +494,10 @@ mod tests {
 
         assert_eq!(dispatcher.buffered_count(), 0);
 
-        dispatcher.emit(Event::new(Box::new(MyEvent { /* ... */ })));
+        dispatcher.emit(Event::new(Box::new(MyEvent { /* ... */ }), ctx.current_time()));
         assert_eq!(dispatcher.buffered_count(), 1);
 
-        dispatcher.emit(Event::new(Box::new(MyEvent { /* ... */ })));
+        dispatcher.emit(Event::new(Box::new(MyEvent { /* ... */ }), ctx.current_time()));
         assert_eq!(dispatcher.buffered_count(), 2);
 
         dispatcher.clear();

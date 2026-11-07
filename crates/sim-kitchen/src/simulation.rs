@@ -361,12 +361,14 @@ impl KitchenSimulationHooks {
     /// Emit eating events for customers that started eating
     pub fn emit_eating_events(&mut self, sim_time: chrono::DateTime<chrono::Utc>) {
         for (customer_id, order_id, finish_time) in self.eating_customers.drain(..) {
-            let event = Event::new(Box::new(CustomerEatingEvent {
-                customer_id: customer_id.to_string(),
-                order_id,
-                finish_time,
-            }))
-            .with_time(sim_time);
+            let event = Event::new(
+                Box::new(CustomerEatingEvent {
+                    customer_id: customer_id.to_string(),
+                    order_id,
+                    finish_time,
+                }),
+                sim_time,
+            );
             self.dispatcher.emit(event);
         }
     }
@@ -457,14 +459,16 @@ impl KitchenSimulationHooks {
                 let reorder_quantity = manager.get_reorder_quantity(&item_type).unwrap_or(200);
 
                 // Emit inventory low event
-                let low_event = Event::new(Box::new(InventoryLowEvent {
-                    kitchen_id: kitchen_id.to_string(),
-                    item_type: item_type.clone(),
-                    current_quantity,
-                    reorder_point,
-                    timestamp: ctx.current_time(),
-                }))
-                .with_time(ctx.current_time());
+                let low_event = Event::new(
+                    Box::new(InventoryLowEvent {
+                        kitchen_id: kitchen_id.to_string(),
+                        item_type: item_type.clone(),
+                        current_quantity,
+                        reorder_point,
+                        timestamp: ctx.current_time(),
+                    }),
+                    ctx.current_time(),
+                );
                 self.dispatcher.emit(low_event);
 
                 // Select distribution site
@@ -498,15 +502,17 @@ impl KitchenSimulationHooks {
                     }
 
                     // Emit supply order created event
-                    let order_event = Event::new(Box::new(SupplyOrderCreatedEvent {
-                        order_id: instance_id.to_string(),
-                        kitchen_id: kitchen_id.to_string(),
-                        item_type: item_type.clone(),
-                        quantity: reorder_quantity,
-                        source_site_id: site_id.to_string(),
-                        timestamp: ctx.current_time(),
-                    }))
-                    .with_time(ctx.current_time());
+                    let order_event = Event::new(
+                        Box::new(SupplyOrderCreatedEvent {
+                            order_id: instance_id.to_string(),
+                            kitchen_id: kitchen_id.to_string(),
+                            item_type: item_type.clone(),
+                            quantity: reorder_quantity,
+                            source_site_id: site_id.to_string(),
+                            timestamp: ctx.current_time(),
+                        }),
+                        ctx.current_time(),
+                    );
                     self.dispatcher.emit(order_event);
                 } else if ctx.config().verbose {
                     println!(
@@ -577,12 +583,14 @@ impl SimulationHooks for KitchenSimulationHooks {
 
                     // Emit order completed event
                     let prep_time = (current_time - order_info.created_at).num_seconds();
-                    let event = Event::new(Box::new(OrderCompletedEvent {
-                        order_id: order_id.clone(),
-                        customer_id: order_info.customer_id.to_string(),
-                        prep_time_seconds: prep_time,
-                    }))
-                    .with_time(current_time);
+                    let event = Event::new(
+                        Box::new(OrderCompletedEvent {
+                            order_id: order_id.clone(),
+                            customer_id: order_info.customer_id.to_string(),
+                            prep_time_seconds: prep_time,
+                        }),
+                        current_time,
+                    );
 
                     self.dispatcher.emit(event);
                 }
@@ -654,13 +662,15 @@ impl SimulationHooks for KitchenSimulationHooks {
                     self.pending_orders.push(order_task);
 
                     // Emit order created event
-                    let event = Event::new(Box::new(OrderCreatedEvent {
-                        order_id: order_id.to_string(),
-                        customer_id: customer_id.to_string(),
-                        items,
-                        timestamp: ctx.current_time(),
-                    }))
-                    .with_time(ctx.current_time());
+                    let event = Event::new(
+                        Box::new(OrderCreatedEvent {
+                            order_id: order_id.to_string(),
+                            customer_id: customer_id.to_string(),
+                            items,
+                            timestamp: ctx.current_time(),
+                        }),
+                        ctx.current_time(),
+                    );
 
                     self.dispatcher.emit(event);
 
@@ -725,13 +735,15 @@ impl SimulationHooks for KitchenSimulationHooks {
                                 );
                             }
 
-                            let event = Event::new(Box::new(InventoryConsumedEvent {
-                                kitchen_id: kitchen_id.to_string(),
-                                order_id: order_id.clone(),
-                                items: total_ingredients.clone(),
-                                timestamp: ctx.current_time(),
-                            }))
-                            .with_time(ctx.current_time());
+                            let event = Event::new(
+                                Box::new(InventoryConsumedEvent {
+                                    kitchen_id: kitchen_id.to_string(),
+                                    order_id: order_id.clone(),
+                                    items: total_ingredients.clone(),
+                                    timestamp: ctx.current_time(),
+                                }),
+                                ctx.current_time(),
+                            );
                             self.dispatcher.emit(event);
                         }
                         Err(e) => {
@@ -745,26 +757,30 @@ impl SimulationHooks for KitchenSimulationHooks {
                                 );
                             }
 
-                            let event = Event::new(Box::new(InsufficientInventoryEvent {
-                                kitchen_id: kitchen_id.to_string(),
-                                order_id: order_id.clone(),
-                                error: e.to_string(),
-                                timestamp: ctx.current_time(),
-                            }))
-                            .with_time(ctx.current_time());
+                            let event = Event::new(
+                                Box::new(InsufficientInventoryEvent {
+                                    kitchen_id: kitchen_id.to_string(),
+                                    order_id: order_id.clone(),
+                                    error: e.to_string(),
+                                    timestamp: ctx.current_time(),
+                                }),
+                                ctx.current_time(),
+                            );
                             self.dispatcher.emit(event);
                         }
                     }
                 }
 
                 let estimated_completion = ctx.current_time() + chrono::Duration::minutes(5);
-                let event = Event::new(Box::new(OrderAssignedEvent {
-                    order_id: order_id.clone(),
-                    kitchen_id: assignment.resource_id.to_string(),
-                    kitchen_name: format!("Kitchen-{}", assignment.resource_id),
-                    estimated_completion,
-                }))
-                .with_time(ctx.current_time());
+                let event = Event::new(
+                    Box::new(OrderAssignedEvent {
+                        order_id: order_id.clone(),
+                        kitchen_id: assignment.resource_id.to_string(),
+                        kitchen_name: format!("Kitchen-{}", assignment.resource_id),
+                        estimated_completion,
+                    }),
+                    ctx.current_time(),
+                );
                 self.dispatcher.emit(event);
             }
 
@@ -839,14 +855,16 @@ impl KitchenSimulationHooks {
                         }
 
                         // Emit replenishment event
-                        let event = Event::new(Box::new(InventoryReplenishedEvent {
-                            kitchen_id: kitchen_id.to_string(),
-                            item_type: item_type.clone(),
-                            quantity,
-                            new_quantity,
-                            timestamp: ctx.current_time(),
-                        }))
-                        .with_time(ctx.current_time());
+                        let event = Event::new(
+                            Box::new(InventoryReplenishedEvent {
+                                kitchen_id: kitchen_id.to_string(),
+                                item_type: item_type.clone(),
+                                quantity,
+                                new_quantity,
+                                timestamp: ctx.current_time(),
+                            }),
+                            ctx.current_time(),
+                        );
                         self.dispatcher.emit(event);
 
                         // Remove from pending supply orders
@@ -1299,11 +1317,13 @@ impl KitchenSimulation {
         for customer_id in newly_done {
             self.done_emitted.insert(customer_id);
 
-            let event = Event::new(Box::new(CustomerDoneEvent {
-                customer_id: customer_id.to_string(),
-                total_time_seconds: 0,
-            }))
-            .with_time(self.runner.context().current_time());
+            let event = Event::new(
+                Box::new(CustomerDoneEvent {
+                    customer_id: customer_id.to_string(),
+                    total_time_seconds: 0,
+                }),
+                self.runner.context().current_time(),
+            );
             self.event_dispatcher.emit(event);
         }
 
@@ -1343,12 +1363,14 @@ impl KitchenSimulation {
                         );
                     }
 
-                    let event = Event::new(Box::new(CustomerEatingEvent {
-                        customer_id: customer_id.to_string(),
-                        order_id,
-                        finish_time,
-                    }))
-                    .with_time(current_time);
+                    let event = Event::new(
+                        Box::new(CustomerEatingEvent {
+                            customer_id: customer_id.to_string(),
+                            order_id,
+                            finish_time,
+                        }),
+                        current_time,
+                    );
                     self.event_dispatcher.emit(event);
 
                     updated_customers.push(customer);

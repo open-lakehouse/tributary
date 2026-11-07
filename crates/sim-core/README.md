@@ -424,7 +424,7 @@ impl SimulationHooks for EventHooks {
                 let event = Event::new(Box::new(DemandCreatedEvent {
                     demand_type: demand.demand_type.clone(),
                     timestamp: ctx.current_time(),
-                }));
+                }), ctx.current_time());
                 self.dispatcher.emit(event);
             }
         }

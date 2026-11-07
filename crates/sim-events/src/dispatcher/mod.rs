@@ -41,48 +41,6 @@ impl EventProcessor for ChannelSenderProcessor {
     }
 }
 
-/// A processor that buffers events and can flush them to a Parquet file.
-/// Replaces the direct `flush_to_parquet` method on `EventDispatcher`.
-pub struct ParquetEventProcessor {
-    path: std::path::PathBuf,
-    buffer: std::sync::Mutex<Vec<crate::core::EventRecord>>,
-}
-
-impl ParquetEventProcessor {
-    pub fn new(path: impl Into<std::path::PathBuf>) -> Self {
-        Self {
-            path: path.into(),
-            buffer: std::sync::Mutex::new(Vec::new()),
-        }
-    }
-
-    pub fn flush(&mut self) -> crate::Result<usize> {
-        use crate::storage::ParquetEventWriter;
-        let records = {
-            let mut buf = self.buffer.lock().unwrap();
-            std::mem::take(&mut *buf)
-        };
-        let count = records.len();
-        if count > 0 {
-            let mut writer = ParquetEventWriter::new(self.path.clone())?;
-            writer.write_events(&records)?;
-            writer.close()?;
-        }
-        Ok(count)
-    }
-}
-
-impl EventProcessor for ParquetEventProcessor {
-    fn handles(&self, _event_type: &str) -> bool {
-        true
-    }
-
-    fn process(&self, event: &Event) {
-        let record = event.to_record();
-        self.buffer.lock().unwrap().push(record);
-    }
-}
-
 /// Collects and dispatches events
 ///
 /// The dispatcher buffers events in memory and routes them to registered
@@ -94,10 +52,12 @@ impl EventProcessor for ParquetEventProcessor {
 /// use sim_events::{EventDispatcher, Event};
 ///
 /// let mut dispatcher = EventDispatcher::new();
+/// dispatcher.emit(Event::new(Box::new(payload), ctx.current_time()));
 ///
-/// // Emit events
-/// dispatcher.emit(event1);
-/// dispatcher.emit(event2);
+/// // Persist at the end of a run
+/// let mut writer = ParquetEventWriter::new("events.parquet".into())?;
+/// writer.write_events(&dispatcher.to_records())?;
+/// writer.close()?;
 /// ```
 pub struct EventDispatcher {
     /// Buffered events
@@ -206,6 +166,7 @@ impl Default for EventDispatcher {
 mod tests {
     use super::*;
     use crate::core::EventPayload;
+    use chrono::DateTime;
     use serde_json::json;
 
     #[derive(Debug)]
@@ -231,8 +192,8 @@ mod tests {
     fn test_dispatcher_emit() {
         let mut dispatcher = EventDispatcher::new();
 
-        let event1 = Event::new(Box::new(TestPayload { value: 1 }));
-        let event2 = Event::new(Box::new(TestPayload { value: 2 }));
+        let event1 = Event::new(Box::new(TestPayload { value: 1 }), DateTime::UNIX_EPOCH);
+        let event2 = Event::new(Box::new(TestPayload { value: 2 }), DateTime::UNIX_EPOCH);
 
         dispatcher.emit(event1);
         dispatcher.emit(event2);
@@ -246,9 +207,9 @@ mod tests {
         let mut dispatcher = EventDispatcher::new();
 
         let events = vec![
-            Event::new(Box::new(TestPayload { value: 1 })),
-            Event::new(Box::new(TestPayload { value: 2 })),
-            Event::new(Box::new(TestPayload { value: 3 })),
+            Event::new(Box::new(TestPayload { value: 1 }), DateTime::UNIX_EPOCH),
+            Event::new(Box::new(TestPayload { value: 2 }), DateTime::UNIX_EPOCH),
+            Event::new(Box::new(TestPayload { value: 3 }), DateTime::UNIX_EPOCH),
         ];
 
         dispatcher.emit_batch(events);
@@ -260,7 +221,10 @@ mod tests {
     fn test_dispatcher_clear() {
         let mut dispatcher = EventDispatcher::new();
 
-        dispatcher.emit(Event::new(Box::new(TestPayload { value: 1 })));
+        dispatcher.emit(Event::new(
+            Box::new(TestPayload { value: 1 }),
+            DateTime::UNIX_EPOCH,
+        ));
         assert_eq!(dispatcher.buffered_count(), 1);
 
         dispatcher.clear();
@@ -272,9 +236,18 @@ mod tests {
         let mut dispatcher = EventDispatcher::new();
 
         // Emit events
-        dispatcher.emit(Event::new(Box::new(TestPayload { value: 1 })));
-        dispatcher.emit(Event::new(Box::new(TestPayload { value: 2 })));
-        dispatcher.emit(Event::new(Box::new(TestPayload { value: 3 })));
+        dispatcher.emit(Event::new(
+            Box::new(TestPayload { value: 1 }),
+            DateTime::UNIX_EPOCH,
+        ));
+        dispatcher.emit(Event::new(
+            Box::new(TestPayload { value: 2 }),
+            DateTime::UNIX_EPOCH,
+        ));
+        dispatcher.emit(Event::new(
+            Box::new(TestPayload { value: 3 }),
+            DateTime::UNIX_EPOCH,
+        ));
 
         assert_eq!(dispatcher.buffered_count(), 3);
         assert_eq!(dispatcher.count_by_type("test.event"), 3);
@@ -288,8 +261,14 @@ mod tests {
         assert_eq!(dispatcher.event_counts().len(), 0);
 
         // Emit new events after clear
-        dispatcher.emit(Event::new(Box::new(TestPayload { value: 4 })));
-        dispatcher.emit(Event::new(Box::new(TestPayload { value: 5 })));
+        dispatcher.emit(Event::new(
+            Box::new(TestPayload { value: 4 }),
+            DateTime::UNIX_EPOCH,
+        ));
+        dispatcher.emit(Event::new(
+            Box::new(TestPayload { value: 5 }),
+            DateTime::UNIX_EPOCH,
+        ));
 
         // Counts should start fresh from 0
         assert_eq!(dispatcher.buffered_count(), 2);
@@ -300,7 +279,10 @@ mod tests {
     fn test_dispatcher_to_records() {
         let mut dispatcher = EventDispatcher::new();
 
-        dispatcher.emit(Event::new(Box::new(TestPayload { value: 42 })));
+        dispatcher.emit(Event::new(
+            Box::new(TestPayload { value: 42 }),
+            DateTime::UNIX_EPOCH,
+        ));
 
         let records = dispatcher.to_records();
         assert_eq!(records.len(), 1);
@@ -316,7 +298,10 @@ mod tests {
         for _batch in 0..100 {
             // Emit events
             for i in 0..50 {
-                dispatcher.emit(Event::new(Box::new(TestPayload { value: i })));
+                dispatcher.emit(Event::new(
+                    Box::new(TestPayload { value: i }),
+                    DateTime::UNIX_EPOCH,
+                ));
             }
 
             // Verify count before flush
@@ -346,7 +331,10 @@ mod tests {
             // Emit varying numbers of events
             let event_count = (iteration + 1) * 5;
             for i in 0..event_count {
-                dispatcher.emit(Event::new(Box::new(TestPayload { value: i as i32 })));
+                dispatcher.emit(Event::new(
+                    Box::new(TestPayload { value: i as i32 }),
+                    DateTime::UNIX_EPOCH,
+                ));
             }
 
             // Verify counts are accurate
@@ -388,22 +376,34 @@ mod tests {
         let mut dispatcher = EventDispatcher::new();
 
         // Emit events of different types
-        dispatcher.emit(Event::new(Box::new(MultiTypePayload {
-            event_type: "type.a".to_string(),
-            value: 1,
-        })));
-        dispatcher.emit(Event::new(Box::new(MultiTypePayload {
-            event_type: "type.a".to_string(),
-            value: 2,
-        })));
-        dispatcher.emit(Event::new(Box::new(MultiTypePayload {
-            event_type: "type.b".to_string(),
-            value: 3,
-        })));
-        dispatcher.emit(Event::new(Box::new(MultiTypePayload {
-            event_type: "type.c".to_string(),
-            value: 4,
-        })));
+        dispatcher.emit(Event::new(
+            Box::new(MultiTypePayload {
+                event_type: "type.a".to_string(),
+                value: 1,
+            }),
+            DateTime::UNIX_EPOCH,
+        ));
+        dispatcher.emit(Event::new(
+            Box::new(MultiTypePayload {
+                event_type: "type.a".to_string(),
+                value: 2,
+            }),
+            DateTime::UNIX_EPOCH,
+        ));
+        dispatcher.emit(Event::new(
+            Box::new(MultiTypePayload {
+                event_type: "type.b".to_string(),
+                value: 3,
+            }),
+            DateTime::UNIX_EPOCH,
+        ));
+        dispatcher.emit(Event::new(
+            Box::new(MultiTypePayload {
+                event_type: "type.c".to_string(),
+                value: 4,
+            }),
+            DateTime::UNIX_EPOCH,
+        ));
 
         // Verify counts by type
         assert_eq!(dispatcher.buffered_count(), 4);
@@ -448,8 +448,14 @@ mod tests {
         let mut dispatcher = EventDispatcher::new();
         dispatcher.register_processor(Box::new(processor));
 
-        dispatcher.emit(Event::new(Box::new(TestPayload { value: 1 })));
-        dispatcher.emit(Event::new(Box::new(TestPayload { value: 2 })));
+        dispatcher.emit(Event::new(
+            Box::new(TestPayload { value: 1 }),
+            DateTime::UNIX_EPOCH,
+        ));
+        dispatcher.emit(Event::new(
+            Box::new(TestPayload { value: 2 }),
+            DateTime::UNIX_EPOCH,
+        ));
 
         assert_eq!(*count.lock().unwrap(), 2);
     }
@@ -481,7 +487,10 @@ mod tests {
         dispatcher.register_processor(Box::new(processor));
 
         // This should NOT trigger (wrong prefix) — TestPayload emits "test.event"
-        dispatcher.emit(Event::new(Box::new(TestPayload { value: 1 })));
+        dispatcher.emit(Event::new(
+            Box::new(TestPayload { value: 1 }),
+            DateTime::UNIX_EPOCH,
+        ));
         assert_eq!(*count.lock().unwrap(), 0);
     }
 
@@ -489,14 +498,29 @@ mod tests {
     fn test_mark_tick_start() {
         let mut dispatcher = EventDispatcher::new();
 
-        dispatcher.emit(Event::new(Box::new(TestPayload { value: 1 })));
-        dispatcher.emit(Event::new(Box::new(TestPayload { value: 2 })));
-        dispatcher.emit(Event::new(Box::new(TestPayload { value: 3 })));
+        dispatcher.emit(Event::new(
+            Box::new(TestPayload { value: 1 }),
+            DateTime::UNIX_EPOCH,
+        ));
+        dispatcher.emit(Event::new(
+            Box::new(TestPayload { value: 2 }),
+            DateTime::UNIX_EPOCH,
+        ));
+        dispatcher.emit(Event::new(
+            Box::new(TestPayload { value: 3 }),
+            DateTime::UNIX_EPOCH,
+        ));
 
         dispatcher.mark_tick_start();
 
-        dispatcher.emit(Event::new(Box::new(TestPayload { value: 4 })));
-        dispatcher.emit(Event::new(Box::new(TestPayload { value: 5 })));
+        dispatcher.emit(Event::new(
+            Box::new(TestPayload { value: 4 }),
+            DateTime::UNIX_EPOCH,
+        ));
+        dispatcher.emit(Event::new(
+            Box::new(TestPayload { value: 5 }),
+            DateTime::UNIX_EPOCH,
+        ));
 
         let tick_events = dispatcher.current_tick_events();
         assert_eq!(tick_events.len(), 2);
