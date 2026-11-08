@@ -17,7 +17,7 @@ semantics, run `cargo doc -p sim-core --open`.
 | `demand` | `DemandGenerator`, `PoissonDemandGenerator`, `SpatialDemandGenerator`, `TimeOfDayDemandGenerator`, `CompositeDemandGenerator` |
 | `context` | `SimulationConfig`, `SimulationContext`, `TimeMode`, `TickResult`, `derive_seed` |
 | `runner` | `SimulationRunner<A, R, T, W>`, `SimulationHooks`, `NoOpHooks`, `SimulationStats`, control channel |
-| `snapshot` | `SnapshotManager`, `SnapshotBackend`, `SnapshotData`, `SnapshotMetadata` |
+| `snapshot` | `SnapshotManager`, `SnapshotBackend`, `SnapshotData`, `SnapshotMetadata`, `hook_state_batch`, `hook_state_from_batch` |
 | `manager` | `SimulationManager`, a catalog of runs and snapshots |
 
 ## Components
@@ -89,7 +89,7 @@ Workflow steps need a resource allocator; step 5 also needs a task factory.
 ## Snapshots
 
 `save_snapshot(name)` and `restore_snapshot(name)` capture and restore agents,
-resources, tasks, workflow instances and the clock. Call `init_snapshot_manager()`
+resources, tasks, workflow instances, the clock and domain hook state. Call `init_snapshot_manager()`
 (in-memory) or `set_snapshot_backend(SnapshotBackend::Parquet(dir))` first.
 
 ```rust,ignore
@@ -99,7 +99,16 @@ runner.restore_snapshot("checkpoint").await?;
 ```
 
 Restore needs the same components and workflow definitions as the saved run.
-Domain hook state and random-number generator state are not captured.
+
+Hooks that keep state across ticks implement `SimulationHooks::snapshot_state`
+and `restore_state`; `snapshot::hook_state_batch` and `hook_state_from_batch`
+turn any serde type into the one-row batch they exchange. Restore calls
+`restore_state` after the rest of the snapshot validates, with `None` for a
+snapshot that has no hook state.
+
+Random-number generator state is not captured. `PoissonDemandGenerator` draws
+each step from `(seed, step)`, so it needs none; `SpatialDemandGenerator` and
+the `Random` strategy continue from their current state.
 
 ## SQL
 

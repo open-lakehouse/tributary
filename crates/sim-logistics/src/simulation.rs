@@ -28,6 +28,8 @@ use crate::{Package, PackagePriority, PackageStage, events::*};
 use chrono::{DateTime, Duration, Utc};
 use geo::Point;
 use rand::{RngExt, SeedableRng, rngs::StdRng};
+use serde::{Deserialize, Serialize};
+use sim_core::snapshot::RecordBatch;
 use sim_core::{
     AgentId, PoissonDemandGenerator, PopulationHandler, ResourceAllocator, ResourceId,
     SimulationConfig, SimulationContext, SimulationHooks, SimulationRunner, Workflow,
@@ -70,7 +72,7 @@ pub struct LogisticsMetrics {
 }
 
 /// A package's shipment while its workflow runs
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 struct Shipment {
     package: AgentId,
     tracking_number: String,
@@ -82,19 +84,48 @@ struct Shipment {
 }
 
 /// A package created this tick, waiting for its workflow instance
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 struct NewPackage {
     package: Package,
     created_at: DateTime<Utc>,
 }
 
+/// Shipment bookkeeping and metrics the hooks keep across ticks, as stored
+/// in snapshots
+///
+/// The event buffer is not included: a restore rewinds the simulation, not
+/// its output.
+#[derive(Debug, Default, Serialize, Deserialize)]
+struct LogisticsHookState {
+    shipments: HashMap<WorkflowInstanceId, Shipment>,
+    new_packages: Vec<NewPackage>,
+    stage_updates: Vec<(AgentId, PackageStage)>,
+    finished: Vec<WorkflowInstanceId>,
+    package_counter: u64,
+    packages_created: u64,
+    packages_delivered: u64,
+    delivery_secs: Vec<f64>,
+    busy_drivers: usize,
+    drivers_used: HashSet<ResourceId>,
+    utilization_samples: Vec<f64>,
+    /// Task priority per shipment, held by the [`ShipmentTaskFactory`]
+    priorities: HashMap<WorkflowInstanceId, i32>,
+}
+
 /// Hooks that track shipments, emit logistics events and collect metrics
 ///
-/// Hook state is not part of runner snapshots; after a restore, shipments the
-/// hooks don't know about complete without events.
+/// Shipment bookkeeping, the tracking-number counter, metrics and task
+/// priorities are saved in runner snapshots via
+/// [`SimulationHooks::snapshot_state`], so packages in flight at a snapshot
+/// still emit their events after a restore. Package routing draws from a
+/// per-step RNG, so a restored run routes new packages as an uninterrupted
+/// one would.
 pub struct LogisticsSimulationHooks {
     dispatcher: EventDispatcher,
-    rng: StdRng,
+    /// Base seed of the per-step routing RNG
+    seed: u64,
+    /// Shares the task priorities with the runner's task factory
+    factory: ShipmentTaskFactory,
     warehouses: Vec<(String, Point<f64>)>,
     addresses: Vec<Point<f64>>,
     station_names: HashMap<ResourceId, String>,
@@ -117,11 +148,13 @@ impl LogisticsSimulationHooks {
         warehouses: Vec<(String, Point<f64>)>,
         addresses: Vec<Point<f64>>,
         stations: &[Station],
-        rng: StdRng,
+        seed: u64,
+        factory: ShipmentTaskFactory,
     ) -> Self {
         Self {
             dispatcher: EventDispatcher::new(),
-            rng,
+            seed,
+            factory,
             warehouses,
             addresses,
             station_names: stations.iter().map(|s| (s.id, s.name.clone())).collect(),
@@ -188,6 +221,74 @@ impl LogisticsSimulationHooks {
 }
 
 impl SimulationHooks for LogisticsSimulationHooks {
+    fn snapshot_state(&self) -> sim_core::Result<Option<RecordBatch>> {
+        // Serialize through a borrowed view to avoid cloning the state.
+        #[derive(Serialize)]
+        struct View<'a> {
+            shipments: &'a HashMap<WorkflowInstanceId, Shipment>,
+            new_packages: &'a [NewPackage],
+            stage_updates: &'a [(AgentId, PackageStage)],
+            finished: &'a [WorkflowInstanceId],
+            package_counter: u64,
+            packages_created: u64,
+            packages_delivered: u64,
+            delivery_secs: &'a [f64],
+            busy_drivers: usize,
+            drivers_used: &'a HashSet<ResourceId>,
+            utilization_samples: &'a [f64],
+            priorities: HashMap<WorkflowInstanceId, i32>,
+        }
+        let view = View {
+            shipments: &self.shipments,
+            new_packages: &self.new_packages,
+            stage_updates: &self.stage_updates,
+            finished: &self.finished,
+            package_counter: self.package_counter,
+            packages_created: self.packages_created,
+            packages_delivered: self.packages_delivered,
+            delivery_secs: &self.delivery_secs,
+            busy_drivers: self.busy_drivers,
+            drivers_used: &self.drivers_used,
+            utilization_samples: &self.utilization_samples,
+            priorities: self.factory.priorities(),
+        };
+        sim_core::snapshot::hook_state_batch(&view).map(Some)
+    }
+
+    fn restore_state(&mut self, state: Option<&RecordBatch>) -> sim_core::Result<()> {
+        let state: LogisticsHookState = match state {
+            Some(batch) => sim_core::snapshot::hook_state_from_batch(batch)?,
+            None => LogisticsHookState::default(),
+        };
+        let LogisticsHookState {
+            shipments,
+            new_packages,
+            stage_updates,
+            finished,
+            package_counter,
+            packages_created,
+            packages_delivered,
+            delivery_secs,
+            busy_drivers,
+            drivers_used,
+            utilization_samples,
+            priorities,
+        } = state;
+        self.shipments = shipments;
+        self.new_packages = new_packages;
+        self.stage_updates = stage_updates;
+        self.finished = finished;
+        self.package_counter = package_counter;
+        self.packages_created = packages_created;
+        self.packages_delivered = packages_delivered;
+        self.delivery_secs = delivery_secs;
+        self.busy_drivers = busy_drivers;
+        self.drivers_used = drivers_used;
+        self.utilization_samples = utilization_samples;
+        self.factory.replace_priorities(priorities);
+        Ok(())
+    }
+
     fn on_demands_generated(
         &mut self,
         ctx: &SimulationContext,
@@ -196,10 +297,16 @@ impl SimulationHooks for LogisticsSimulationHooks {
         if self.warehouses.is_empty() || self.addresses.is_empty() {
             return Ok(());
         }
+        // Derived per step rather than carried across steps, so no RNG state
+        // needs to survive a snapshot.
+        let mut rng = StdRng::seed_from_u64(sim_core::derive_seed(
+            self.seed,
+            &format!("route/{}", ctx.step()),
+        ));
         for _ in demands {
             let (warehouse, origin) =
-                self.warehouses[self.rng.random_range(0..self.warehouses.len())].clone();
-            let destination = self.addresses[self.rng.random_range(0..self.addresses.len())];
+                self.warehouses[rng.random_range(0..self.warehouses.len())].clone();
+            let destination = self.addresses[rng.random_range(0..self.addresses.len())];
             let tracking = self.next_tracking_number();
             let package = Package::new(
                 tracking,
@@ -379,9 +486,10 @@ impl LogisticsSimulation {
     /// With a seed, the address layout, package demand and package routing
     /// are reproducible.
     pub fn new_seeded(seed: Option<u64>) -> Self {
-        let rng = |label: &str| match seed {
-            Some(global) => StdRng::seed_from_u64(sim_core::derive_seed(global, label)),
-            None => StdRng::from_seed(rand::random()),
+        let factory = ShipmentTaskFactory::new();
+        let derived = |label: &str| match seed {
+            Some(global) => sim_core::derive_seed(global, label),
+            None => rand::random(),
         };
 
         let config = SimulationConfig {
@@ -406,7 +514,7 @@ impl LogisticsSimulation {
             )
             .expect("valid coordinates"),
         ];
-        let mut address_rng = rng("logistics-addresses");
+        let mut address_rng = StdRng::seed_from_u64(derived("logistics-addresses"));
         let delivery_addresses: Vec<DeliveryAddress> = (0..1000)
             .map(|i| {
                 let lat = 37.7 + address_rng.random::<f64>() * 0.2;
@@ -435,7 +543,8 @@ impl LogisticsSimulation {
                 .collect(),
             delivery_addresses.iter().map(|a| a.location).collect(),
             &stations,
-            rng("logistics-hooks"),
+            derived("logistics-hooks"),
+            factory.clone(),
         );
         runner.set_hooks(Box::new(hooks));
 
@@ -453,7 +562,6 @@ impl LogisticsSimulation {
             .expect("fresh registry");
         runner.set_workflow_registry(registry);
 
-        let factory = ShipmentTaskFactory::new();
         runner.set_task_factory(Box::new(factory.clone()));
         let demand = match seed {
             Some(global) => PoissonDemandGenerator::with_seed(
@@ -561,6 +669,27 @@ impl LogisticsSimulation {
     /// The underlying runner, mutably
     pub fn runner_mut(&mut self) -> &mut LogisticsRunner {
         &mut self.runner
+    }
+
+    /// Snapshot the simulation, including in-flight shipments, under `name`
+    ///
+    /// Configure a backend first with `runner_mut().init_snapshot_manager()`
+    /// or `runner_mut().set_snapshot_backend(..)`.
+    pub async fn save_snapshot(&self, name: &str) -> crate::Result<sim_core::SnapshotMetadata> {
+        Ok(self.runner.save_snapshot(name).await?)
+    }
+
+    /// Restore a snapshot taken with [`save_snapshot`](Self::save_snapshot)
+    ///
+    /// Packages, stations, workflow instances, the clock, shipment
+    /// bookkeeping, metrics and task priorities are rewound, so packages in
+    /// flight at the snapshot are delivered and emit their events. Events
+    /// already emitted stay in the buffer.
+    pub async fn restore_snapshot(
+        &mut self,
+        name: &str,
+    ) -> crate::Result<sim_core::SnapshotMetadata> {
+        Ok(self.runner.restore_snapshot(name).await?)
     }
 
     /// Runner statistics

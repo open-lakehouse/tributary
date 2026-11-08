@@ -116,6 +116,30 @@ pub trait SimulationHooks: Send + Sync + 'static {
         Ok(())
     }
 
+    /// Domain state to store in a snapshot, next to the runner's own state
+    ///
+    /// Snapshots capture agents, resources, tasks, workflow instances and the
+    /// clock. Hooks that keep their own bookkeeping across ticks (in-flight
+    /// orders, id counters, metrics) return it here so a restored run picks
+    /// up where the snapshot left off.
+    /// [`hook_state_batch`](crate::snapshot::hook_state_batch) encodes any
+    /// serde type. The default stores nothing.
+    fn snapshot_state(&self) -> Result<Option<RecordBatch>> {
+        Ok(None)
+    }
+
+    /// Replace the hook's state with what [`snapshot_state`](Self::snapshot_state) captured
+    ///
+    /// Called by [`SimulationRunner::restore_snapshot`] once the rest of the
+    /// snapshot has been validated, and before any of it is applied. `None`
+    /// means the snapshot holds no hook state; reset to empty in that case.
+    /// Decode fully before mutating: on error the restore is abandoned and the
+    /// runner keeps its current state, so the hook must too. The default does
+    /// nothing.
+    fn restore_state(&mut self, _state: Option<&RecordBatch>) -> Result<()> {
+        Ok(())
+    }
+
     /// Downcast to concrete type for domain-specific access
     fn as_any(&self) -> &dyn std::any::Any;
 
@@ -713,6 +737,7 @@ where
                 sim_time: self.context.current_time(),
                 step: self.context.step(),
             }),
+            hook_state: self.hooks.snapshot_state()?,
         })
     }
 
@@ -982,8 +1007,9 @@ where
 
     /// Restore simulation state from a snapshot
     ///
-    /// Replaces agents, resources, tasks and workflow instances, and rewinds
-    /// the clock if the snapshot captured it. Workflow instances are routed to
+    /// Replaces agents, resources, tasks, workflow instances and the hooks'
+    /// domain state (see [`SimulationHooks::restore_state`]), and rewinds the
+    /// clock if the snapshot captured it. Workflow instances are routed to
     /// the registered engine that owns their workflow definition, so the
     /// runner must have the same engines and workflows registered as when the
     /// snapshot was taken.
@@ -1035,6 +1061,10 @@ where
         };
 
         let instance_tables = self.stage_workflow_instances(&data.workflow_instances)?;
+
+        // Last fallible step: the hooks decode before mutating, so an error
+        // here still leaves the runner untouched.
+        self.hooks.restore_state(data.hook_state.as_ref())?;
 
         if let Some(population) = population {
             self.population = Some(population);
@@ -2085,5 +2115,120 @@ mod tests {
         }
         assert_eq!(current_step(&runner), (2, true));
         assert_eq!(runner.resources().unwrap().allocated_task_count(), 0);
+    }
+
+    /// Hooks that count ticks and persist the count in snapshots
+    #[derive(Default)]
+    struct CountingHooks {
+        ticks: u64,
+        fail_restore: bool,
+    }
+
+    impl SimulationHooks for CountingHooks {
+        fn on_after_tick(&mut self, _ctx: &SimulationContext) -> Result<()> {
+            self.ticks += 1;
+            Ok(())
+        }
+
+        fn snapshot_state(&self) -> Result<Option<RecordBatch>> {
+            crate::snapshot::hook_state_batch(&self.ticks).map(Some)
+        }
+
+        fn restore_state(&mut self, state: Option<&RecordBatch>) -> Result<()> {
+            if self.fail_restore {
+                return Err(crate::Error::InvalidState("refusing to restore".into()));
+            }
+            self.ticks = match state {
+                Some(batch) => crate::snapshot::hook_state_from_batch(batch)?,
+                None => 0,
+            };
+            Ok(())
+        }
+
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
+        }
+
+        fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+            self
+        }
+    }
+
+    fn counting_runner() -> SimulationRunner<TestAgent, TestResource, TestTask, TestWorkflow> {
+        let mut runner = SimulationRunner::new(SimulationConfig::default());
+        runner.set_hooks(Box::new(CountingHooks::default()));
+        runner
+    }
+
+    fn hook_ticks(
+        runner: &SimulationRunner<TestAgent, TestResource, TestTask, TestWorkflow>,
+    ) -> u64 {
+        runner.hooks_as::<CountingHooks>().unwrap().ticks
+    }
+
+    async fn assert_hook_state_round_trips(backend: SnapshotBackend) {
+        let mut runner = counting_runner();
+        runner.set_snapshot_backend(backend).await.unwrap();
+        runner.run_for_steps(3).unwrap();
+        runner.save_snapshot("hooks").await.unwrap();
+        runner.run_for_steps(4).unwrap();
+        assert_eq!(hook_ticks(&runner), 7);
+
+        runner.restore_snapshot("hooks").await.unwrap();
+        assert_eq!(hook_ticks(&runner), 3);
+        assert_eq!(runner.context().step(), 3);
+    }
+
+    #[tokio::test]
+    async fn hook_state_round_trips_in_memory() {
+        assert_hook_state_round_trips(SnapshotBackend::Memory).await;
+    }
+
+    #[tokio::test]
+    async fn hook_state_round_trips_through_parquet() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_hook_state_round_trips(SnapshotBackend::Parquet(dir.path().display().to_string()))
+            .await;
+    }
+
+    #[tokio::test]
+    async fn snapshot_without_hook_state_restores_none() {
+        // A snapshot taken under hooks that store nothing (or an older snapshot)
+        // hands `None` to restore_state, which resets the hook.
+        let mut runner = counting_runner();
+        runner.init_snapshot_manager().await.unwrap();
+        runner.set_hooks(Box::new(NoOpHooks));
+        runner.save_snapshot("bare").await.unwrap();
+        runner.set_hooks(Box::new(CountingHooks::default()));
+        runner.run_for_steps(5).unwrap();
+
+        runner.restore_snapshot("bare").await.unwrap();
+        assert_eq!(hook_ticks(&runner), 0);
+        assert_eq!(runner.context().step(), 0);
+    }
+
+    #[tokio::test]
+    async fn failed_hook_restore_leaves_the_runner_untouched() {
+        let mut runner = counting_runner();
+        runner.init_snapshot_manager().await.unwrap();
+        let mut population = PopulationHandler::new();
+        population.add_agent(TestAgent {
+            id: AgentId::new(),
+            tick_count: 0,
+        });
+        runner.set_population_handler(population);
+        runner.save_snapshot("before").await.unwrap();
+
+        runner.population_mut().unwrap().add_agent(TestAgent {
+            id: AgentId::new(),
+            tick_count: 0,
+        });
+        runner.run_for_steps(2).unwrap();
+        runner.hooks_as_mut::<CountingHooks>().unwrap().fail_restore = true;
+
+        assert!(runner.restore_snapshot("before").await.is_err());
+        assert_eq!(runner.population().unwrap().count(), 2);
+        assert_eq!(runner.context().step(), 2);
+        assert_eq!(hook_ticks(&runner), 2);
     }
 }

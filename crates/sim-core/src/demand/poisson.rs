@@ -2,11 +2,12 @@
 
 use super::DemandGenerator;
 use crate::context::SimulationContext;
+use crate::context::derive_seed;
 use crate::population::Demand;
 use rand::SeedableRng;
+use rand::rngs::StdRng;
 use rand_distr::{Distribution, Exp};
 use std::collections::HashMap;
-use std::sync::Mutex;
 
 /// Poisson demand generator
 ///
@@ -26,12 +27,15 @@ pub struct PoissonDemandGenerator {
     pub rate: f64,
     /// Type of demand to generate
     pub demand_type: String,
-    /// Random number generator (interior mutability for trait compatibility)
-    rng: Mutex<rand::rngs::StdRng>,
+    /// Base seed; each step's draws come from `derive_seed(seed, "poisson/{step}")`
+    seed: u64,
 }
 
 impl PoissonDemandGenerator {
     /// Create a new Poisson demand generator
+    ///
+    /// The base seed is drawn from OS entropy, so runs are not reproducible;
+    /// use [`with_seed`](Self::with_seed) for that.
     ///
     /// # Arguments
     ///
@@ -42,15 +46,14 @@ impl PoissonDemandGenerator {
     ///
     /// Panics if rate is negative
     pub fn new(rate: f64, demand_type: impl Into<String>) -> Self {
-        assert!(rate >= 0.0, "Rate must be non-negative");
-        Self {
-            rate,
-            demand_type: demand_type.into(),
-            rng: Mutex::new(rand::rngs::StdRng::from_seed(rand::random())),
-        }
+        Self::with_seed(rate, demand_type, rand::random())
     }
 
     /// Create a generator with a specific seed for reproducibility
+    ///
+    /// Each step's count depends only on `seed` and the step number, not on
+    /// earlier calls, so a run restored from a snapshot draws the same
+    /// demand as an uninterrupted one.
     ///
     /// # Arguments
     ///
@@ -59,12 +62,10 @@ impl PoissonDemandGenerator {
     /// * `seed` - Seed for the random number generator
     pub fn with_seed(rate: f64, demand_type: impl Into<String>, seed: u64) -> Self {
         assert!(rate >= 0.0, "Rate must be non-negative");
-        let mut seed_array = [0u8; 32];
-        seed_array[0..8].copy_from_slice(&seed.to_le_bytes());
         Self {
             rate,
             demand_type: demand_type.into(),
-            rng: Mutex::new(rand::rngs::StdRng::from_seed(seed_array)),
+            seed,
         }
     }
 
@@ -72,14 +73,14 @@ impl PoissonDemandGenerator {
     ///
     /// This uses the standard method: sample exponential inter-arrival times
     /// until their sum exceeds the time window.
-    fn sample_poisson(&self, exp: Exp<f64>) -> usize {
-        let mut rng = self.rng.lock().unwrap();
+    fn sample_poisson(&self, exp: Exp<f64>, step: usize) -> usize {
+        let mut rng = StdRng::seed_from_u64(derive_seed(self.seed, &format!("poisson/{step}")));
         let mut count = 0;
         let mut time_sum = 0.0;
 
         // Keep sampling until we exceed the time window (1.0 unit)
         while time_sum < 1.0 {
-            time_sum += exp.sample(&mut *rng);
+            time_sum += exp.sample(&mut rng);
             if time_sum < 1.0 {
                 count += 1;
             }
@@ -107,7 +108,7 @@ impl DemandGenerator for PoissonDemandGenerator {
         let exp = Exp::new(lambda).expect("Lambda must be positive");
 
         // Sample number of events from Poisson distribution
-        let count = self.sample_poisson(exp);
+        let count = self.sample_poisson(exp, ctx.step());
 
         // Generate demands
         (0..count)
@@ -166,14 +167,15 @@ mod tests {
             time_step: chrono::Duration::seconds(60), // 1 minute
             ..Default::default()
         };
-        let ctx = SimulationContext::from_now(config);
+        let mut ctx = SimulationContext::from_now(config);
 
-        // Run multiple times and check average
+        // Run multiple steps and check average
         let mut total = 0;
         let iterations = 1000;
         for _ in 0..iterations {
             let demands = generator.generate(&ctx);
             total += demands.len();
+            ctx.advance();
         }
 
         let average = total as f64 / iterations as f64;
@@ -237,13 +239,14 @@ mod tests {
             time_step: chrono::Duration::minutes(30), // 0.5 hours
             ..Default::default()
         };
-        let ctx = SimulationContext::from_now(config);
+        let mut ctx = SimulationContext::from_now(config);
 
         let mut total = 0;
         let iterations = 2000;
         for _ in 0..iterations {
             let demands = generator.generate(&ctx);
             total += demands.len();
+            ctx.advance();
         }
 
         let average = total as f64 / iterations as f64;
@@ -259,7 +262,7 @@ mod tests {
         let generator2 = PoissonDemandGenerator::with_seed(600.0, "order", 2);
 
         let config = SimulationConfig::default();
-        let ctx = SimulationContext::from_now(config);
+        let mut ctx = SimulationContext::from_now(config);
 
         let mut different_count = 0;
         for _ in 0..100 {
@@ -268,9 +271,29 @@ mod tests {
             if demands1.len() != demands2.len() {
                 different_count += 1;
             }
+            ctx.advance();
         }
 
         // Should have different results most of the time
         assert!(different_count > 40);
+    }
+
+    #[test]
+    fn draws_depend_only_on_seed_and_step() {
+        // Restore-safety: a generator that skipped steps (or a fresh one after a
+        // snapshot restore) draws the same count at a step as one that ran them.
+        let config = SimulationConfig::default();
+        let mut ctx = SimulationContext::from_now(config);
+        let warm = PoissonDemandGenerator::with_seed(600.0, "order", 7);
+        let mut counts = Vec::new();
+        for _ in 0..20 {
+            counts.push(warm.generate(&ctx).len());
+            ctx.advance();
+        }
+        let fresh = PoissonDemandGenerator::with_seed(600.0, "order", 7);
+        assert_eq!(fresh.generate(&ctx).len(), warm.generate(&ctx).len());
+        // Repeated calls at one step agree, and steps differ.
+        assert_eq!(warm.generate(&ctx).len(), warm.generate(&ctx).len());
+        assert!(counts.windows(2).any(|w| w[0] != w[1]));
     }
 }

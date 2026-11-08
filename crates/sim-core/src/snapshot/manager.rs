@@ -151,6 +151,7 @@ pub enum SnapshotBackend {
 /// - `workflow_instances`: Workflow execution state
 /// - `locations`: Optional location/spatial data
 /// - `clock`: Optional simulation clock (time and step) at capture
+/// - `hook_state`: Optional domain hook state (see [`hook_state_batch`](crate::snapshot::hook_state_batch))
 ///
 /// # Example
 ///
@@ -163,6 +164,7 @@ pub enum SnapshotBackend {
 ///     workflow_instances: workflow_engine.instance_table.export_batch(),
 ///     locations: None,
 ///     clock: None,
+///     hook_state: None,
 /// };
 /// ```
 #[derive(Debug, Clone)]
@@ -179,6 +181,9 @@ pub struct SnapshotData {
     pub locations: Option<RecordBatch>,
     /// Simulation clock at capture (set by [`SimulationRunner`](crate::SimulationRunner))
     pub clock: Option<SnapshotClock>,
+    /// Domain hook state from
+    /// [`SimulationHooks::snapshot_state`](crate::SimulationHooks::snapshot_state)
+    pub hook_state: Option<RecordBatch>,
 }
 
 /// Simulation clock captured with a snapshot
@@ -409,6 +414,12 @@ impl SnapshotManager {
                 .register_table(format!("{}_clock", snapshot_id), clock_table)?;
         }
 
+        if let Some(hook_state) = data.hook_state {
+            let hook_state_table = Self::create_mem_table(hook_state)?;
+            self.ctx
+                .register_table(format!("{}_hook_state", snapshot_id), hook_state_table)?;
+        }
+
         Ok(())
     }
 
@@ -450,6 +461,18 @@ impl SnapshotManager {
             None
         };
 
+        let hook_state = if self
+            .ctx
+            .table_exist(format!("{}_hook_state", snapshot_id))?
+        {
+            Some(
+                self.read_table(&format!("{}_hook_state", snapshot_id))
+                    .await?,
+            )
+        } else {
+            None
+        };
+
         Ok(SnapshotData {
             agents,
             resources,
@@ -457,6 +480,7 @@ impl SnapshotManager {
             workflow_instances,
             locations,
             clock,
+            hook_state,
         })
     }
 
@@ -505,6 +529,11 @@ impl SnapshotManager {
 
         if let Some(clock) = data.clock {
             self.write_batch_to_parquet(&snapshot_dir, snapshot_id, "clock", clock.to_batch()?)
+                .await?;
+        }
+
+        if let Some(hook_state) = data.hook_state {
+            self.write_batch_to_parquet(&snapshot_dir, snapshot_id, "hook_state", hook_state)
                 .await?;
         }
 
@@ -598,6 +627,16 @@ impl SnapshotManager {
             None
         };
 
+        // Snapshots written before hook state existed have no file: load as `None`.
+        let hook_state = if snapshot_dir.join("hook_state.parquet").exists() {
+            Some(
+                self.read_batch_from_parquet(&snapshot_dir, snapshot_id, "hook_state")
+                    .await?,
+            )
+        } else {
+            None
+        };
+
         Ok(SnapshotData {
             agents,
             resources,
@@ -605,6 +644,7 @@ impl SnapshotManager {
             workflow_instances,
             locations,
             clock,
+            hook_state,
         })
     }
 
@@ -1019,6 +1059,7 @@ mod tests {
             workflow_instances: create_test_instances_batch(),
             locations: None,
             clock: None,
+            hook_state: None,
         };
 
         // Save snapshot
@@ -1053,6 +1094,7 @@ mod tests {
             workflow_instances: create_test_instances_batch(),
             locations: None,
             clock: None,
+            hook_state: None,
         };
 
         // Save snapshot
@@ -1099,6 +1141,7 @@ mod tests {
             workflow_instances: create_test_instances_batch(),
             locations: None,
             clock: None,
+            hook_state: None,
         };
 
         let data2 = data1.clone();

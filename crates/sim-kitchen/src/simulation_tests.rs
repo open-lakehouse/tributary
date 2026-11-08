@@ -269,3 +269,83 @@ fn payments_receipts_and_events_agree_on_amounts() {
     }
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+type Comparable = (String, String, String, serde_json::Value);
+
+fn comparable(events: &[EventRecord]) -> Vec<Comparable> {
+    events
+        .iter()
+        .map(|e| {
+            (
+                e.event_type.clone(),
+                e.subject.clone().unwrap_or_default(),
+                e.time.clone(),
+                e.data.clone(),
+            )
+        })
+        .collect()
+}
+
+fn seeded_sim() -> KitchenSimulation {
+    let mut sim = KitchenSimulation::new_seeded(3, 2, false, Some(11));
+    let start: DateTime<Utc> = "2026-01-05T11:00:00Z".parse().unwrap();
+    sim.runner_mut().context_mut().set_current_time(start);
+    sim.add_customers(30);
+    sim
+}
+
+#[tokio::test]
+async fn restored_run_matches_an_uninterrupted_one() {
+    // Regression (#31): hook state was not snapshotted, so orders in flight at
+    // the snapshot completed without order.completed / customer.done events.
+    const BEFORE: usize = 40;
+    const AFTER: usize = 80;
+
+    let mut uninterrupted = seeded_sim();
+    uninterrupted.run_for_steps(BEFORE).unwrap();
+    let at_snapshot = uninterrupted.event_records().len();
+    uninterrupted.run_for_steps(AFTER).unwrap();
+    let expected = comparable(&uninterrupted.event_records()[at_snapshot..]);
+
+    let dir = tempfile::tempdir().unwrap();
+    let backend = || sim_core::SnapshotBackend::Parquet(dir.path().display().to_string());
+    let mut original = seeded_sim();
+    original
+        .runner_mut()
+        .set_snapshot_backend(backend())
+        .await
+        .unwrap();
+    original.run_for_steps(BEFORE).unwrap();
+    assert!(
+        !original.hooks().orders.is_empty(),
+        "the snapshot should catch orders in flight"
+    );
+    original.save_snapshot("mid-run").await.unwrap();
+
+    // A fresh process: same setup, state comes only from the snapshot.
+    let mut restored = seeded_sim();
+    restored
+        .runner_mut()
+        .set_snapshot_backend(backend())
+        .await
+        .unwrap();
+    restored.restore_snapshot("mid-run").await.unwrap();
+    restored.run_for_steps(AFTER).unwrap();
+    let actual = comparable(&restored.event_records());
+
+    assert!(!expected.is_empty());
+    assert_eq!(actual, expected);
+}
+
+#[tokio::test]
+async fn restoring_a_snapshot_without_hook_state_clears_orders() {
+    let mut sim = seeded_sim();
+    sim.runner_mut().init_snapshot_manager().await.unwrap();
+    sim.run_for_steps(40).unwrap();
+    assert!(!sim.hooks().orders.is_empty());
+
+    sim.hooks_mut().restore_state(None).unwrap();
+    let hooks = sim.hooks();
+    assert!(hooks.orders.is_empty() && hooks.customer_orders.is_empty());
+    assert!(hooks.kitchens.iter().all(|k| k.open_orders == 0));
+}

@@ -144,3 +144,76 @@ fn invalid_indices_are_rejected() {
             .is_err()
     );
 }
+
+type Comparable = (String, Option<String>, String, serde_json::Value);
+
+fn comparable(events: &[EventRecord]) -> Vec<Comparable> {
+    events
+        .iter()
+        .map(|e| {
+            (
+                e.event_type.clone(),
+                e.subject.clone(),
+                e.time.clone(),
+                e.data.clone(),
+            )
+        })
+        .collect()
+}
+
+fn seeded_sim() -> LogisticsSimulation {
+    let mut sim = LogisticsSimulation::new_seeded(Some(11));
+    let start: DateTime<Utc> = "2026-01-05T08:00:00Z".parse().unwrap();
+    sim.runner_mut().context_mut().set_current_time(start);
+    sim
+}
+
+#[tokio::test]
+async fn restored_run_matches_an_uninterrupted_one() {
+    // Regression (#31): hook state was not snapshotted, so packages in flight
+    // at the snapshot were delivered without events, and the unsnapshotted
+    // RNGs routed later packages differently.
+    const BEFORE: u64 = 2;
+    const AFTER: u64 = 3;
+
+    let mut uninterrupted = seeded_sim();
+    uninterrupted.run_for_hours(BEFORE).unwrap();
+    let at_snapshot = uninterrupted.event_records().len();
+    uninterrupted.run_for_hours(AFTER).unwrap();
+    let expected = comparable(&uninterrupted.event_records()[at_snapshot..]);
+    let expected_metrics = uninterrupted.get_metrics();
+
+    let mut sim = seeded_sim();
+    sim.runner_mut().init_snapshot_manager().await.unwrap();
+    sim.run_for_hours(BEFORE).unwrap();
+    assert!(
+        !sim.hooks().shipments.is_empty(),
+        "the snapshot should catch packages in flight"
+    );
+    sim.save_snapshot("mid-run").await.unwrap();
+
+    // Diverge (more packages, a manual one), then rewind in place.
+    sim.run_for_hours(1).unwrap();
+    sim.create_package(0, 0, 2.0, PackagePriority::Overnight)
+        .unwrap();
+    sim.restore_snapshot("mid-run").await.unwrap();
+    let at_restore = sim.event_records().len();
+    sim.run_for_hours(AFTER).unwrap();
+    let actual = comparable(&sim.event_records()[at_restore..]);
+
+    assert!(expected.iter().any(|e| e.0 == DELIVERED));
+    if let Some(i) = (0..actual.len().min(expected.len())).find(|&i| actual[i] != expected[i]) {
+        panic!(
+            "event {i} differs:\n  restored: {:?}\n  expected: {:?}",
+            actual[i], expected[i]
+        );
+    }
+    assert_eq!(actual.len(), expected.len());
+    let metrics = sim.get_metrics();
+    assert_eq!(metrics.packages_created, expected_metrics.packages_created);
+    assert_eq!(
+        metrics.packages_delivered,
+        expected_metrics.packages_delivered
+    );
+    assert_eq!(metrics.drivers_used, expected_metrics.drivers_used);
+}
