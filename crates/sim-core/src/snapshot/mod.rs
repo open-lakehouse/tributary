@@ -16,9 +16,12 @@
 //! which capture and restore agents, resources, tasks, workflow instances and
 //! the clock together.
 
+mod hook_state;
 mod manager;
 mod metadata;
 
 // Public exports
+pub use arrow::array::RecordBatch;
+pub use hook_state::{hook_state_batch, hook_state_from_batch};
 pub use manager::{SnapshotBackend, SnapshotClock, SnapshotData, SnapshotManager};
 pub use metadata::SnapshotMetadata;

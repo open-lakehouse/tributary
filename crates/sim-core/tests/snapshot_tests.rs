@@ -223,6 +223,7 @@ fn create_snapshot_data(
         workflow_instances: workflow_engine.instance_table.export_batch(),
         locations: None,
         clock: None,
+        hook_state: None,
     }
 }
 

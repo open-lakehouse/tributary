@@ -96,6 +96,9 @@ The kitchen supplies these pieces. The logistics domain has the same shape.
 - `new()` ID constructors use UUID v7 and differ between runs. Seeded kitchen
   customers take IDs from `from_name` (UUID v5), and their decisions depend only
   on `(rng_seed, step)`, so a seeded kitchen run repeats its decisions.
+- Per-step draws make runs restore-safe. Kitchen customers, Poisson demand
+  and logistics routing seed each step from `derive_seed(seed, "<label>/<step>")`
+  rather than carrying RNG state between steps.
 
 ## Snapshots
 
@@ -106,9 +109,18 @@ The kitchen supplies these pieces. The logistics domain has the same shape.
 - Restore is all-or-nothing: every component is staged and validated before the
   runner changes. The runner needs the same components and workflow definitions
   as when the snapshot was taken.
-- Not captured: domain hook state, and the random state of demand generators
-  and allocation strategies. A restored run continues those from their current
-  state, not from the snapshot's.
+- Domain hook state is captured through `SimulationHooks::snapshot_state` and
+  handed back to `restore_state` (`None` for a snapshot without it, which
+  resets the hooks). It is stored as one more table, `hook_state`; the
+  `hook_state_batch` / `hook_state_from_batch` helpers encode any serde type
+  as a one-row JSON batch. The kitchen saves its in-flight orders and routing
+  load, logistics its shipments, tracking-number counter, metrics and task
+  priorities, so a restored seeded run emits the same events as an
+  uninterrupted one.
+- Random state is not captured. `PoissonDemandGenerator` and logistics package
+  routing derive each step's RNG from `(seed, step)`, so they need none.
+  `SpatialDemandGenerator` and the `Random` allocation strategy keep a running
+  RNG, which a restored run continues from its current state.
 
 ## Known limitations
 
@@ -120,5 +132,3 @@ The kitchen supplies these pieces. The logistics domain has the same shape.
   with each run ([#29](https://github.com/open-lakehouse/tributary/issues/29)).
 - **Journeys are not consumed.** `AgentTickResult::new_journeys` has no reader,
   so journey requests have no effect. `sim-geo` is not on any product path ([#30](https://github.com/open-lakehouse/tributary/issues/30)).
-- **Hook state is not snapshotted.** After a restore, kitchen hooks do not know
-  the restored orders, so those orders complete without emitting events ([#31](https://github.com/open-lakehouse/tributary/issues/31)).

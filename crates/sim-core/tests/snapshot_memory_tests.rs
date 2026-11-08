@@ -351,6 +351,7 @@ async fn test_snapshot_manager_direct_usage() {
         workflow_instances: workflow_batch,
         locations: None,
         clock: None,
+        hook_state: None,
     };
 
     manager

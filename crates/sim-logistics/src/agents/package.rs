@@ -1,13 +1,14 @@
 //! Package agents
 
 use geo::Point;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sim_core::{
     Agent, AgentId, AgentStatus, Result, SimulationContext, population::AgentTickResult,
 };
 
 /// Delivery priority; higher priorities are allocated first at every step
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PackagePriority {
     Standard,
     Express,
@@ -43,7 +44,7 @@ impl PackagePriority {
 }
 
 /// Where a package is in its shipment
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PackageStage {
     /// Created, not yet received at the warehouse
     Created,
@@ -96,7 +97,7 @@ impl PackageStage {
 /// [`LogisticsSimulation`](crate::LogisticsSimulation) as the package's
 /// shipment workflow progresses. Its position is the warehouse until it is
 /// delivered, then the destination.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Package {
     pub id: AgentId,
     pub tracking_number: String,

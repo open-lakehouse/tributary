@@ -46,10 +46,12 @@ use crate::profiles::ProfileRegistry;
 use crate::resources::{Kitchen, PrepTask, PrepTaskFactory};
 use crate::workflows::FoodPrepWorkflow;
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 use sim_artifacts::{
     ArtifactCollector, ArtifactCollectorProcessor, ArtifactStorage, JsonlArtifactStorage,
     NoOpStorage,
 };
+use sim_core::snapshot::RecordBatch;
 use sim_core::utils::idents::WorkflowInstanceId;
 use sim_core::workflows::{WorkflowEngine, WorkflowRegistry, WorkflowStepEvent};
 use sim_core::{
@@ -84,7 +86,7 @@ struct KitchenInfo {
     open_orders: usize,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 struct OrderInfo {
     customer_id: AgentId,
     kitchen: usize,
@@ -93,18 +95,34 @@ struct OrderInfo {
 }
 
 /// Customer order awaiting the end of the meal
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 struct CustomerOrder {
     order_id: String,
     total_price: f64,
     created_at: DateTime<Utc>,
 }
 
+/// Order bookkeeping the hooks keep across ticks, as stored in snapshots
+///
+/// The event buffer and artifact progress are not included: a restore
+/// rewinds the simulation, not its output.
+#[derive(Debug, Default, Serialize, Deserialize)]
+struct KitchenHookState {
+    orders: HashMap<String, OrderInfo>,
+    instance_orders: HashMap<WorkflowInstanceId, String>,
+    new_orders: Vec<String>,
+    ready_orders: Vec<(String, AgentId)>,
+    customer_orders: HashMap<AgentId, CustomerOrder>,
+    /// `open_orders` per kitchen, in kitchen order
+    open_orders: Vec<usize>,
+}
+
 /// Hooks that emit kitchen events and track orders
 ///
-/// Hook state (open orders, routing) is not part of runner snapshots. After a
-/// snapshot restore, workflow instances the hooks don't know about complete
-/// without emitting order events.
+/// Order bookkeeping (in-flight orders, routing load, meals in progress) is
+/// saved in runner snapshots via [`SimulationHooks::snapshot_state`], so
+/// orders in flight at a snapshot still complete and emit their events after
+/// a restore.
 pub struct KitchenSimulationHooks {
     dispatcher: EventDispatcher,
     kitchens: Vec<KitchenInfo>,
@@ -252,6 +270,65 @@ impl KitchenSimulationHooks {
 }
 
 impl SimulationHooks for KitchenSimulationHooks {
+    fn snapshot_state(&self) -> sim_core::Result<Option<RecordBatch>> {
+        // Serialize through a borrowed view to avoid cloning the maps.
+        #[derive(Serialize)]
+        struct View<'a> {
+            orders: &'a HashMap<String, OrderInfo>,
+            instance_orders: &'a HashMap<WorkflowInstanceId, String>,
+            new_orders: &'a [String],
+            ready_orders: &'a [(String, AgentId)],
+            customer_orders: &'a HashMap<AgentId, CustomerOrder>,
+            open_orders: Vec<usize>,
+        }
+        let view = View {
+            orders: &self.orders,
+            instance_orders: &self.instance_orders,
+            new_orders: &self.new_orders,
+            ready_orders: &self.ready_orders,
+            customer_orders: &self.customer_orders,
+            open_orders: self.kitchens.iter().map(|k| k.open_orders).collect(),
+        };
+        sim_core::snapshot::hook_state_batch(&view).map(Some)
+    }
+
+    fn restore_state(&mut self, state: Option<&RecordBatch>) -> sim_core::Result<()> {
+        let mut state: KitchenHookState = match state {
+            Some(batch) => sim_core::snapshot::hook_state_from_batch(batch)?,
+            None => KitchenHookState::default(),
+        };
+        if state.open_orders.is_empty() {
+            state.open_orders = vec![0; self.kitchens.len()];
+        }
+        if state.open_orders.len() != self.kitchens.len() {
+            return Err(sim_core::Error::InvalidState(format!(
+                "snapshot has {} kitchens, simulation has {}",
+                state.open_orders.len(),
+                self.kitchens.len()
+            )));
+        }
+        if let Some(order) = state
+            .orders
+            .values()
+            .find(|o| o.kitchen >= self.kitchens.len())
+        {
+            return Err(sim_core::Error::InvalidState(format!(
+                "snapshot order routed to unknown kitchen {}",
+                order.kitchen
+            )));
+        }
+
+        for (kitchen, open) in self.kitchens.iter_mut().zip(state.open_orders) {
+            kitchen.open_orders = open;
+        }
+        self.orders = state.orders;
+        self.instance_orders = state.instance_orders;
+        self.new_orders = state.new_orders;
+        self.ready_orders = state.ready_orders;
+        self.customer_orders = state.customer_orders;
+        Ok(())
+    }
+
     fn on_agents_ticked(
         &mut self,
         ctx: &SimulationContext,
@@ -551,6 +628,26 @@ impl KitchenSimulation {
     /// The underlying runner, mutably (time mode, control channel, clock)
     pub fn runner_mut(&mut self) -> &mut KitchenRunner {
         &mut self.runner
+    }
+
+    /// Snapshot the simulation, including in-flight orders, under `name`
+    ///
+    /// Configure a backend first with `runner_mut().init_snapshot_manager()`
+    /// or `runner_mut().set_snapshot_backend(..)`.
+    pub async fn save_snapshot(&self, name: &str) -> sim_core::Result<sim_core::SnapshotMetadata> {
+        self.runner.save_snapshot(name).await
+    }
+
+    /// Restore a snapshot taken with [`save_snapshot`](Self::save_snapshot)
+    ///
+    /// Customers, kitchens, workflow instances, the clock and order
+    /// bookkeeping are rewound, so orders in flight at the snapshot complete
+    /// and emit their events. Events already emitted stay in the buffer.
+    pub async fn restore_snapshot(
+        &mut self,
+        name: &str,
+    ) -> sim_core::Result<sim_core::SnapshotMetadata> {
+        self.runner.restore_snapshot(name).await
     }
 
     /// The simulation hooks (events, artifact count)

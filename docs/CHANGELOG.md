@@ -11,6 +11,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed: sim-core
+- Snapshots capture domain hook state. `SimulationHooks` gains
+  `snapshot_state` and `restore_state` (default: nothing stored), saved as a
+  `hook_state` table in both backends. Restore calls `restore_state` after the
+  rest of the snapshot validates, so a failure still leaves the runner
+  untouched. Snapshots without the table load with `None`. Hook state used to
+  be lost, so orders and packages in flight at a snapshot finished without
+  completion events ([#31](https://github.com/open-lakehouse/tributary/issues/31)).
+- `snapshot::hook_state_batch` / `hook_state_from_batch` encode any serde type
+  as a one-row JSON batch (floats round-trip exactly); `snapshot::RecordBatch`
+  re-exports Arrow's type for domain crates.
+- **Breaking:** `SnapshotData` has a new `hook_state` field.
+- `PoissonDemandGenerator` draws each step's count from
+  `derive_seed(seed, "poisson/<step>")` instead of a running RNG, so a restored
+  run draws the same demand. Seeded runs produce different (still
+  reproducible) demand than before.
+
+### Fixed: sim-kitchen
+- In-flight orders, routing load and meals in progress are saved in
+  snapshots. `KitchenSimulation::save_snapshot` / `restore_snapshot` (async)
+  wrap the runner's. A restored seeded run emits the same events as an
+  uninterrupted one.
+
+### Fixed: sim-logistics
+- Shipments, the tracking-number counter, metrics and task priorities are
+  saved in snapshots, with `LogisticsSimulation::save_snapshot` /
+  `restore_snapshot` (async). A restored seeded run emits the same events as
+  an uninterrupted one.
+- Package routing draws from a per-step RNG (`derive_seed(seed, "route/<step>")`).
+  Together with the Poisson change, seeded runs produce different (still
+  reproducible) packages than before.
+- `Package`, `PackagePriority` and `PackageStage` implement `Serialize` /
+  `Deserialize`; `ShipmentTaskFactory` gains `priorities` / `replace_priorities`.
+
 ### Fixed: sim-geo
 - Routing maps `NodeId`s to dense `fast_paths` indices before building the
   graph. Raw IDs used to serve as array indices, so sparse or large IDs,

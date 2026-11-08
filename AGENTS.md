@@ -170,6 +170,9 @@ pub trait SimulationHooks: Send + Sync + 'static {
     fn on_tasks_completed(&mut self, ctx: &SimulationContext, completed: &[CompletedTask]) -> Result<()>;
     fn on_workflow_step_completed(&mut self, ctx: &SimulationContext, event: &WorkflowStepEvent) -> Result<()>;
     fn on_demands_generated(&mut self, ctx: &SimulationContext, demands: &[Demand]) -> Result<()>;
+    // Domain state for snapshots (default: none); see sim_core::snapshot::hook_state_batch
+    fn snapshot_state(&self) -> Result<Option<RecordBatch>>;
+    fn restore_state(&mut self, state: Option<&RecordBatch>) -> Result<()>;
 }
 ```
 
@@ -194,6 +197,7 @@ pub trait SimulationHooks: Send + Sync + 'static {
 - **Entry point**: `KitchenSimulation::new(num_kitchens, capacity, verbose)` /
   `new_seeded(.., seed)`, then `.with_artifact_dir(dir)` (optional) and `add_customers(n)`
 - **Run methods**: `step()`, `run_for_steps(n)`, or `run_controlled_for(max)` (control channel).
+  `save_snapshot(name)` / `restore_snapshot(name)` (async) include in-flight orders.
   Don't tick the runner directly: order start, delivery and `customer.done` happen in `step()`
 
 ### sim-logistics (Package Delivery)
@@ -202,7 +206,7 @@ pub trait SimulationHooks: Send + Sync + 'static {
 - **Station resources**: receivers, sorting stations, loading docks, drivers (capacity 1), delivery confirmers
 - **Workflows**: `PackageShipmentWorkflow` — 5-step pipeline via `WorkflowRegistry`, one instance per package
 - **Locations**: `Warehouse`, `DeliveryAddress` (H3-indexed)
-- **Entry point**: `LogisticsSimulation::new()` / `new_seeded(seed)`; drive with `step()` or `run_for_hours(h)`
+- **Entry point**: `LogisticsSimulation::new()` / `new_seeded(seed)`; drive with `step()` or `run_for_hours(h)`; `save_snapshot` / `restore_snapshot` (async) include in-flight shipments
 
 ---
 

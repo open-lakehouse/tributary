@@ -144,6 +144,16 @@ impl ShipmentTaskFactory {
         self.lock().remove(&instance_id);
     }
 
+    /// All registered priorities (for snapshots)
+    pub fn priorities(&self) -> HashMap<WorkflowInstanceId, i32> {
+        self.lock().clone()
+    }
+
+    /// Replace all registered priorities (for snapshot restore)
+    pub fn replace_priorities(&self, priorities: HashMap<WorkflowInstanceId, i32>) {
+        *self.lock() = priorities;
+    }
+
     fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<WorkflowInstanceId, i32>> {
         self.priorities.lock().unwrap_or_else(|e| e.into_inner())
     }
