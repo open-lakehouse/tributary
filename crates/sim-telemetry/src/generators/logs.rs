@@ -24,7 +24,7 @@
 //! ```
 
 use crate::core::{LogLevel, TelemetryError, TelemetryGenerator, TelemetryRecord};
-use chrono::{DateTime, Utc};
+
 use std::collections::HashMap;
 
 /// Generator that converts events into log records with probabilistic severity.
@@ -221,13 +221,7 @@ impl TelemetryGenerator for EventToLogGenerator {
         }
 
         // Extract timestamp
-        let timestamp = if let Some(time_str) = event.get("time").and_then(|v| v.as_str()) {
-            DateTime::parse_from_rfc3339(time_str)
-                .map(|dt| dt.with_timezone(&Utc))
-                .unwrap_or_else(|_| Utc::now())
-        } else {
-            Utc::now()
-        };
+        let timestamp = super::event_time(event)?;
 
         // Select log level from a hash of the event id
         let random_value = self.compute_deterministic_random(event);
@@ -509,7 +503,8 @@ mod tests {
             let event = json!({
                 "id": format!("evt-{}", i),
                 "type": "test.event",
-                "source": "test"
+                "source": "test",
+                "time": "2026-01-01T00:00:00Z"
             });
 
             let records = generator.generate(&event).unwrap();

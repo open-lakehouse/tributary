@@ -48,7 +48,7 @@
 //! ```
 
 use crate::core::{TelemetryError, TelemetryGenerator, TelemetryRecord};
-use chrono::{DateTime, Duration, Utc};
+use chrono::Duration;
 use serde_json::Value;
 use std::collections::HashMap;
 use uuid::Uuid;
@@ -244,15 +244,7 @@ impl TelemetryGenerator for EventToTraceGenerator {
             .and_then(|v| v.as_str())
             .ok_or_else(|| TelemetryError::InvalidEvent("Missing source field".into()))?;
 
-        let time_str = event
-            .get("time")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| TelemetryError::InvalidEvent("Missing time field".into()))?;
-
-        // Parse start time
-        let start_time = DateTime::parse_from_rfc3339(time_str)
-            .map(|dt| dt.with_timezone(&Utc))
-            .unwrap_or_else(|_| Utc::now());
+        let start_time = super::event_time(event)?;
 
         // Get or create trace ID for this source
         let trace_id = self.get_or_create_trace_id(source);

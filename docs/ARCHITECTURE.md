@@ -22,7 +22,8 @@ Domain crates implement them: `sim-kitchen` is the reference, and
 
 Domains depend on `sim-core`; `sim-core` depends on no other `sim-*` crate
 except the optional `sim-telemetry`. `sim-events` depends on `sim-core` (for
-`EventId` and `Error`), so it sits above `sim-core`. `sim-geo` is a
+`EventId` and `Error`), so it sits above `sim-core`, and `sim-telemetry`
+cannot depend on `sim-events` without a cycle. `sim-geo` is a
 dev-dependency of `sim-core` only, and no product crate uses it.
 
 ## Runner tick loop

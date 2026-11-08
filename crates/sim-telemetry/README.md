@@ -55,10 +55,12 @@ let generated = collector.process_event(&event)?; // number of records
 let records = collector.flush();                   // drains the buffer
 ```
 
-`TelemetryCollectorProcessor` wraps a collector with an optional event type prefix
-(`with_filter`). It implements a local `EventProcessor` trait that takes `&Value`. It is not
-`sim_events::EventProcessor`, and this crate does not depend on sim-events, so it cannot be
-registered on an `EventDispatcher` directly.
+Every event needs an RFC 3339 `time` (its simulation time). A missing or unparsable `time`
+is an `InvalidEvent` error; generators never fall back to wall-clock time.
+
+This crate does not depend on sim-events (sim-core optionally depends on it, and sim-events
+depends on sim-core), so it does not implement `sim_events::EventProcessor`. Feed events to a
+`TelemetryCollector` directly, as sim-core's `telemetry` feature does.
 
 ## Exporters
 
