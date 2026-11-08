@@ -121,5 +121,3 @@ The kitchen supplies these pieces. The logistics domain has the same shape.
   so journey requests have no effect. `sim-geo` is not on any product path ([#30](https://github.com/open-lakehouse/tributary/issues/30)).
 - **Hook state is not snapshotted.** After a restore, kitchen hooks do not know
   the restored orders, so those orders complete without emitting events ([#31](https://github.com/open-lakehouse/tributary/issues/31)).
-- **sim-geo node IDs.** `NodeId` values are used directly as `fast_paths`
-  indices, so the graph is sized by the largest ID. IDs must stay small and dense ([#33](https://github.com/open-lakehouse/tributary/issues/33)).

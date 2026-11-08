@@ -120,7 +120,7 @@ fn benchmark_point_to_node_mapping(c: &mut Criterion) {
     });
 }
 
-/// Benchmark: FastGraph preprocessing
+/// Benchmark: routing graph preprocessing
 ///
 /// This is a one-time cost when loading a network, but important to measure
 /// for understanding total initialization time.
@@ -134,30 +134,35 @@ fn benchmark_fast_graph_preprocessing(c: &mut Criterion) {
 
 /// Benchmark: Route calculation with graph reuse
 ///
-/// This simulates the recommended usage pattern where the FastGraph is
+/// This simulates the recommended usage pattern where the routing graph is
 /// built once and reused for multiple queries.
 fn benchmark_routing_with_graph_reuse(c: &mut Criterion) {
     let network = load_network();
-    let fast_graph = network.build_fast_graph();
-    let mut path_calculator = fast_paths::create_calculator(&fast_graph);
+    let routing_graph = network.build_fast_graph();
+    let mut path_calculator = routing_graph.create_calculator();
 
     let node_ids: Vec<_> = network.nodes.keys().copied().collect();
-    let start = node_ids[0] as usize;
-    let goal = node_ids[node_ids.len() / 2] as usize;
+    let start = node_ids[0];
+    let goal = node_ids[node_ids.len() / 2];
 
     c.bench_function("route_with_graph_reuse", |b| {
         b.iter(|| {
-            black_box(path_calculator.calc_path(&fast_graph, black_box(start), black_box(goal)))
+            black_box(network.find_shortest_path_with_cache(
+                &mut path_calculator,
+                &routing_graph,
+                black_box(start),
+                black_box(goal),
+            ))
         });
     });
 }
 
 /// Benchmark: Batch routing with optimal graph reuse
 ///
-/// This demonstrates best-case performance when the FastGraph is properly cached.
+/// This demonstrates best-case performance when the routing graph is properly cached.
 fn benchmark_batch_routing_optimized(c: &mut Criterion) {
     let network = load_network();
-    let fast_graph = network.build_fast_graph();
+    let routing_graph = network.build_fast_graph();
     let node_ids: Vec<_> = network.nodes.keys().copied().collect();
     let node_count = node_ids.len();
 
@@ -166,12 +171,17 @@ fn benchmark_batch_routing_optimized(c: &mut Criterion) {
             BenchmarkId::new("route_batch_optimized", batch_size),
             &batch_size,
             |b, &size| {
-                let mut path_calculator = fast_paths::create_calculator(&fast_graph);
+                let mut path_calculator = routing_graph.create_calculator();
                 b.iter(|| {
                     for i in 0..size {
-                        let start = node_ids[i % node_count] as usize;
-                        let goal = node_ids[(i + node_count / 2) % node_count] as usize;
-                        black_box(path_calculator.calc_path(&fast_graph, start, goal));
+                        let start = node_ids[i % node_count];
+                        let goal = node_ids[(i + node_count / 2) % node_count];
+                        black_box(network.find_shortest_path_with_cache(
+                            &mut path_calculator,
+                            &routing_graph,
+                            start,
+                            goal,
+                        ));
                     }
                 });
             },

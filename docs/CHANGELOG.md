@@ -11,6 +11,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed: sim-geo
+- Routing maps `NodeId`s to dense `fast_paths` indices before building the
+  graph. Raw IDs used to serve as array indices, so sparse or large IDs,
+  such as OSM node IDs, sized the graph by the largest ID and could exhaust
+  memory or panic ([#33](https://github.com/open-lakehouse/tributary/issues/33)).
+- `find_shortest_path_with_cache` returns `None` for a node with no edges
+  instead of panicking inside `fast_paths`.
+- **Breaking:** `RoadNetwork::build_fast_graph` returns a `RoutingGraph`
+  (re-exported from `sim_geo::graph`) instead of a raw `FastGraph`.
+  `find_shortest_path_with_cache` takes a `&RoutingGraph`; create its
+  calculator with `RoutingGraph::create_calculator`.
+
 ### Added: caspers-python
 - `run_kitchen_simulation` and `run_logistics_simulation` take an optional
   `seed`. A seeded run starts at `2026-01-05T11:00:00Z`, like
