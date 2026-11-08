@@ -4,7 +4,7 @@
 //! gauges, and histograms from event streams.
 
 use crate::core::{MetricType, TelemetryError, TelemetryGenerator, TelemetryRecord};
-use chrono::{DateTime, Utc};
+
 use std::collections::HashMap;
 
 /// Generator that converts events into metrics (counters, gauges, histograms).
@@ -95,13 +95,7 @@ impl TelemetryGenerator for EventToMetricGenerator {
         let event_type = event["type"]
             .as_str()
             .ok_or_else(|| TelemetryError::InvalidEvent("Missing type".into()))?;
-        let time_str = event["time"]
-            .as_str()
-            .ok_or_else(|| TelemetryError::InvalidEvent("Missing time".into()))?;
-
-        let timestamp = DateTime::parse_from_rfc3339(time_str)
-            .map(|dt| dt.with_timezone(&Utc))
-            .unwrap_or_else(|_| Utc::now());
+        let timestamp = super::event_time(event)?;
 
         // Counter: event count by type
         let counter_name = format!("events.{}", event_type);

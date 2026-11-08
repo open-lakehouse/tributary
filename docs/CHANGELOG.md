@@ -23,6 +23,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `find_shortest_path_with_cache` takes a `&RoutingGraph`; create its
   calculator with `RoutingGraph::create_calculator`.
 
+### Fixed: sim-telemetry
+- **Breaking:** the log, metric and trace generators return
+  `TelemetryError::InvalidEvent("event {id} has no valid time")` for an event
+  whose `time` is missing or not RFC 3339, as `sim-artifacts` does. They used
+  to stamp wall-clock time (logs on a missing or bad `time`, metrics and
+  traces on a bad one) ([#32](https://github.com/open-lakehouse/tributary/issues/32)).
+- **Breaking:** removed `TelemetryCollectorProcessor` and the local
+  `processor::EventProcessor` trait. Nothing used them, the processor dropped
+  generator errors, and the real `sim_events::EventProcessor` can't be
+  implemented here: `sim-core → sim-telemetry → sim-events → sim-core` would be
+  a dependency cycle. Use `TelemetryCollector::process_event` directly.
+
 ### Added: caspers-python
 - `run_kitchen_simulation` and `run_logistics_simulation` take an optional
   `seed`. A seeded run starts at `2026-01-05T11:00:00Z`, like
