@@ -37,6 +37,65 @@
 use super::{EdgeId, NodeId, RoadNetwork};
 use fast_paths::{FastGraph, InputGraph, PathCalculator};
 use geo::{Distance, Haversine, LineString, Point};
+use std::collections::HashMap;
+
+/// A preprocessed routing graph built from a [`RoadNetwork`]
+///
+/// `fast_paths` addresses nodes by dense array index, while [`NodeId`]s can
+/// be sparse and large (OSM node IDs run into the billions). A
+/// `RoutingGraph` pairs the [`FastGraph`] with the mapping between the two,
+/// so callers keep working in `NodeId`s.
+///
+/// Build one with [`RoadNetwork::build_fast_graph`] and reuse it, together
+/// with a calculator from [`RoutingGraph::create_calculator`], across
+/// queries via [`RoadNetwork::find_shortest_path_with_cache`].
+#[derive(Clone, Debug)]
+pub struct RoutingGraph {
+    fast_graph: FastGraph,
+    /// `NodeId` → dense `fast_paths` index
+    index_of: HashMap<NodeId, usize>,
+    /// Dense `fast_paths` index → `NodeId`
+    node_ids: Vec<NodeId>,
+}
+
+impl RoutingGraph {
+    /// Create a path calculator for this graph
+    pub fn create_calculator(&self) -> PathCalculator {
+        fast_paths::create_calculator(&self.fast_graph)
+    }
+
+    /// Number of nodes in the routing graph (nodes touched by at least one edge)
+    pub fn node_count(&self) -> usize {
+        self.node_ids.len()
+    }
+
+    /// Dense `fast_paths` index of a node, or `None` if the node has no edges
+    pub fn index_of(&self, node: NodeId) -> Option<usize> {
+        self.index_of.get(&node).copied()
+    }
+
+    /// The underlying `fast_paths` graph, addressed by dense index
+    pub fn fast_graph(&self) -> &FastGraph {
+        &self.fast_graph
+    }
+
+    /// Shortest path between two nodes, translated back to [`NodeId`]s
+    ///
+    /// Returns the node path and the total weight, or `None` if either node
+    /// is not in the graph or no path exists.
+    fn calc_path(
+        &self,
+        calculator: &mut PathCalculator,
+        start: NodeId,
+        goal: NodeId,
+    ) -> Option<(Vec<NodeId>, usize)> {
+        let start = self.index_of(start)?;
+        let goal = self.index_of(goal)?;
+        let path = calculator.calc_path(&self.fast_graph, start, goal)?;
+        let node_path = path.get_nodes().iter().map(|&i| self.node_ids[i]).collect();
+        Some((node_path, path.get_weight()))
+    }
+}
 
 /// A route through the road network from origin to destination
 ///
@@ -53,16 +112,16 @@ pub struct Route {
 }
 
 impl RoadNetwork {
-    /// Build a FastGraph for routing (preprocessing step)
+    /// Build a [`RoutingGraph`] for routing (preprocessing step)
     ///
     /// This method converts the road network into a format suitable for
-    /// fast_paths routing. The preprocessing step can be expensive for large
-    /// networks, so in production code, you should cache the FastGraph and
-    /// reuse it across multiple routing queries.
+    /// fast_paths routing. Node IDs are mapped to dense indices first, so
+    /// sparse or very large IDs cost nothing extra. The preprocessing step
+    /// can be expensive for large networks, so cache the result and reuse it
+    /// across routing queries.
     ///
-    /// # Returns
-    ///
-    /// A `FastGraph` ready for efficient shortest path queries
+    /// Only nodes touched by at least one edge enter the graph; routing from
+    /// or to any other node finds no path.
     ///
     /// # Example
     ///
@@ -70,17 +129,31 @@ impl RoadNetwork {
     /// use sim_geo::graph::RoadNetwork;
     ///
     /// let network = RoadNetwork::new();
-    /// let fast_graph = network.build_fast_graph();
-    /// // Cache fast_graph for reuse across multiple queries
+    /// let routing_graph = network.build_fast_graph();
+    /// // Cache routing_graph for reuse across multiple queries
     /// ```
-    pub fn build_fast_graph(&self) -> FastGraph {
+    pub fn build_fast_graph(&self) -> RoutingGraph {
+        // Sorted endpoints give deterministic indices regardless of HashMap order.
+        let mut node_ids: Vec<NodeId> = self
+            .edges
+            .values()
+            .flat_map(|edge| [edge.from_node, edge.to_node])
+            .collect();
+        node_ids.sort_unstable();
+        node_ids.dedup();
+        let index_of: HashMap<NodeId, usize> = node_ids
+            .iter()
+            .enumerate()
+            .map(|(index, &id)| (id, index))
+            .collect();
+
         let mut graph = InputGraph::new();
 
         // Add all edges to the graph with rounded distances as integer weights
         for edge in self.edges.values() {
             graph.add_edge(
-                edge.from_node as usize,
-                edge.to_node as usize,
+                index_of[&edge.from_node],
+                index_of[&edge.to_node],
                 edge.distance_m.round() as usize,
             );
         }
@@ -88,15 +161,19 @@ impl RoadNetwork {
         // Finalize the graph structure
         graph.freeze();
 
-        // Preprocess for fast queries using Contraction Hierarchies
-        fast_paths::prepare(&graph)
+        RoutingGraph {
+            // Preprocess for fast queries using Contraction Hierarchies
+            fast_graph: fast_paths::prepare(&graph),
+            index_of,
+            node_ids,
+        }
     }
 
     /// Find shortest path between two nodes
     ///
-    /// Computes the shortest path from start to goal using Dijkstra's algorithm
-    /// via the fast_paths library. This method uses a cached FastGraph that is
-    /// built once on first query and reused for all subsequent queries.
+    /// Computes the shortest path from start to goal via the fast_paths
+    /// library. This method uses a cached [`RoutingGraph`] that is built once
+    /// on first query and reused for all subsequent queries.
     ///
     /// # Arguments
     ///
@@ -106,6 +183,7 @@ impl RoadNetwork {
     /// # Returns
     ///
     /// `Some(Route)` if a path exists, `None` if the nodes are disconnected
+    /// or either has no edges
     ///
     /// # Example
     ///
@@ -131,55 +209,32 @@ impl RoadNetwork {
     /// assert_eq!(route.total_distance_m, 150.0);
     /// ```
     pub fn find_shortest_path(&self, start: NodeId, goal: NodeId) -> Option<Route> {
-        // Get or build cached fast graph
-        let fast_graph = self
+        let routing_graph = self
             .fast_graph_cache
             .get_or_init(|| self.build_fast_graph());
-        // Nodes without edges are not in the preprocessed graph; fast_paths
-        // panics on out-of-range nodes, so treat them as unreachable.
-        let num_nodes = fast_graph.get_num_nodes();
-        if start as usize >= num_nodes || goal as usize >= num_nodes {
-            return None;
-        }
-        let mut calculator = fast_paths::create_calculator(fast_graph);
-
-        // Calculate path
-        let path = calculator.calc_path(fast_graph, start as usize, goal as usize)?;
-
-        // Convert node indices to NodeIds
-        let node_path: Vec<NodeId> = path.get_nodes().iter().map(|n| *n as NodeId).collect();
-
-        // Build edge path by finding edges between consecutive nodes
-        let mut edge_path = Vec::new();
-        for window in node_path.windows(2) {
-            if let Some(edge_id) = self.find_edge_between(window[0], window[1]) {
-                edge_path.push(edge_id);
-            }
-        }
-
-        Some(Route {
-            node_path,
-            edge_path,
-            total_distance_m: path.get_weight() as f64,
-        })
+        let mut calculator = routing_graph.create_calculator();
+        self.find_shortest_path_with_cache(&mut calculator, routing_graph, start, goal)
     }
 
-    /// Find shortest path using a pre-built FastGraph and PathCalculator
+    /// Find shortest path using a pre-built [`RoutingGraph`] and calculator
     ///
-    /// This is the efficient version for repeated queries. Build the FastGraph
-    /// once with `build_fast_graph()`, create a PathCalculator with
-    /// `fast_paths::create_calculator()`, and reuse them for multiple queries.
+    /// This is the efficient version for repeated queries. Build the graph
+    /// once with [`build_fast_graph`](Self::build_fast_graph), create a
+    /// calculator with [`RoutingGraph::create_calculator`], and reuse them
+    /// for multiple queries. `routing_graph` must have been built from this
+    /// network.
     ///
     /// # Arguments
     ///
     /// * `calculator` - Mutable reference to a reusable PathCalculator
-    /// * `fast_graph` - Reference to the pre-built FastGraph
+    /// * `routing_graph` - Reference to the pre-built routing graph
     /// * `start` - ID of the starting node
     /// * `goal` - ID of the destination node
     ///
     /// # Returns
     ///
     /// `Some(Route)` if a path exists, `None` if the nodes are disconnected
+    /// or either has no edges
     ///
     /// # Example
     ///
@@ -187,27 +242,22 @@ impl RoadNetwork {
     /// use sim_geo::graph::RoadNetwork;
     ///
     /// let network = RoadNetwork::new();
-    /// let fast_graph = network.build_fast_graph();
-    /// let mut calculator = fast_paths::create_calculator(&fast_graph);
+    /// let routing_graph = network.build_fast_graph();
+    /// let mut calculator = routing_graph.create_calculator();
     ///
     /// // Reuse calculator for multiple queries
-    /// # /*
-    /// let route1 = network.find_shortest_path_with_cache(&mut calculator, &fast_graph, 1, 2);
-    /// let route2 = network.find_shortest_path_with_cache(&mut calculator, &fast_graph, 3, 4);
-    /// # */
+    /// let route1 = network.find_shortest_path_with_cache(&mut calculator, &routing_graph, 1, 2);
+    /// let route2 = network.find_shortest_path_with_cache(&mut calculator, &routing_graph, 3, 4);
+    /// assert!(route1.is_none() && route2.is_none()); // the network is empty
     /// ```
     pub fn find_shortest_path_with_cache(
         &self,
         calculator: &mut PathCalculator,
-        fast_graph: &FastGraph,
+        routing_graph: &RoutingGraph,
         start: NodeId,
         goal: NodeId,
     ) -> Option<Route> {
-        // Calculate path
-        let path = calculator.calc_path(fast_graph, start as usize, goal as usize)?;
-
-        // Convert node indices to NodeIds
-        let node_path: Vec<NodeId> = path.get_nodes().iter().map(|n| *n as NodeId).collect();
+        let (node_path, weight) = routing_graph.calc_path(calculator, start, goal)?;
 
         // Build edge path by finding edges between consecutive nodes
         let mut edge_path = Vec::new();
@@ -220,7 +270,7 @@ impl RoadNetwork {
         Some(Route {
             node_path,
             edge_path,
-            total_distance_m: path.get_weight() as f64,
+            total_distance_m: weight as f64,
         })
     }
 
@@ -622,7 +672,7 @@ mod tests {
     fn test_find_shortest_path_with_cache() {
         let network = create_test_network();
         let fast_graph = network.build_fast_graph();
-        let mut calculator = fast_paths::create_calculator(&fast_graph);
+        let mut calculator = fast_graph.create_calculator();
 
         // Use cached calculator for multiple queries
         let route1 = network
@@ -658,7 +708,7 @@ mod tests {
 
         // Build fast graph
         let fast_graph = network.build_fast_graph();
-        let mut calculator = fast_paths::create_calculator(&fast_graph);
+        let mut calculator = fast_graph.create_calculator();
 
         // Find some nodes that exist
         let node_ids: Vec<NodeId> = network.nodes.keys().take(10).copied().collect();
@@ -719,7 +769,7 @@ mod tests {
         let node_ids: Vec<NodeId> = network.nodes.keys().take(100).copied().collect();
 
         if node_ids.len() >= 10 {
-            let mut calculator = fast_paths::create_calculator(&fast_graph);
+            let mut calculator = fast_graph.create_calculator();
             let num_queries = 100;
 
             // Measure query time
@@ -785,5 +835,87 @@ mod tests {
             network.find_shortest_path(1, 3).unwrap().node_path,
             vec![1, 2, 3]
         );
+    }
+
+    fn line_network(ids: &[NodeId]) -> RoadNetwork {
+        let mut network = RoadNetwork::new();
+        for (i, &id) in ids.iter().enumerate() {
+            network.add_node(RoadNode {
+                id,
+                position: Point::new(i as f64 * 0.001, 0.0),
+            });
+        }
+        for (i, pair) in ids.windows(2).enumerate() {
+            network.add_edge(RoadEdge {
+                id: i as EdgeId,
+                from_node: pair[0],
+                to_node: pair[1],
+                distance_m: 100.0,
+                geometry: LineString::from(vec![(0.0, 0.0), (0.001, 0.0)]),
+                road_type: RoadType::Residential,
+                speed_limit_mps: 8.0,
+            });
+        }
+        network
+    }
+
+    #[test]
+    fn sparse_large_node_ids_are_routed() {
+        // Regression (#33): node IDs were used as dense fast_paths indices, so
+        // OSM-sized IDs sized the graph by the largest ID.
+        let ids = [7, 5_000_000_000, 123_456_789_012, u64::MAX - 1];
+        let network = line_network(&ids);
+
+        let routing_graph = network.build_fast_graph();
+        assert_eq!(routing_graph.node_count(), ids.len());
+        assert_eq!(routing_graph.fast_graph().get_num_nodes(), ids.len());
+
+        let route = network.find_shortest_path(7, u64::MAX - 1).unwrap();
+        assert_eq!(route.node_path, ids.to_vec());
+        assert_eq!(route.edge_path, vec![0, 1, 2]);
+        assert_eq!(route.total_distance_m, 300.0);
+        assert!(route.verify_distance(&network));
+
+        let mut calculator = routing_graph.create_calculator();
+        let cached = network
+            .find_shortest_path_with_cache(
+                &mut calculator,
+                &routing_graph,
+                5_000_000_000,
+                u64::MAX - 1,
+            )
+            .unwrap();
+        assert_eq!(cached.node_path, ids[1..].to_vec());
+    }
+
+    #[test]
+    fn cached_routing_to_an_edgeless_node_is_none() {
+        // Regression: find_shortest_path_with_cache had no bounds guard and
+        // panicked inside fast_paths for nodes absent from the graph.
+        let mut network = line_network(&[1, 2]);
+        network.add_node(RoadNode {
+            id: 99,
+            position: Point::new(1.0, 1.0),
+        });
+        let routing_graph = network.build_fast_graph();
+        let mut calculator = routing_graph.create_calculator();
+
+        assert!(routing_graph.index_of(99).is_none());
+        assert!(
+            network
+                .find_shortest_path_with_cache(&mut calculator, &routing_graph, 1, 99)
+                .is_none()
+        );
+        assert!(
+            network
+                .find_shortest_path_with_cache(&mut calculator, &routing_graph, 99, 1)
+                .is_none()
+        );
+        assert!(
+            network
+                .find_shortest_path_with_cache(&mut calculator, &routing_graph, 12345, 1)
+                .is_none()
+        );
+        assert!(network.find_shortest_path(1, 99).is_none());
     }
 }

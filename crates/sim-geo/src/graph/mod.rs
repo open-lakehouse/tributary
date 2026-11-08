@@ -65,9 +65,8 @@ pub mod routing;
 
 // Re-export I/O types
 pub use io::GraphError;
-pub use routing::Route;
+pub use routing::{Route, RoutingGraph};
 
-use fast_paths::FastGraph;
 use geo::{LineString, Point};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -95,9 +94,9 @@ pub struct RoadNetwork {
     pub edges: HashMap<EdgeId, RoadEdge>,
     /// Adjacency list mapping each node to its outgoing edges
     pub adjacency: HashMap<NodeId, Vec<EdgeId>>,
-    /// Cached FastGraph for efficient routing (not serialized)
+    /// Cached routing graph for efficient routing (not serialized)
     #[serde(skip)]
-    fast_graph_cache: OnceLock<FastGraph>,
+    fast_graph_cache: OnceLock<RoutingGraph>,
 }
 
 /// A node in the road network representing an intersection or junction point
