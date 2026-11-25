@@ -36,11 +36,11 @@ rand = { version = "0.10" }
 rand_distr = { version = "0.6" }
 
 # arrow
-arrow = { version = "59" }
-parquet = { version = "59" }
+arrow = { version = "60" }
+parquet = { version = "60" }
 
 # datafusion
-datafusion = { version = "55" }
+datafusion = { version = "56" }
 
 # geospatial
 fast_paths = { version = "1.0.0" }

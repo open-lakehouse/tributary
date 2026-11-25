@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed: workspace
+- Arrow and Parquet 60 and DataFusion 56 (from 59 and 55), in step with
+  delta-rs and the rest of the open-lakehouse stack. Crates that expose Arrow
+  or DataFusion types (`RecordBatch`, `SessionContext`, schemas) now use the
+  new majors.
+
 ### Fixed: sim-core
 - Snapshots capture domain hook state. `SimulationHooks` gains
   `snapshot_state` and `restore_state` (default: nothing stored), saved as a
