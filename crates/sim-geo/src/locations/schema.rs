@@ -79,7 +79,7 @@ pub fn location_schema() -> SchemaRef {
                 ("ARROW:extension:metadata".to_string(), "{}".to_string()),
             ]
             .into_iter()
-            .collect(),
+            .collect::<std::collections::HashMap<String, String>>(),
         ),
         // Denormalized coordinates for fast access without WKB decoding
         Field::new("latitude", DataType::Float64, false),
