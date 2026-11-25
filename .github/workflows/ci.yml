@@ -60,7 +60,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
         with:
           toolchain: "1.99"
           components: rustfmt
@@ -124,7 +124,7 @@ jobs:
 
       # clippy runs on the pinned toolchain (rust-toolchain.toml) for the best
       # lints; the declared MSRV floor is verified by the `msrv` job.
-      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
         with:
           toolchain: "1.99"
           components: clippy
@@ -159,7 +159,7 @@ jobs:
           tool-cache: false
           large-packages: false
 
-      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
         with:
           toolchain: "1.95"
 
@@ -192,7 +192,7 @@ jobs:
           tool-cache: false
           large-packages: false
 
-      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
         with:
           toolchain: "1.99"
 
@@ -245,7 +245,7 @@ jobs:
           tool-cache: false
           large-packages: false
 
-      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
         with:
           toolchain: "1.99"
 
@@ -283,7 +283,7 @@ jobs:
       # Doctest coverage needs the unstable `--persist-doctests`, so every
       # coverage step runs on the pinned nightly (`.profraw` is LLVM-versioned,
       # so mixing stable and nightly breaks once their LLVMs diverge).
-      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
         with:
           toolchain: ${{ env.NIGHTLY }}
           components: llvm-tools-preview
